@@ -12,7 +12,7 @@ out_pin:none
 
 @init
 function interpolate(cc, startValue, endValue) (
-  startValue + ((cc - 0) * (endValue - startValue)) / (127 - 0);
+  startValue + (cc * (endValue - startValue)) / 127;
 );
 
 @slider
