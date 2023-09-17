@@ -14,8 +14,7 @@ out_pin:none
 function interpolate(cc, startValue, endValue) (
   startValue + (cc * (endValue - startValue)) / 127;
 );
-slider6=-1<0,127,1>Previous CC Value
-previousCCValue = slider6;
+previousCCValue = -1;
 
 @slider
 currentCCValue = slider1;
