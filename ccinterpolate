@@ -1,0 +1,21 @@
+desc:MIDI CC Interpolator
+
+// Initialize variables
+slider1:0<0,127,1>CC Number
+slider2:0<0,127,1>Start Value
+slider3:127<0,127,1>End Value
+
+@init
+// Initialization code here
+
+@slider
+// Slider change code here
+
+@block
+// Per-block processing code here
+
+@sample
+// Per-sample processing code here
+
+@gfx
+// GUI code here
