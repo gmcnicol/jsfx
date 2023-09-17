@@ -1,7 +1,7 @@
 desc:MIDI CC Interpolator
 
 // Initialize variables
-slider1:0<0,127,1>CC Number
+slider1:0<0,127,1>Input CC value
 slider2:0<0,127,1>Start Value
 slider3:127<0,127,1>End Value
 slider4:1<1,16,1>MIDI Channel Out
