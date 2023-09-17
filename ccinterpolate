@@ -4,8 +4,8 @@ desc:MIDI CC Interpolator
 slider1:0<0,127,1>Input CC value
 slider2:0<0,127,1>Start Value
 slider3:127<0,127,1>End Value
-slider4:1<1,16,1>MIDI Channel Out
-slider5:1<1,16,1>CC Number
+slider4:0<0,15,1>MIDI Channel Out
+slider5:0<1,127,1>CC Number
 
 in_pin:none
 out_pin:none
@@ -24,9 +24,11 @@ midiChannelOut = slider4;
 ccNumber = slider5;
 
 @block
-interpolatedValue = interpolate(currentCCValue, startValue, endValue);
-midisend(0, 0xB0 | midiChannelOut, ccNumber, interpolatedValue);
-previousCCValue = currentCCValue;
+currentCCValue != previousCCValue ? (
+  interpolatedValue = interpolate(currentCCValue, startValue, endValue);
+  midisend(0, 0xB0 | midiChannelOut, ccNumber, interpolatedValue);
+  previousCCValue = currentCCValue;
+);
 
 @sample
 // Per-sample processing code here
