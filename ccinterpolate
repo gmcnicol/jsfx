@@ -14,7 +14,7 @@ out_pin:none
 function interpolate(cc, startValue, endValue) (
   startValue + (cc * (endValue - startValue)) / 127;
 );
-var previousCCValue = undefined;
+var previousCCValue = -1;
 
 @slider
 currentCCValue = slider1;
