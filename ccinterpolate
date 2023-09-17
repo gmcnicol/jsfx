@@ -4,6 +4,8 @@ desc:MIDI CC Interpolator
 slider1:0<0,127,1>CC Number
 slider2:0<0,127,1>Start Value
 slider3:127<0,127,1>End Value
+slider4:1<1,16,1>MIDI Channel In
+slider5:1<1,16,1>MIDI Channel Out
 
 @init
 // Initialization code here
