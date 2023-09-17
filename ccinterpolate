@@ -16,11 +16,10 @@ function interpolate(cc, startValue, endValue) (
 );
 
 @slider
-ccNumber = slider1;
+ccNumber = slider5;
 startValue = slider2;
 endValue = slider3;
-midiChannelIn = slider4;
-midiChannelOut = slider5;
+midiChannelOut = slider4;
 
 @block
 // Per-block processing code here
