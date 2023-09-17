@@ -14,6 +14,7 @@ out_pin:none
 function interpolate(cc, startValue, endValue) (
   startValue + (cc * (endValue - startValue)) / 127;
 );
+var previousCCValue = undefined;
 
 @slider
 currentCCValue = slider1;
@@ -23,7 +24,11 @@ midiChannelOut = slider4;
 ccNumber = slider5;
 
 @block
-// Per-block processing code here
+if (currentCCValue != previousCCValue) {
+  var interpolatedValue = interpolate(currentCCValue, startValue, endValue);
+  midisend(midiChannelOut, ccNumber, interpolatedValue);
+  previousCCValue = currentCCValue;
+}
 
 @sample
 // Per-sample processing code here
