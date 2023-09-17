@@ -8,7 +8,9 @@ slider4:1<1,16,1>MIDI Channel In
 slider5:1<1,16,1>MIDI Channel Out
 
 @init
-// Initialization code here
+function interpolate(cc) (
+  slider2 + ((cc - 0) * (slider3 - slider2)) / (127 - 0);
+);
 
 @slider
 // Slider change code here
