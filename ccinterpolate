@@ -11,8 +11,8 @@ in_pin:none
 out_pin:none
 
 @init
-function interpolate(cc) (
-  slider2 + ((cc - 0) * (slider3 - slider2)) / (127 - 0);
+function interpolate(cc, startValue, endValue) (
+  startValue + ((cc - 0) * (endValue - startValue)) / (127 - 0);
 );
 
 @slider
