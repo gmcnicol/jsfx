@@ -24,11 +24,9 @@ midiChannelOut = slider4;
 ccNumber = slider5;
 
 @block
-if (currentCCValue != previousCCValue) (
-  interpolatedValue = interpolate(currentCCValue, startValue, endValue);
-  midisend(0, 0xB0 | midiChannelOut, ccNumber, interpolatedValue);
-  previousCCValue = currentCCValue;
-)
+interpolatedValue = interpolate(currentCCValue, startValue, endValue);
+midisend(0, 0xB0 | midiChannelOut, ccNumber, interpolatedValue);
+previousCCValue = currentCCValue;
 
 @sample
 // Per-sample processing code here
