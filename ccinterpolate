@@ -1,3 +1,5 @@
+// This script is a MIDI CC Interpolator. It takes an input CC value and interpolates it between a start and end value.
+// The interpolated value is then sent out on a specified MIDI channel and CC number.
 desc:MIDI CC Interpolator
 
 // Initialize variables
