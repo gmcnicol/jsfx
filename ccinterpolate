@@ -16,6 +16,11 @@ out_pin:none
 function interpolate(cc, startValue, endValue) (
   startValue + (cc * (endValue - startValue)) / 127;
 );
+
+function reverseInterpolate(cc, startValue, endValue) (
+  endValue - (cc * (endValue - startValue)) / 127;
+);
+
 previousCCValue = -1;
 
 @slider
@@ -28,7 +33,9 @@ ccNumber = slider5;
 @block
 currentCCValue != previousCCValue ? (
   interpolatedValue = interpolate(currentCCValue, startValue, endValue);
+  reverseInterpolatedValue = reverseInterpolate(currentCCValue, startValue, endValue);
   midisend(0, 0xB0 | midiChannelOut, ccNumber, interpolatedValue);
+  midisend(0, 0xB0 | midiChannelOut, ccNumber, reverseInterpolatedValue);
   previousCCValue = currentCCValue;
 );
 
