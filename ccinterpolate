@@ -8,6 +8,7 @@ slider2:0<0,127,1>Start Value
 slider3:127<0,127,1>End Value
 slider4:0<0,15,1>MIDI Channel Out
 slider5:0<1,127,1>CC Number
+slider6:0<0,1,1>Interpolation Mode (0 = Normal, 1 = Reverse)
 
 in_pin:none
 out_pin:none
@@ -29,13 +30,12 @@ startValue = slider2;
 endValue = slider3;
 midiChannelOut = slider4;
 ccNumber = slider5;
+interpolationMode = slider6;
 
 @block
 currentCCValue != previousCCValue ? (
-  interpolatedValue = interpolate(currentCCValue, startValue, endValue);
-  reverseInterpolatedValue = reverseInterpolate(currentCCValue, startValue, endValue);
+  interpolatedValue = interpolationMode == 0 ? interpolate(currentCCValue, startValue, endValue) : reverseInterpolate(currentCCValue, startValue, endValue);
   midisend(0, 0xB0 | midiChannelOut, ccNumber, interpolatedValue);
-  midisend(0, 0xB0 | midiChannelOut, ccNumber, reverseInterpolatedValue);
   previousCCValue = currentCCValue;
 );
 
