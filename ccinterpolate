@@ -8,22 +8,22 @@ slider2:0<0,127,1>Start Value Out 1
 slider3:127<0,127,1>End Value Out 1
 slider4:0<0,15,1>MIDI Channel Out 1
 slider5:0<0,127,1>CC Number Out 1
-slider6:0<0,1,1>Reverse Out 1
+slider6:0<0,2,1>Mode Out 1
 slider7:0<0,127,1>Start Value Out 2
 slider8:127<0,127,1>End Value Out 2
 slider9:0<0,15,1>MIDI Channel Out 2
 slider10:0<0,127,1>CC Number Out 2
-slider11:0<0,1,1>Reverse Out 2
+slider11:0<0,2,1>Mode Out 2
 slider12:0<0,127,1>Start Value Out 3
 slider13:127<0,127,1>End Value Out 3
 slider14:0<0,15,1>MIDI Channel Out 3
 slider15:0<0,127,1>CC Number Out 3
-slider16:0<0,1,1>Reverse Out 3
+slider16:0<0,2,1>Mode Out 3
 slider17:0<0,127,1>Start Value Out 4
 slider18:127<0,127,1>End Value Out 4
 slider19:0<0,15,1>MIDI Channel Out 4
 slider20:0<0,127,1>CC Number Out 4
-slider21:0<0,1,1>Reverse Out 4
+slider21:0<0,2,1>Mode Out 4
 
 in_pin:none
 out_pin:none
