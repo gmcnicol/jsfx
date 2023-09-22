@@ -64,14 +64,14 @@ reverseOut4 = slider21;
 
 @block
 currentCCValue != previousCCValue ? (
-  interpolatedValue1 = reverseOut1 == 1 ? interpolate(currentCCValue, startValueOut1, endValueOut1) : reverseOut1 == 2 ? reverseInterpolate(currentCCValue, startValueOut1, endValueOut1) : 0;
-  reverseOut1 != 0 ? midisend(0, 0xB0 | midiChannelOut1, ccNumberOut1, interpolatedValue1) : 0;
-  interpolatedValue2 = reverseOut2 == 1 ? interpolate(currentCCValue, startValueOut2, endValueOut2) : reverseOut2 == 2 ? reverseInterpolate(currentCCValue, startValueOut2, endValueOut2) : 0;
-  reverseOut2 != 0 ? midisend(0, 0xB0 | midiChannelOut2, ccNumberOut2, interpolatedValue2) : 0;
-  interpolatedValue3 = reverseOut3 == 1 ? interpolate(currentCCValue, startValueOut3, endValueOut3) : reverseOut3 == 2 ? reverseInterpolate(currentCCValue, startValueOut3, endValueOut3) : 0;
-  reverseOut3 != 0 ? midisend(0, 0xB0 | midiChannelOut3, ccNumberOut3, interpolatedValue3) : 0;
-  interpolatedValue4 = reverseOut4 == 1 ? interpolate(currentCCValue, startValueOut4, endValueOut4) : reverseOut4 == 2 ? reverseInterpolate(currentCCValue, startValueOut4, endValueOut4) : 0;
-  reverseOut4 != 0 ? midisend(0, 0xB0 | midiChannelOut4, ccNumberOut4, interpolatedValue4) : 0;
+  interpolatedValue1 = reverseOut1 == 1 ? interpolate(currentCCValue, startValueOut1, endValueOut1) : reverseOut1 == 2 ? reverseInterpolate(currentCCValue, startValueOut1, endValueOut1) : -1;
+  reverseOut1 != -1 ? midisend(0, 0xB0 | midiChannelOut1, ccNumberOut1, interpolatedValue1) : 0;
+  interpolatedValue2 = reverseOut2 == 1 ? interpolate(currentCCValue, startValueOut2, endValueOut2) : reverseOut2 == 2 ? reverseInterpolate(currentCCValue, startValueOut2, endValueOut2) : -1;
+  reverseOut2 != -1 ? midisend(0, 0xB0 | midiChannelOut2, ccNumberOut2, interpolatedValue2) : 0;
+  interpolatedValue3 = reverseOut3 == 1 ? interpolate(currentCCValue, startValueOut3, endValueOut3) : reverseOut3 == 2 ? reverseInterpolate(currentCCValue, startValueOut3, endValueOut3) : -1;
+  reverseOut3 != -1 ? midisend(0, 0xB0 | midiChannelOut3, ccNumberOut3, interpolatedValue3) : 0;
+  interpolatedValue4 = reverseOut4 == 1 ? interpolate(currentCCValue, startValueOut4, endValueOut4) : reverseOut4 == 2 ? reverseInterpolate(currentCCValue, startValueOut4, endValueOut4) : -1;
+  reverseOut4 != -1 ? midisend(0, 0xB0 | midiChannelOut4, ccNumberOut4, interpolatedValue4) : 0;
   previousCCValue = currentCCValue;
 );
 
