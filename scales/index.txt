@@ -1,0 +1,8 @@
+# WaterSplash v2 scales
+ionian.scale
+dorian.scale
+phrygian.scale
+lydian.scale
+mixolydian.scale
+aeolian.scale
+locrian.scale
