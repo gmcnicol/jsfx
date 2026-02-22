@@ -1,0 +1,120 @@
+desc:Iron (Drum Bus) — 1 knob, punchy transformer glue
+
+slider1:0.5<0,1,0.01>Iron
+
+@init
+sr = srate;
+
+zInL=0; zInR=0;
+aaL=0; aaR=0;
+
+fluxL=0; fluxR=0;
+hysL=0;  hysR=0;
+
+hfL=0; hfR=0;
+
+dcL=0; dcR=0;
+dcXL=0; dcXR=0;
+matchIn=0; matchOut=0;
+
+function clamp(x,lo,hi)(x<lo?lo:(x>hi?hi:x));
+
+function tanh_approx(x) local(x2)(
+  x = clamp(x,-6,6);
+  x2 = x*x;
+  x*(27+x2)/(27+9*x2);
+);
+
+function lp_a(fc) local(x)(
+  fc = clamp(fc, 10, 0.49*sr);
+  x = -2*$pi * fc / sr;
+  1 - exp(x);
+);
+
+function core_curve(x) (
+  // slightly firmer curve for drums
+  tanh_approx(2.8 * x) / 2.8;
+);
+
+@slider
+amt = clamp(slider1,0,1);
+
+// AA + very light HF smoothing (don’t dull cymbals)
+aaA = lp_a(18000);
+hfA = lp_a(17000);
+matchA = 1 - exp(-2*$pi * 6 / sr); // slow RMS level matcher
+
+// transformer behavior constants
+k = 0.012 + 0.010*amt;
+leak = 0.10;
+hysK = 0.0010;
+asym = 0.018;
+mix = 0.42;
+
+@sample
+inL = spl0;
+inR = spl1;
+
+// 2x oversample
+x0L = inL; x0R = inR;
+os1L = 0.5*(inL + zInL);
+os1R = 0.5*(inR + zInR);
+zInL = inL; zInR = inR;
+
+// iron - midpoint sample
+fluxL += k*(os1L - leak*fluxL);
+hysL += hysK*(fluxL - hysL);
+flux2L = fluxL + asym*hysL;
+nlL = core_curve(flux2L) - flux2L;
+y1L = os1L + amt * mix * nlL;
+
+fluxR += k*(os1R - leak*fluxR);
+hysR += hysK*(fluxR - hysR);
+flux2R = fluxR + asym*hysR;
+nlR = core_curve(flux2R) - flux2R;
+y1R = os1R + amt * mix * nlR;
+
+// iron - endpoint sample
+fluxL += k*(x0L - leak*fluxL);
+hysL += hysK*(fluxL - hysL);
+flux2L = fluxL + asym*hysL;
+nlL = core_curve(flux2L) - flux2L;
+y0L = x0L + amt * mix * nlL;
+
+fluxR += k*(x0R - leak*fluxR);
+hysR += hysK*(fluxR - hysR);
+flux2R = fluxR + asym*hysR;
+nlR = core_curve(flux2R) - flux2R;
+y0R = x0R + amt * mix * nlR;
+
+// downsample + AA
+dsL = 0.5*(y0L + y1L);
+dsR = 0.5*(y0R + y1R);
+
+aaL += aaA*(dsL - aaL);
+aaR += aaA*(dsR - aaR);
+
+// tiny HF loss
+hfL += hfA*(aaL - hfL);
+hfR += hfA*(aaR - hfR);
+
+// DC safety
+outL = hfL - dcXL + 0.995*dcL;
+dcXL = hfL;
+dcL = outL;
+
+outR = hfR - dcXR + 0.995*dcR;
+dcXR = hfR;
+dcR = outR;
+
+// Auto-match output to input RMS so Iron stays unity across knob values.
+detIn = inL*inL + inR*inR;
+detOut = outL*outL + outR*outR;
+
+matchIn += matchA*(detIn - matchIn);
+matchOut += matchA*(detOut - matchOut);
+autoGain = sqrt((matchIn + 0.000000000001) / (matchOut + 0.000000000001));
+autoGain = clamp(autoGain, 0.25, 4.0);
+
+spl0 = outL * autoGain;
+spl1 = outR * autoGain;
