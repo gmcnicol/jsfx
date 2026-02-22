@@ -1,0 +1,548 @@
+desc:LifeGrain (12x10) - POP-SAFE v2 (voice headroom + wet slew limit)
+
+////////////////////////////////////////////////////////////////////////////////
+// SLIDERS
+////////////////////////////////////////////////////////////////////////////////
+
+slider1:step_idx=4<0,5,1{1/1,1/2,1/4,1/8,1/16,1/32}>Step (gen rate)
+slider2:grain_ms=90<10,350,1>Cell loop/release ms
+slider3:mix=70<0,100,1>Wet mix (%)
+slider4:freeze=0<0,1,1{Off,On}>Freeze buffer
+
+slider5:buf_sec=4<1,12,1>Buffer seconds
+slider6:scan_pct=35<1,100,1>Scan range (% of buffer behind head)
+
+slider7:wrap=1<0,1,1{Off,On}>Wrap edges
+slider8:density=25<0,100,1>Seed density (%)
+slider9:reseed=0<0,1,1{No,Yes}>Reseed now
+
+slider10:mojo=55<0,100,1>Mojo (tight -> lush)
+slider11:cap=24<1,120,1>Max grains per step
+slider12:hp=20<0,200,1>Grain HP (Hz) (0=off)
+slider13:dry=30<0,100,1>Dry mix (%)
+
+// NEW safety (master-bus friendly)
+slider14:slew=0.020<0.000,0.200,0.001>Wet slew limit (0=off)
+slider15:autohead=1<0,1,1{Off,On}>Auto headroom
+
+////////////////////////////////////////////////////////////////////////////////
+// CONSTANTS / STATE
+////////////////////////////////////////////////////////////////////////////////
+
+@init
+  GRID_W = 12;
+  GRID_H = 10;
+  GRID_N = GRID_W*GRID_H;
+
+  cur_base    = 0;
+  nxt_base    = 256;
+  energy_base = 512;
+  age_base    = 768;
+
+  MAX_VOICES = 128;
+  v_active_base = 1024;   // 0=off, 1=looping, 2=releasing
+  v_pos_base    = 1200;
+  v_step_base   = 1400;
+  v_age_base    = 1600;
+  v_amp_base    = 2000;
+  v_pan_base    = 2200;
+  v_loop_start_base = 2400;
+  v_loop_len_base   = 2600;
+  v_rel_pos_base    = 2800;
+  v_rel_len_base    = 3000;
+  v_cell_base       = 3200;
+  v_att_len_base    = 3400;
+  v_rel_pow_base    = 3600;
+
+  cell_voice_base   = 900;
+
+  buf_baseL = 4000;
+  buf_baseR = 4000 + 200000;
+
+  write_pos = 0;
+  buf_len = 0;
+  safety = 1024;
+
+  buf_written = 0;
+
+  next_step_beat = 0;
+  force_emit_init = 1;
+  last_play_state = -1;
+
+  hp_xL = hp_yL = 0;
+  hp_xR = hp_yR = 0;
+
+  // NEW: wet safety state
+  wet_prevL = 0;
+  wet_prevR = 0;
+  head_gain = 1.0; // smoothed
+
+  pi2 = 2*$pi;
+  pi_half = 0.5*$pi;
+
+  function clamp(v, lo, hi) (v < lo ? lo : (v > hi ? hi : v));
+  function absf(x) (x < 0 ? -x : x);
+
+  // softer than the cubic clip I used before, and never does harsh “edge crack”
+  // x/(1+|x|) saturator
+  function softsat(x) local(a)
+  (
+    a = absf(x);
+    x / (1 + a);
+  );
+
+  function step_beats_from_idx(i) local(sb)
+  (
+    i == 0 ? sb = 4 :
+    i == 1 ? sb = 2 :
+    i == 2 ? sb = 1 :
+    i == 3 ? sb = 0.5 :
+    i == 4 ? sb = 0.25 :
+             sb = 0.125;
+    sb;
+  );
+
+  function idx_xy(x,y) (y*GRID_W + x);
+
+  function wrapi(v, m) local(r)
+  (
+    r = v % m;
+    r < 0 ? (r += m);
+    r;
+  );
+
+  function get_cell(base, x, y) local(xx, yy)
+  (
+    wrap ? (
+      xx = wrapi(x, GRID_W);
+      yy = wrapi(y, GRID_H);
+      mem[base + idx_xy(xx,yy)];
+    ) : (
+      (x < 0 || x >= GRID_W || y < 0 || y >= GRID_H) ? 0 : mem[base + idx_xy(x,y)];
+    );
+  );
+
+  function count_neighbors(base, x, y) local(n)
+  (
+    n = 0;
+    n += get_cell(base, x-1, y-1);
+    n += get_cell(base, x,   y-1);
+    n += get_cell(base, x+1, y-1);
+    n += get_cell(base, x-1, y);
+    n += get_cell(base, x+1, y);
+    n += get_cell(base, x-1, y+1);
+    n += get_cell(base, x,   y+1);
+    n += get_cell(base, x+1, y+1);
+    n;
+  );
+
+  function rand_index(n) local(r)
+  (
+    r = floor(rand(1) * n);
+    clamp(r, 0, n-1);
+  );
+
+  function seed_world() local(i, r)
+  (
+    i=0; loop(GRID_N,
+      r = rand(1);
+      mem[cur_base+i] = (r < density/100) ? 1 : 0;
+      mem[energy_base+i] = 0;
+      mem[age_base+i] = 0;
+      i+=1;
+    );
+  );
+
+  function reset_cell_voices() local(i)
+  (
+    i=0; loop(GRID_N,
+      mem[cell_voice_base+i] = -1;
+      i+=1;
+    );
+  );
+
+  function reset_voices() local(v)
+  (
+    v=0; loop(MAX_VOICES,
+      mem[v_active_base+v]=0;
+      mem[v_cell_base+v]=-1;
+      v+=1;
+    );
+    reset_cell_voices();
+  );
+
+  function update_buf_len() local(want)
+  (
+    want = floor(buf_sec*srate);
+    want < 4410 ? want = 4410;
+    want > 180000 ? want = 180000;
+    buf_len = want;
+    write_pos = 0;
+    buf_written = 0;
+  );
+
+  update_buf_len();
+  seed_world();
+  reset_voices();
+  next_step_beat = beat_position;
+
+////////////////////////////////////////////////////////////////////////////////
+// SLIDERS
+////////////////////////////////////////////////////////////////////////////////
+
+@slider
+  reseed ? (
+    seed_world();
+    reset_voices();
+    reseed=0; slider9=0;
+    force_emit_init = 1;
+    next_step_beat = beat_position;
+  );
+
+  update_buf_len();
+
+////////////////////////////////////////////////////////////////////////////////
+// GRAIN SPAWNER + SCHEDULER
+////////////////////////////////////////////////////////////////////////////////
+
+@block
+  step_beats = step_beats_from_idx(step_idx);
+  m = mojo/100.0;
+
+  scan = (scan_pct/100.0) * buf_len;
+  scan < safety ? scan = safety;
+
+  gmax = grain_ms/1000.0;
+  loop_samps_base = floor(gmax * srate);
+  loop_samps_base < 64 ? loop_samps_base = 64;
+
+  max_loop = buf_len - safety - 1;
+  max_loop < 64 ? max_loop = 64;
+  loop_samps_base > max_loop ? loop_samps_base = max_loop;
+
+  att_ms = 2 + 22*m*m;
+  att_samps_base = floor(att_ms*0.001*srate);
+  att_samps_base < 1 ? att_samps_base = 1;
+
+  rel_samps_base = floor(loop_samps_base * (0.45 + 1.55*m));
+  rel_samps_base < 16 ? rel_samps_base = 16;
+
+  rel_pow_base = 1.0 + 1.8*m;
+
+  width = 0.20 + 0.70*m;
+  step_cap = clamp(cap, 1, MAX_VOICES);
+
+  primed = (buf_written >= (safety + loop_samps_base + 2));
+
+  function alloc_voice() local(v)
+  (
+    v = 0;
+    loop(MAX_VOICES,
+      mem[v_active_base+v] == 0 ? (alloc_voice = v; v = 9999;);
+      v += 1;
+    );
+    v >= 9999 ? alloc_voice : -1;
+  );
+
+  function spawn_voice(cell_i, pos, step, loop_samps, att_samps, rel_samps, rel_pow, amp, pan) local(v)
+  (
+    v = alloc_voice();
+    v >= 0 ? (
+      mem[v_active_base+v] = 1;
+      mem[v_pos_base+v] = pos;
+      mem[v_step_base+v] = step;
+      mem[v_age_base+v] = 0;
+      mem[v_amp_base+v] = amp;
+      mem[v_pan_base+v] = pan;
+      mem[v_loop_start_base+v] = pos;
+      mem[v_loop_len_base+v] = loop_samps;
+      mem[v_rel_pos_base+v] = 0;
+      mem[v_rel_len_base+v] = rel_samps;
+      mem[v_att_len_base+v] = att_samps;
+      mem[v_rel_pow_base+v] = rel_pow;
+      mem[v_cell_base+v] = cell_i;
+      mem[cell_voice_base+cell_i] = v;
+    );
+  );
+
+  function release_voice_for_cell(cell_i) local(v)
+  (
+    v = mem[cell_voice_base+cell_i];
+    (v >= 0) ? (
+      mem[cell_voice_base+cell_i] = -1;
+      mem[v_active_base+v] == 1 ? (
+        mem[v_active_base+v] = 2;
+        mem[v_rel_pos_base+v] = 0;
+      );
+    );
+  );
+
+  play_now = play_state & 1;
+  was_playing = (last_play_state & 1);
+
+  (last_play_state != -1) ? (
+    (was_playing && !play_now) ? reset_voices();
+    (!was_playing && play_now) ? (
+      force_emit_init = 1;
+      next_step_beat = beat_position;
+    );
+  );
+
+  curBeat = beat_position;
+  last_play_state = play_state;
+
+  play_now && primed ? (
+    max_steps = 8;
+    loop(max_steps,
+      (curBeat < next_step_beat) ? break;
+
+      spawned = 0;
+
+      y=0;
+      loop(GRID_H,
+        x=0;
+        loop(GRID_W,
+          i = idx_xy(x,y);
+          alive = mem[cur_base+i];
+          nei = count_neighbors(cur_base, x, y);
+
+          next_alive = 0;
+          alive ? (
+            (nei == 2 || nei == 3) ? next_alive = 1;
+          ) : (
+            (nei == 3) ? next_alive = 1;
+          );
+
+          mem[nxt_base+i] = next_alive;
+
+          was_alive = alive;
+          is_alive = next_alive;
+
+          was_alive && is_alive ? (
+            mem[age_base+i] += 1;
+            mem[energy_base+i] = 1.0;
+          ) :
+          (!was_alive && is_alive) ? (
+            mem[age_base+i] = 0;
+            mem[energy_base+i] = 1.0;
+          ) :
+          (was_alive && !is_alive) ? (
+            mem[age_base+i] = 0;
+            mem[energy_base+i] = 0.0;
+            release_voice_for_cell(i);
+          );
+
+          emit = 0;
+          (!was_alive && is_alive) ? emit = 1;
+          (force_emit_init && is_alive) ? emit = 1;
+
+          (is_alive && emit && (spawned < step_cap) && (mem[cell_voice_base+i] < 0)) ? (
+            base_semi = (x - 6);
+            row_semi  = (y - 4.5) * 1.0;
+            pitch_semi = (base_semi + 0.6*row_semi) * (0.55 + 0.45*m);
+            rate = 2^(pitch_semi/12.0);
+
+            amp = 0.24 * (0.85 + 0.25*(nei/8.0));
+
+            fracx = x/11.0;
+            fracy = y/9.0;
+            depth = (0.15 + 0.85*m);
+            span = scan * depth;
+
+            off = safety + fracx*span + fracy*(0.25*span);
+
+            start = write_pos - off;
+            while (start < 0) ( start += buf_len; );
+            (start + loop_samps_base >= buf_len) ? ( start = buf_len - loop_samps_base - 2; );
+            start < 0 ? start = 0;
+
+            pan = clamp(0.5 + (fracx - 0.5)*width, 0, 1);
+
+            spawn_voice(i, start, rate, loop_samps_base, att_samps_base, rel_samps_base, rel_pow_base, amp, pan);
+            spawned += 1;
+          );
+
+          x += 1;
+        );
+        y += 1;
+      );
+
+      i=0;
+      loop(GRID_N,
+        mem[cur_base+i] = mem[nxt_base+i];
+        i += 1;
+      );
+
+      next_step_beat += step_beats;
+      force_emit_init = 0;
+    );
+  );
+
+////////////////////////////////////////////////////////////////////////////////
+// AUDIO: BUFFER WRITE + GRAIN RENDER
+////////////////////////////////////////////////////////////////////////////////
+
+@sample
+  (!freeze) ? (
+    mem[buf_baseL + write_pos] = spl0;
+    mem[buf_baseR + write_pos] = spl1;
+    write_pos += 1;
+    (write_pos >= buf_len) ? write_pos = 0;
+    buf_written < buf_len ? buf_written += 1;
+  );
+
+  wetL = 0;
+  wetR = 0;
+  active_cnt = 0;
+
+  v=0;
+  loop(MAX_VOICES,
+    state = mem[v_active_base+v];
+    state ? (
+      active_cnt += 1;
+
+      pos = mem[v_pos_base+v];
+      step = mem[v_step_base+v];
+      age = mem[v_age_base+v];
+
+      loop_samps = mem[v_loop_len_base+v];
+      loop_start = mem[v_loop_start_base+v];
+      loop_end = loop_start + loop_samps;
+
+      rel_pos = mem[v_rel_pos_base+v];
+      rel_len = mem[v_rel_len_base+v];
+      att_len = mem[v_att_len_base+v];
+      rel_pow = mem[v_rel_pow_base+v];
+      amp = mem[v_amp_base+v];
+      pan = mem[v_pan_base+v];
+
+      att_d = (att_len > 1) ? att_len : 1;
+      ph = age / att_d;
+      ph > 1 ? ph = 1;
+      w = ph;
+
+      (state == 2) ? (
+        rel_d = (rel_len > 1) ? rel_len : 1;
+        rp = rel_pos / rel_d;
+        rp > 1 ? rp = 1;
+        rel = 1.0 - rp;
+        rel < 0 ? rel = 0;
+        w *= rel^rel_pow;
+      );
+
+      ip = floor(pos);
+      fr = pos - ip;
+
+      while (ip >= loop_end) ( ip -= loop_samps; );
+      while (ip <  loop_start) ( ip += loop_samps; );
+
+      ip1 = ip + 1;
+      (ip1 >= loop_end) ? (ip1 -= loop_samps;);
+
+      ip  >= buf_len ? (ip  -= buf_len;);
+      ip1 >= buf_len ? (ip1 -= buf_len;);
+      ip  < 0 ? (ip  += buf_len;);
+      ip1 < 0 ? (ip1 += buf_len;);
+
+      aL = mem[buf_baseL + ip];
+      bL = mem[buf_baseL + ip1];
+      sL = aL + (bL - aL)*fr;
+
+      aR = mem[buf_baseR + ip];
+      bR = mem[buf_baseR + ip1];
+      sR = aR + (bR - aR)*fr;
+
+      sm = 0.70710678*(sL + sR);
+      gL = cos(pan*pi_half);
+      gR = sin(pan*pi_half);
+
+      wetL += sm * (amp*w) * gL;
+      wetR += sm * (amp*w) * gR;
+
+      pos += step;
+      while (pos >= loop_end) ( pos -= loop_samps; );
+      while (pos <  loop_start) ( pos += loop_samps; );
+
+      age += 1;
+      mem[v_pos_base+v] = pos;
+      mem[v_age_base+v] = age;
+
+      (state == 2) ? (
+        rel_pos += 1;
+        mem[v_rel_pos_base+v] = rel_pos;
+        (rel_pos >= rel_len || w <= 0.0001) ? (
+          mem[v_active_base+v] = 0;
+          cid = mem[v_cell_base+v];
+          (cid >= 0 && (mem[cell_voice_base+cid] == v)) ? ( mem[cell_voice_base+cid] = -1; );
+          mem[v_cell_base+v] = -1;
+        );
+      );
+    );
+    v += 1;
+  );
+
+  // ===== NEW: Auto headroom (prevents rare sum spikes) =====
+  // target gain falls with active voices; smoothed so it doesn't pump.
+  // This is the single biggest "random pop" killer on master bus.
+  target_gain = 1.0;
+  autohead ? (
+    // simple curve: 1 / (1 + k*count)
+    // k=0.12 gives: 1 voice ~0.89, 10 voices ~0.45, 30 voices ~0.22
+    target_gain = 1.0 / (1.0 + 0.12*active_cnt);
+
+    // smooth at ~20ms
+    a_s = exp(-pi2*50/srate);
+    head_gain = a_s*head_gain + (1.0-a_s)*target_gain;
+
+    wetL *= head_gain;
+    wetR *= head_gain;
+  ) : (
+    // conservative fixed headroom if autohead off
+    wetL *= 0.55;
+    wetR *= 0.55;
+  );
+
+  // optional high-pass on wet output (1-pole)
+  (hp > 0) ? (
+    a = exp(-pi2*hp/srate);
+
+    hp_yL = a*(hp_yL + wetL - hp_xL);
+    hp_xL = wetL;
+    wetL = hp_yL;
+
+    hp_yR = a*(hp_yR + wetR - hp_xR);
+    hp_xR = wetR;
+    wetR = hp_yR;
+  );
+
+  // ===== NEW: Wet slew limiter (de-click) =====
+  // Clamps per-sample change in wet, so pathological spikes become rounded, not a crack.
+  (slew > 0) ? (
+    dL = wetL - wet_prevL;
+    dR = wetR - wet_prevR;
+
+    dL >  slew ? wetL = wet_prevL + slew;
+    dL < -slew ? wetL = wet_prevL - slew;
+
+    dR >  slew ? wetR = wet_prevR + slew;
+    dR < -slew ? wetR = wet_prevR - slew;
+
+    wet_prevL = wetL;
+    wet_prevR = wetR;
+  ) : (
+    wet_prevL = wetL;
+    wet_prevR = wetR;
+  );
+
+  wetMix = mix/100.0;
+  dryMix = dry/100.0;
+
+  outL = spl0*dryMix + wetL*wetMix;
+  outR = spl1*dryMix + wetR*wetMix;
+
+  // gentle safety sat (won't crack like a hard clamp)
+  outL = softsat(outL);
+  outR = softsat(outR);
+
+  spl0 = outL;
+  spl1 = outR;

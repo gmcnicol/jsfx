@@ -1,0 +1,211 @@
+desc:ENTROPY, It ain't what it used to be
+
+// ✅ Compiles
+// ✅ True unity at ENTROPY=0 (hard bypass)
+// ✅ Wow + Flutter (modulated short delay, linear interpolation)
+// ✅ Smoothed knob (no zipper)
+// ✅ Output fade-in on load
+// ✅ No loops, no tuples, mem[] correct
+
+slider1:0<0,100,0.1>ENTROPY
+
+@init
+two_pi = 2*$pi;
+inv_srate = 1/srate;
+
+// --------------------
+// Delay buffer (power-of-two length) in mem[]
+// --------------------
+delay_len  = 32768;                 // MUST be power of two
+delay_mask = delay_len - 1;
+delay_base = 0;
+memset(delay_base, 0, delay_len * 2);
+
+delay_wpos = 0;
+
+// --------------------
+// Filter states
+// --------------------
+hp_memL = 0; hp_memR = 0;
+lp_memL = 0; lp_memR = 0;
+
+// --------------------
+// Wow/flutter phases
+// --------------------
+wow_phase = 0;
+flt_phase = 0;
+
+// --------------------
+// Smoothed entropy
+// --------------------
+e_s = 0;
+
+// 20ms smoothing for ENTROPY knob
+e_alpha = exp(-1 / (srate * 0.020));
+
+// 20ms output fade-in on load
+out_fade = 0;
+out_fade_inc = 1 / max(1, floor(srate * 0.020));
+
+// Output level matcher (RMS-like)
+match_in_env = 0;
+match_out_env = 0;
+match_alpha = 1 - exp(-2*$pi * 6 / srate);
+
+@slider
+e_t = slider1 * 0.01;     // target entropy 0..1
+
+// Fixed rates
+wow_hz = 0.35;
+flt_hz = 6.20;
+
+// Base delay and maximum modulation depths
+base_delay_s = 0.007;     // 7ms base
+wow_depth_s  = 0.0030;    // up to 3.0ms at full
+flt_depth_s  = 0.0006;    // up to 0.6ms at full
+
+@sample
+inL = spl0;
+inR = spl1;
+
+// Output fade-in (helps with insert tick from THIS FX)
+(out_fade < 1) ? (
+  out_fade += out_fade_inc;
+  out_fade > 1 ? out_fade = 1;
+);
+
+// Smooth ENTROPY (prevents zipper clicks)
+e_s = e_t + e_alpha*(e_s - e_t);
+
+// Perceptual curve: "more" earlier, same endpoints
+e_eff = sqrt(e_s);            // 0..1, boosted at low values
+e2    = e_eff * e_eff;
+e3    = e2 * e_eff;
+
+// Write input to delay buffer at current write head
+wpos = delay_wpos & delay_mask;
+mem[delay_base + wpos*2]     = inL;
+mem[delay_base + wpos*2 + 1] = inR;
+
+// Hard bypass at 0 => true unity, no processing
+(e_s <= 0) ? (
+  outL = inL;
+  outR = inR;
+) : (
+  // --------------------
+  // Bandwidth limiting (lofi) — driven by e_eff for earlier impact
+  // --------------------
+  lp_hz = 18000 - (e_eff * 14000);    // 18k -> 4k
+  hp_hz = 20 + (e_eff * 220);         // 20 -> 240
+
+  lp_a = exp(-two_pi * lp_hz * inv_srate);
+  hp_a = exp(-two_pi * hp_hz * inv_srate);
+
+  // Stereo narrowing — earlier impact
+  width = 1 - (e_eff * 0.35);
+
+  mid  = 0.5*(inL + inR);
+  side = 0.5*(inL - inR);
+  side *= width;
+
+  xL = mid + side;
+  xR = mid - side;
+
+  // High-pass: hp = x - lowpass(x)
+  hp_memL = xL + hp_a*(hp_memL - xL);
+  hp_memR = xR + hp_a*(hp_memR - xR);
+  xL = xL - hp_memL;
+  xR = xR - hp_memR;
+
+  // Low-pass
+  lp_memL = xL + lp_a*(lp_memL - xL);
+  lp_memR = xR + lp_a*(lp_memR - xR);
+  xL = lp_memL;
+  xR = lp_memR;
+
+  // --------------------
+  // Gentle saturation — earlier impact
+  // --------------------
+  drive   = 1 + (e2 * 5);     // slightly stronger than before
+  sat_mix = e2;
+
+  dL = xL * drive;
+  dR = xR * drive;
+
+  satL = dL / (1 + abs(dL));
+  satR = dR / (1 + abs(dR));
+
+  xL = xL*(1 - sat_mix) + satL*sat_mix;
+  xR = xR*(1 - sat_mix) + satR*sat_mix;
+
+  // --------------------
+  // Wow/Flutter — earlier onset via e3 from e_eff
+  // --------------------
+  wow_phase += wow_hz * inv_srate;
+  wow_phase -= floor(wow_phase);
+
+  flt_phase += flt_hz * inv_srate;
+  flt_phase -= floor(flt_phase);
+
+  mod_s = base_delay_s
+        + sin(two_pi*wow_phase) * (wow_depth_s * e3)
+        + sin(two_pi*flt_phase) * (flt_depth_s * e3);
+
+  dly = mod_s * srate;
+
+  // Read position relative to *current* write head (before increment)
+  rp = (delay_wpos - dly);
+  rf = floor(rp);
+  frac = rp - rf;
+
+  i0 = rf & delay_mask;
+  i1 = (rf + 1) & delay_mask;
+
+  r0L = mem[delay_base + i0*2];
+  r0R = mem[delay_base + i0*2 + 1];
+  r1L = mem[delay_base + i1*2];
+  r1R = mem[delay_base + i1*2 + 1];
+
+  yL = r0L + (r1L - r0L)*frac;
+  yR = r0R + (r1R - r0R)*frac;
+
+  // Mix in modulated delay — slightly more early
+  dly_mix = e3 * 0.30;        // was 0.25
+  xL = xL*(1 - dly_mix) + yL*dly_mix;
+  xR = xR*(1 - dly_mix) + yR*dly_mix;
+
+  // NaN kill
+  (xL != xL) ? xL = 0;
+  (xR != xR) ? xR = 0;
+
+  // Hard clamp
+  xL > 1 ? xL = 1 : xL;
+  xL < -1 ? xL = -1 : xL;
+  xR > 1 ? xR = 1 : xR;
+  xR < -1 ? xR = -1 : xR;
+
+  // Final macro mix — use e_eff for “more” at low values
+  outL = inL + e_eff*(xL - inL);
+  outR = inR + e_eff*(xR - inR);
+);
+
+// Advance write position
+delay_wpos += 1;
+
+// Match processed output to input level for consistent loudness across ENTROPY.
+det_in = inL*inL + inR*inR;
+det_out = outL*outL + outR*outR;
+match_in_env += match_alpha * (det_in - match_in_env);
+match_out_env += match_alpha * (det_out - match_out_env);
+auto_gain = sqrt((match_in_env + 0.000000000001) / (match_out_env + 0.000000000001));
+auto_gain > 4 ? auto_gain = 4;
+auto_gain < 0.25 ? auto_gain = 0.25;
+outL *= auto_gain;
+outR *= auto_gain;
+
+// Apply output fade-in last
+outL *= out_fade;
+outR *= out_fade;
+
+spl0 = outL;
+spl1 = outR;

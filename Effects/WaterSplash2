@@ -36,7 +36,7 @@ in_pin:none
 out_pin:none
 
 slider1:0<0,11,1{C,C#,D,D#,E,F,F#,G,G#,A,A#,B}>Root
-slider3:gmcnicol_scales/ionian.txt:Scale File
+slider3:/gmcnicol_scales:none:Scale File
 slider4:0<0,1,1{NearestInScale,RequireInScale}>Anchor Policy
 slider5:36<0,127,1>Pitch Clamp Low
 slider6:60<0,127,1>Pitch Clamp High

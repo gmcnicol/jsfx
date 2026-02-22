@@ -107,14 +107,18 @@ outR = hfR - dcXR + 0.995*dcR;
 dcXR = hfR;
 dcR = outR;
 
-// Auto-match output to input RMS so Iron stays unity across knob values.
+// Dry/wet control tied to Iron amount. Zero is true bypass.
+mixedL = inL + (outL - inL) * amt;
+mixedR = inR + (outR - inR) * amt;
+
+// Auto-match mixed output to input RMS so Iron stays unity across knob values.
 detIn = inL*inL + inR*inR;
-detOut = outL*outL + outR*outR;
+detOut = mixedL*mixedL + mixedR*mixedR;
 
 matchIn += matchA*(detIn - matchIn);
 matchOut += matchA*(detOut - matchOut);
 autoGain = sqrt((matchIn + 0.000000000001) / (matchOut + 0.000000000001));
 autoGain = clamp(autoGain, 0.25, 4.0);
 
-spl0 = outL * autoGain;
-spl1 = outR * autoGain;
+spl0 = mixedL * autoGain;
+spl1 = mixedR * autoGain;
