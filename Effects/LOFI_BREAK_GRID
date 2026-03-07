@@ -1,0 +1,768 @@
+desc:LOFI BREAK GRID — Hybrid Breakbeat MIDI Sequencer
+
+// 16-step (1 bar) tempo-synced MIDI breakbeat generator for REAPER.
+// Spec highlights:
+// - 0-based indexing everywhere (steps 0..15, lanes 0..11, styles 0..7)
+// - Deterministic PRNG (seeded per bar_idx + style)
+// - No scientific notation
+// - Only while() loops (no loop())
+// - No stuck notes: every note-on schedules a matching note-off, plus stop flush
+
+////////////////////////////////////////////////////////////////////////////////
+// SLIDERS
+////////////////////////////////////////////////////////////////////////////////
+
+// Transport
+slider1:run=1<0,1,1>Run (gate)
+slider2:reset_on_stop=1<0,1,1>Reset on stop
+slider3:midi_chan=0<0,16,1>MIDI chan (0=Ch1, 1..16=Ch1..16)
+
+// Musical
+slider4:root_note=36<0,115,1>Root note (lane 0)
+slider5:style=0<0,7,1>Style (0..7)
+slider6:density_pct=65<0,100,1>Density (%)
+slider7:swing_pct=20<0,60,1>Swing (%)
+slider8:humanize_pct=35<0,100,1>Humanize (%)
+
+// Layer weights
+slider9:kick_weight_pct=80<0,100,1>Kick main weight (%)
+slider10:sub_weight_pct=40<0,100,1>Sub weight (%)
+slider11:ghost_amount_pct=35<0,100,1>Ghost amount (%)
+slider12:hat_amount_pct=50<0,100,1>Hat amount (%)
+slider13:perc_amount_pct=40<0,100,1>Perc amount (%)
+slider14:backhalf_var_pct=30<0,100,1>Backhalf variation (%)
+slider15:phrase_fill_pct=25<0,100,1>Phrase fill (%)
+
+// Safety
+slider16:max_notes_per_step=4<1,4,1>Max notes per step
+slider17:note_len_ms=90<10,250,1>Note length (ms)
+slider18:drift_ms_max=2<0,6,1>Drift max (ms)
+
+in_pin:none
+out_pin:none
+
+////////////////////////////////////////////////////////////////////////////////
+// ENGINE
+////////////////////////////////////////////////////////////////////////////////
+
+@init
+  STEPS = 16;
+  LANES = 12;
+  PAT_N = STEPS*LANES;
+  NOTES_N = 128;
+  MAX_EVENTS = 512;
+
+  // memory layout (all 0-based)
+  pat_on_base    = 0;                  // PAT_N
+  pat_vel_base   = pat_on_base  + PAT_N; // PAT_N
+  pat_pri_base   = pat_vel_base + PAT_N; // PAT_N
+  pat_drf_base   = pat_pri_base + PAT_N; // PAT_N (drift samples, >=0)
+
+  active_base    = pat_drf_base + PAT_N; // NOTES_N (active note counts)
+
+  evt_act_base   = active_base + NOTES_N;            // MAX_EVENTS
+  evt_due_base   = evt_act_base + MAX_EVENTS;        // MAX_EVENTS (due beat)
+  evt_st_base    = evt_due_base + MAX_EVENTS;        // MAX_EVENTS (status)
+  evt_d1_base    = evt_st_base  + MAX_EVENTS;        // MAX_EVENTS (data1)
+  evt_d2_base    = evt_d1_base  + MAX_EVENTS;        // MAX_EVENTS (data2)
+
+  // scratch (initialized in @init, used as per-step temp workspace)
+  tmp_base = evt_d2_base + MAX_EVENTS;
+  TMP_N = 128;
+
+  // state
+  last_active = 0;
+  next_step_global = -1;
+  cur_bar_idx = -1;
+  prev_style = -1;
+  prev_density_pct = -1;
+  prev_humanize_pct = -1;
+  prev_kick_weight_pct = -1;
+  prev_sub_weight_pct = -1;
+  prev_ghost_amount_pct = -1;
+  prev_hat_amount_pct = -1;
+  prev_perc_amount_pct = -1;
+  prev_backhalf_var_pct = -1;
+  prev_phrase_fill_pct = -1;
+  prev_drift_ms_max = -1;
+
+  prng_state = 1337;
+
+  function clamp(v, lo, hi) (
+    v < lo ? lo : (v > hi ? hi : v);
+  );
+
+  function clamp01(v) (
+    v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
+  );
+
+  function pat_idx(step, lane) (step*LANES + lane);
+
+  function prng_seed_bar(bar_idx, style_idx) local(s)
+  (
+    s = 1337;
+    s += bar_idx * 1103515245;
+    s += style_idx * 12345;
+    s = s & 2147483647;
+    prng_state = s;
+  );
+
+  function rand01() (
+    prng_state = (prng_state * 1103515245 + 12345) & 2147483647;
+    prng_state / 2147483647.0;
+  );
+
+  function vel_jitter(jmax) local(r)
+  (
+    jmax <= 0 ? 0 : (
+      // integer jitter in [-jmax, +jmax]
+      r = floor(rand01() * (2*jmax + 1));
+      r - jmax;
+    );
+  );
+
+  function lane_base_vel(lane) local(v)
+  (
+    // Base velocities (see spec)
+    lane == 0 ? v = 105 :
+    lane == 1 ? v = 92  :
+    lane == 2 ? v = 80  :
+    lane == 3 ? v = 110 :
+    lane == 4 ? v = 55  :
+    lane == 5 ? v = 60  :
+    lane == 6 ? v = 55  :
+    lane == 7 ? v = 75  :
+    lane == 8 ? v = 78  :
+    lane == 9 ? v = 70  :
+    lane == 10 ? v = 66 :
+               v = 1;
+    v;
+  );
+
+  function lane_priority(step, lane) local(p)
+  (
+    // Drop order (lowest priority first):
+    // 1 Fill token
+    // 2 Extra perc (incl ghosts/clap)
+    // 3 Hats
+    // 4 Sub
+    // 5 Perc alternation (front-half 4..7)
+    // 6 Kick
+    // 7 Snare main
+    lane == 11 ? p = 1 :
+    lane == 2  ? p = 4 :
+    (lane == 6 || lane == 7 || lane == 8) ? p = 3 :
+    (lane == 0 || lane == 1) ? p = 6 :
+    lane == 3 ? p = 7 :
+    // Perc alternation is lane 9/10 at steps 4..7
+    ((step >= 4 && step <= 7) && (lane == 9 || lane == 10)) ? p = 5 :
+    p = 2;
+    p;
+  );
+
+  function pat_clear() local(i)
+  (
+    i = 0;
+    while (i < PAT_N) (
+      mem[pat_on_base  + i] = 0;
+      mem[pat_vel_base + i] = 0;
+      mem[pat_pri_base + i] = 0;
+      mem[pat_drf_base + i] = 0;
+      i += 1;
+    );
+  );
+
+  function notes_clear() local(i)
+  (
+    i = 0;
+    while (i < NOTES_N) (
+      mem[active_base + i] = 0;
+      i += 1;
+    );
+  );
+
+  function events_clear() local(i)
+  (
+    i = 0;
+    while (i < MAX_EVENTS) (
+      mem[evt_act_base + i] = 0;
+      mem[evt_due_base + i] = 0;
+      mem[evt_st_base  + i] = 0;
+      mem[evt_d1_base  + i] = 0;
+      mem[evt_d2_base  + i] = 0;
+      i += 1;
+    );
+  );
+
+  function tmp_clear() local(i)
+  (
+    i = 0;
+    while (i < TMP_N) (
+      mem[tmp_base + i] = 0;
+      i += 1;
+    );
+  );
+
+  function schedule_event(due_beat, st, d1, d2) local(i)
+  (
+    i = 0;
+    while ((i < MAX_EVENTS) && (mem[evt_act_base + i] != 0)) (
+      i += 1;
+    );
+    i < MAX_EVENTS ? (
+      mem[evt_act_base + i] = 1;
+      mem[evt_due_base + i] = due_beat;
+      mem[evt_st_base  + i] = st;
+      mem[evt_d1_base  + i] = d1;
+      mem[evt_d2_base  + i] = d2;
+    );
+  );
+
+  function send_note_off_now(note, chan) (
+    note = clamp(note, 0, 127);
+    midisend(0, 0x80 | chan, note, 0);
+  );
+
+  function flush_all_notes(chan) local(n)
+  (
+    // Send note-offs for notes we turned on.
+    n = 0;
+    while (n < NOTES_N) (
+      mem[active_base + n] > 0 ? (
+        send_note_off_now(n, chan);
+        mem[active_base + n] = 0;
+      );
+      n += 1;
+    );
+    events_clear();
+  );
+
+  function step_is_empty(step) local(l i)
+  (
+    i = 0;
+    l = 0;
+    while (l <= 10) (
+      mem[pat_on_base + pat_idx(step, l)] != 0 ? (i = 1; l = 999;);
+      l += 1;
+    );
+    i == 0;
+  );
+
+  function pat_set(step, lane, on, vel, drf) local(i)
+  (
+    i = pat_idx(step, lane);
+    mem[pat_on_base  + i] = on;
+    mem[pat_vel_base + i] = vel;
+    mem[pat_pri_base + i] = lane_priority(step, lane);
+    mem[pat_drf_base + i] = drf;
+  );
+
+  function build_bar_pattern(bar_idx) local(step lane i v jmax drfmax drf main4 main12 p r k_lane gcount gmax phrase_pos var_budget var_done act perc_vel_mul hat_vel_mul kick_vel_mul sub_vel_mul ghost_vel_mul had_perc)
+  (
+    pat_clear();
+    prng_seed_bar(bar_idx, style);
+
+    // per-bar ghost limit from density
+    gmax = (density < 0.70) ? 1 : 2;
+    gcount = 0;
+
+    jmax = vel_jmax;
+    drfmax = drift_max_samples;
+    kick_vel_mul = 0.40 + 0.60 * kick_weight;
+    sub_vel_mul = 0.35 + 0.65 * sub_weight;
+    ghost_vel_mul = 0.40 + 0.60 * ghost_amount;
+    perc_vel_mul = 0.35 + 0.65 * perc_amount;
+    hat_vel_mul = 0.35 + 0.65 * hat_amount;
+
+    // Step 0: Kick main (anchor) + accent
+    v = floor(lane_base_vel(0) * kick_vel_mul + 0.5) + 8 + vel_jitter(jmax);
+    v = clamp(v, 1, 127);
+    drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+    pat_set(0, 0, 1, v, drf);
+
+    // Step 4: Snare main (anchor) + accent
+    v = lane_base_vel(3) + 6 + vel_jitter(jmax);
+    v = clamp(v, 1, 127);
+    main4 = v;
+    drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+    pat_set(4, 3, 1, v, drf);
+
+    // Step 12: Snare main (anchor) + accent
+    v = lane_base_vel(3) + 6 + vel_jitter(jmax);
+    v = clamp(v, 1, 127);
+    main12 = v;
+    drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+    pat_set(12, 3, 1, v, drf);
+
+    // Step 3 kick probability
+    p = clamp01(0.80 + 0.20 * density);
+    rand01() < p ? (
+      k_lane = (rand01() < kick_weight) ? 0 : 1;
+      v = floor(lane_base_vel(k_lane) * kick_vel_mul + 0.5) + vel_jitter(jmax);
+      v = clamp(v, 1, 127);
+      drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+      pat_set(3, k_lane, 1, v, drf);
+    );
+
+    // Step 8 kick probability
+    p = clamp01(0.65 + 0.35 * density);
+    rand01() < p ? (
+      k_lane = (rand01() < kick_weight) ? 0 : 1;
+      v = floor(lane_base_vel(k_lane) * kick_vel_mul + 0.5) + vel_jitter(jmax);
+      v = clamp(v, 1, 127);
+      drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+      pat_set(8, k_lane, 1, v, drf);
+    );
+
+    // Front half alternation (mandatory unless safety cap drops it later)
+    step = 4;
+    while (step <= 7) (
+      lane = (step % 2 == 0) ? 9 : 10;
+      v = floor(lane_base_vel(lane) * perc_vel_mul + 0.5) + vel_jitter(jmax);
+      v = clamp(v, 1, 127);
+      drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+      pat_set(step, lane, 1, v, drf);
+      step += 1;
+    );
+
+    // Back half base perc intent (scaled by perc_amount)
+    r = clamp01(perc_amount);
+    rand01() < r ? (
+      v = floor(lane_base_vel(10) * perc_vel_mul + 0.5) + vel_jitter(jmax);
+      v = clamp(v, 1, 127);
+      drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+      pat_set(13, 10, 1, v, drf);
+    );
+    rand01() < r ? (
+      v = floor(lane_base_vel(9) * perc_vel_mul + 0.5) + vel_jitter(jmax);
+      v = clamp(v, 1, 127);
+      drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+      pat_set(14, 9, 1, v, drf);
+    );
+    rand01() < r ? (
+      v = floor(lane_base_vel(10) * perc_vel_mul + 0.5) + vel_jitter(jmax);
+      v = clamp(v, 1, 127);
+      drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+      pat_set(15, 10, 1, v, drf);
+    );
+
+    // Optional hats (controlled by hat_amount)
+    r = clamp01(hat_amount * (0.40 + 0.40 * density));
+    rand01() < r ? (pat_set(2, 6, 1, clamp(floor(lane_base_vel(6) * hat_vel_mul + 0.5) + vel_jitter(jmax), 1, 127), (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0););
+    rand01() < r ? (pat_set(6, 6, 1, clamp(floor(lane_base_vel(6) * hat_vel_mul + 0.5) + vel_jitter(jmax), 1, 127), (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0););
+    rand01() < r ? (pat_set(10,6, 1, clamp(floor(lane_base_vel(6) * hat_vel_mul + 0.5) + vel_jitter(jmax), 1, 127), (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0););
+    rand01() < r ? (pat_set(14,6, 1, clamp(floor(lane_base_vel(6) * hat_vel_mul + 0.5) + vel_jitter(jmax), 1, 127), (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0););
+
+    r = clamp01(hat_amount * (0.20 + 0.30 * density));
+    rand01() < r ? (pat_set(1, 7, 1, clamp(floor(lane_base_vel(7) * hat_vel_mul + 0.5) + vel_jitter(jmax), 1, 127), (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0););
+    rand01() < r ? (pat_set(9, 7, 1, clamp(floor(lane_base_vel(7) * hat_vel_mul + 0.5) + vel_jitter(jmax), 1, 127), (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0););
+    rand01() < r ? (pat_set(11,7, 1, clamp(floor(lane_base_vel(7) * hat_vel_mul + 0.5) + vel_jitter(jmax), 1, 127), (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0););
+
+    // Optional clap/rim (perc_amount)
+    r = clamp01(perc_amount * 0.60);
+    rand01() < r ? (
+      v = clamp(floor(lane_base_vel(5) * perc_vel_mul + 0.5) + vel_jitter(jmax), 1, 127);
+      drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+      pat_set(12, 5, 1, v, drf);
+    );
+
+    // Ghosts (controlled by ghost_amount) - near step 4 and/or 12
+    r = clamp01(ghost_amount * 0.45 * density);
+    (gcount < gmax) && (rand01() < r) ? (
+      // near step 4: 2,3,5
+      i = floor(rand01() * 3);
+      step = (i == 0) ? 2 : (i == 1) ? 3 : 5;
+      v = clamp(floor(lane_base_vel(4) * ghost_vel_mul + 0.5) + vel_jitter(jmax), 1, 127);
+      v > (main4 - 30) ? (v = main4 - 30;);
+      v < 1 ? (v = 1;);
+      drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+      pat_set(step, 4, 1, v, drf);
+      gcount += 1;
+    );
+
+    r = clamp01(ghost_amount * 0.55 * density);
+    (gcount < gmax) && (rand01() < r) ? (
+      // near step 12: 10,11,13
+      i = floor(rand01() * 3);
+      step = (i == 0) ? 10 : (i == 1) ? 11 : 13;
+      v = clamp(floor(lane_base_vel(4) * ghost_vel_mul + 0.5) + vel_jitter(jmax), 1, 127);
+      v > (main12 - 30) ? (v = main12 - 30;);
+      v < 1 ? (v = 1;);
+      drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+      pat_set(step, 4, 1, v, drf);
+      gcount += 1;
+    );
+
+    // Bar-level variation (max actions per bar depends on phrase_pos, never > 2)
+    phrase_pos = bar_idx % 4;
+    var_budget = (phrase_pos == 1) ? 2 : 1;
+    var_budget > 2 ? (var_budget = 2;);
+
+    rand01() < backhalf_var ? (
+      var_done = 0;
+      while (var_done < var_budget) (
+        act = floor(rand01() * 5);
+
+        // A1 Invert backhalf mid/high alternation
+        act == 0 ? (
+          // 13,14,15 swap 9<->10
+          mem[pat_on_base + pat_idx(13,9)] == 0 ? (pat_set(13,9,1, mem[pat_vel_base + pat_idx(13,10)], mem[pat_drf_base + pat_idx(13,10)]);) : 0;
+          mem[pat_on_base + pat_idx(13,10)] != 0 ? (pat_set(13,10,0,0,0);) : 0;
+
+          mem[pat_on_base + pat_idx(14,10)] == 0 ? (pat_set(14,10,1, mem[pat_vel_base + pat_idx(14,9)], mem[pat_drf_base + pat_idx(14,9)]);) : 0;
+          mem[pat_on_base + pat_idx(14,9)] != 0 ? (pat_set(14,9,0,0,0);) : 0;
+
+          mem[pat_on_base + pat_idx(15,9)] == 0 ? (pat_set(15,9,1, mem[pat_vel_base + pat_idx(15,10)], mem[pat_drf_base + pat_idx(15,10)]);) : 0;
+          mem[pat_on_base + pat_idx(15,10)] != 0 ? (pat_set(15,10,0,0,0);) : 0;
+        );
+
+        // A2 Add one ghost near step 12
+        act == 1 ? (
+          (gcount < gmax) ? (
+            i = floor(rand01() * 3);
+            step = (i == 0) ? 10 : (i == 1) ? 11 : 13;
+            v = clamp(floor(lane_base_vel(4) * ghost_vel_mul + 0.5) + vel_jitter(jmax), 1, 127);
+            v > (main12 - 30) ? (v = main12 - 30;);
+            v < 1 ? (v = 1;);
+            drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+            pat_set(step, 4, 1, v, drf);
+            gcount += 1;
+          );
+        );
+
+        // A3 Add open-hat lift at 15
+        act == 2 ? (
+          rand01() < hat_amount ? (
+            v = clamp(floor(lane_base_vel(8) * hat_vel_mul + 0.5) + vel_jitter(jmax), 1, 127);
+            drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+            pat_set(15, 8, 1, v, drf);
+          );
+        );
+
+        // A4 Rare skip kick at 8 (only if density <= 0.60)
+        act == 3 ? (
+          density <= 0.60 ? (
+            mem[pat_on_base + pat_idx(8,0)] != 0 ? (pat_set(8,0,0,0,0);) : 0;
+            mem[pat_on_base + pat_idx(8,1)] != 0 ? (pat_set(8,1,0,0,0);) : 0;
+          );
+        );
+
+        // A5 Replace one backhalf perc with hat accent
+        act == 4 ? (
+          (perc_amount > 0.0) && (hat_amount > 0.0) ? (
+            step = 13 + floor(rand01() * 3);
+            had_perc = 0;
+            mem[pat_on_base + pat_idx(step,9)] != 0 ? (pat_set(step,9,0,0,0); had_perc = 1;) : 0;
+            mem[pat_on_base + pat_idx(step,10)] != 0 ? (pat_set(step,10,0,0,0); had_perc = 1;) : 0;
+            (had_perc == 1) && (rand01() < hat_amount) ? (
+              v = clamp(floor(lane_base_vel(7) * hat_vel_mul + 0.5) + vel_jitter(jmax), 1, 127);
+              drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+              pat_set(step, 7, 1, v, drf);
+            );
+          );
+        );
+
+        var_done += 1;
+      );
+    );
+
+    // Soft fill (bar 3 only): add exactly one fill event
+    (phrase_pos == 3) && (rand01() < phrase_fill) ? (
+      r = rand01();
+      r < 0.34 ? (
+        // Ghost at step 11
+        (gcount < gmax) ? (
+          v = clamp(floor(lane_base_vel(4) * ghost_vel_mul + 0.5) + vel_jitter(jmax), 1, 127);
+          v > (main12 - 30) ? (v = main12 - 30;);
+          v < 1 ? (v = 1;);
+          drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+          pat_set(11, 4, 1, v, drf);
+          gcount += 1;
+        );
+      ) : r < 0.67 ? (
+        // Hat lift at step 15
+        rand01() < hat_amount ? (
+          v = clamp(floor(lane_base_vel(8) * hat_vel_mul + 0.5) + vel_jitter(jmax), 1, 127);
+          drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+          pat_set(15, 8, 1, v, drf);
+        );
+      ) : (
+        // Low-velocity kick at step 9 or 11
+        step = (step_is_empty(9) == 1) ? 9 : 11;
+        k_lane = (rand01() < kick_weight) ? 0 : 1;
+        v = floor(lane_base_vel(k_lane) * kick_vel_mul + 0.5) - 28;
+        v = clamp(v + vel_jitter(jmax), 1, 127);
+        drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+        pat_set(step, k_lane, 1, v, drf);
+      );
+    );
+
+    // Sub dependency (only if kick present same step): add sub with probability sub_weight
+    step = 0;
+    while (step < STEPS) (
+      (mem[pat_on_base + pat_idx(step,0)] != 0 || mem[pat_on_base + pat_idx(step,1)] != 0) ? (
+        rand01() < sub_weight ? (
+          v = clamp(floor(lane_base_vel(2) * sub_vel_mul + 0.5) + vel_jitter(jmax), 1, 127);
+          drf = (drfmax > 0) ? floor(rand01() * (drfmax + 1) * humanize + 0.5) : 0;
+          pat_set(step, 2, 1, v, drf);
+        );
+      );
+      step += 1;
+    );
+
+    // Hat choke rule: open hat (8) is choked by closed hats (6/7)
+    step = 0;
+    while (step < STEPS) (
+      (mem[pat_on_base + pat_idx(step,8)] != 0) && ((mem[pat_on_base + pat_idx(step,6)] != 0) || (mem[pat_on_base + pat_idx(step,7)] != 0)) ? (
+        // exception: if density >= 0.85 AND next step empty, shift +1 step
+        (density >= 0.85) && (step < 15) && (step_is_empty(step+1) == 1) ? (
+          v = mem[pat_vel_base + pat_idx(step,8)];
+          drf = mem[pat_drf_base + pat_idx(step,8)];
+          pat_set(step, 8, 0, 0, 0);
+          pat_set(step+1, 8, 1, v, drf);
+        ) : (
+          pat_set(step, 8, 0, 0, 0);
+        );
+      );
+      step += 1;
+    );
+  );
+
+  // init buffers
+  pat_clear();
+  notes_clear();
+  events_clear();
+  tmp_clear();
+
+@block
+  // Derived params (once per block)
+  density      = clamp01(density_pct / 100.0);
+  swing        = clamp01(swing_pct / 100.0);
+  humanize     = clamp01(humanize_pct / 100.0);
+  kick_weight  = clamp01(kick_weight_pct / 100.0);
+  sub_weight   = clamp01(sub_weight_pct / 100.0);
+  ghost_amount = clamp01(ghost_amount_pct / 100.0);
+  hat_amount   = clamp01(hat_amount_pct / 100.0);
+  perc_amount  = clamp01(perc_amount_pct / 100.0);
+  backhalf_var = clamp01(backhalf_var_pct / 100.0);
+  phrase_fill  = clamp01(phrase_fill_pct / 100.0);
+
+  vel_jmax = floor(12.0 * humanize + 0.5);
+  drift_max_samples = floor((drift_ms_max * srate) / 1000.0 + 0.5);
+
+  params_changed = 0;
+  style != prev_style ? (params_changed = 1;) : 0;
+  density_pct != prev_density_pct ? (params_changed = 1;) : 0;
+  humanize_pct != prev_humanize_pct ? (params_changed = 1;) : 0;
+  kick_weight_pct != prev_kick_weight_pct ? (params_changed = 1;) : 0;
+  sub_weight_pct != prev_sub_weight_pct ? (params_changed = 1;) : 0;
+  ghost_amount_pct != prev_ghost_amount_pct ? (params_changed = 1;) : 0;
+  hat_amount_pct != prev_hat_amount_pct ? (params_changed = 1;) : 0;
+  perc_amount_pct != prev_perc_amount_pct ? (params_changed = 1;) : 0;
+  backhalf_var_pct != prev_backhalf_var_pct ? (params_changed = 1;) : 0;
+  phrase_fill_pct != prev_phrase_fill_pct ? (params_changed = 1;) : 0;
+  drift_ms_max != prev_drift_ms_max ? (params_changed = 1;) : 0;
+  prev_style = style;
+  prev_density_pct = density_pct;
+  prev_humanize_pct = humanize_pct;
+  prev_kick_weight_pct = kick_weight_pct;
+  prev_sub_weight_pct = sub_weight_pct;
+  prev_ghost_amount_pct = ghost_amount_pct;
+  prev_hat_amount_pct = hat_amount_pct;
+  prev_perc_amount_pct = perc_amount_pct;
+  prev_backhalf_var_pct = backhalf_var_pct;
+  prev_phrase_fill_pct = phrase_fill_pct;
+  prev_drift_ms_max = drift_ms_max;
+
+  // channel mapping: 0 => ch 1, 1..16 => ch 1..16
+  chan = midi_chan;
+  chan < 0 ? chan = 0 : 0;
+  chan > 16 ? chan = 16 : 0;
+  chan == 0 ? chan = 0 : (chan -= 1);
+
+  // tempo guards
+  tempo_safe = tempo;
+  tempo_safe < 1.0 ? (tempo_safe = 120.0;) : 0;
+  samples_per_beat = (srate * 60.0) / tempo_safe;
+  step_duration_samples = samples_per_beat / 4.0;
+  swing_delay_samples = swing * 0.5 * step_duration_samples;
+  swing_delay_beats = swing_delay_samples / samples_per_beat;
+
+  note_len_samples = floor((note_len_ms * srate) / 1000.0);
+  note_len_samples < 1 ? note_len_samples = 1 : 0;
+  note_len_beats = note_len_samples / samples_per_beat;
+
+  // active gate: require both host playing and run slider
+  host_playing = (play_state != 0) ? 1 : 0;
+  gate_run = (run >= 0.5) ? 1 : 0;
+  active = (host_playing == 1) && (gate_run == 1) ? 1 : 0;
+
+  // stop transition: always flush notes (no stuck notes); reset state optionally
+  (last_active == 1) && (active == 0) ? (
+    flush_all_notes(chan);
+    reset_on_stop == 1 ? (
+      next_step_global = -1;
+      cur_bar_idx = -1;
+    );
+  );
+
+  // start transition: resync step pointer
+  (last_active == 0) && (active == 1) ? (
+    next_step_global = floor(beat_position * 4.0);
+    cur_bar_idx = -1;
+  );
+
+  // Rebuild current-bar intent when hat/perc sliders move.
+  params_changed == 1 ? (
+    cur_bar_idx = -1;
+  );
+
+  // schedule steps that start within this block (and catch-up if block spans multiple steps)
+  active == 1 ? (
+    beat0 = beat_position;
+    beat1 = beat0 + (samplesblock / samples_per_beat);
+
+    cur_step0 = floor(beat0 * 4.0);
+    next_step_global < cur_step0 ? next_step_global = cur_step0 : 0;
+    last_step_in_block = floor(beat1 * 4.0);
+
+    while (next_step_global <= last_step_in_block) (
+      bar_idx = floor(next_step_global / 16);
+      step_in_bar = next_step_global - (bar_idx * 16);
+      step_in_bar < 0 ? step_in_bar = 0 : 0;
+      step_in_bar > 15 ? step_in_bar = 15 : 0;
+
+      bar_idx != cur_bar_idx ? (
+        cur_bar_idx = bar_idx;
+        build_bar_pattern(cur_bar_idx);
+      );
+
+      // collect notes for this step and enforce max_notes_per_step
+      // layout: lane (0..10), pri, note, vel, drf, keep
+      // each record: 6 slots, max 11 records => 66 slots
+
+      tmp_n = 0;
+      lane = 0;
+      while (lane <= 10) (
+        idx = pat_idx(step_in_bar, lane);
+        mem[pat_on_base + idx] != 0 ? (
+          note = root_note + lane;
+          note <= 127 ? (
+            mem[tmp_base + (tmp_n*6) + 0] = lane;
+            mem[tmp_base + (tmp_n*6) + 1] = mem[pat_pri_base + idx];
+            mem[tmp_base + (tmp_n*6) + 2] = note;
+            mem[tmp_base + (tmp_n*6) + 3] = mem[pat_vel_base + idx];
+            mem[tmp_base + (tmp_n*6) + 4] = mem[pat_drf_base + idx];
+            mem[tmp_base + (tmp_n*6) + 5] = 1;
+            tmp_n += 1;
+          );
+        );
+        lane += 1;
+      );
+
+      // drop until within cap (deterministic: priority order, then lane order)
+      tmp_n > max_notes_per_step ? (
+        // compute current keep count
+        keep_count = 0;
+        i = 0;
+        while (i < tmp_n) (
+          mem[tmp_base + (i*6) + 5] != 0 ? (keep_count += 1;) : 0;
+          i += 1;
+        );
+
+        pri = 1;
+        while ((keep_count > max_notes_per_step) && (pri <= 7)) (
+          // repeatedly drop one-by-one at this priority
+          dropped = 1;
+          while ((keep_count > max_notes_per_step) && (dropped == 1)) (
+            dropped = 0;
+            // find the lowest lane index with this priority
+            best_i = -1;
+            best_lane = 999;
+            i = 0;
+            while (i < tmp_n) (
+              (mem[tmp_base + (i*6) + 5] != 0) && (mem[tmp_base + (i*6) + 1] == pri) ? (
+                lane2 = mem[tmp_base + (i*6) + 0];
+                lane2 < best_lane ? (best_lane = lane2; best_i = i;) : 0;
+              );
+              i += 1;
+            );
+            best_i != -1 ? (
+              mem[tmp_base + (best_i*6) + 5] = 0;
+              keep_count -= 1;
+              dropped = 1;
+            );
+          );
+          pri += 1;
+        );
+      );
+
+      // enforce sub dependency after drops: if sub kept but no kick, drop sub
+      has_kick = 0;
+      has_sub_i = -1;
+      i = 0;
+      while (i < tmp_n) (
+        mem[tmp_base + (i*6) + 5] != 0 ? (
+          lane2 = mem[tmp_base + (i*6) + 0];
+          (lane2 == 0 || lane2 == 1) ? (has_kick = 1;) : 0;
+          lane2 == 2 ? (has_sub_i = i;) : 0;
+        );
+        i += 1;
+      );
+      (has_sub_i != -1) && (has_kick == 0) ? (
+        mem[tmp_base + (has_sub_i*6) + 5] = 0;
+      );
+
+      // schedule kept notes (note-on + matching note-off)
+      step_start_beat = next_step_global / 4.0;
+      odd = (step_in_bar % 2 == 1) ? 1 : 0;
+
+      i = 0;
+      while (i < tmp_n) (
+        mem[tmp_base + (i*6) + 5] != 0 ? (
+          note = mem[tmp_base + (i*6) + 2];
+          vel  = mem[tmp_base + (i*6) + 3];
+          drf  = mem[tmp_base + (i*6) + 4];
+          due_on_beat = step_start_beat + (odd == 1 ? swing_delay_beats : 0.0) + (drf / samples_per_beat);
+          schedule_event(due_on_beat, 0x90 | chan, note, vel);
+          schedule_event(due_on_beat + note_len_beats, 0x80 | chan, note, 0);
+        );
+        i += 1;
+      );
+
+      next_step_global += 1;
+    );
+  );
+
+  // Emit due events (both when active and inactive)
+  beat0 = beat_position;
+  i = 0;
+  while (i < MAX_EVENTS) (
+    mem[evt_act_base + i] != 0 ? (
+      due = mem[evt_due_base + i];
+      offs = floor((due - beat0) * samples_per_beat);
+      offs < 0 ? offs = 0 : 0;
+      offs < samplesblock ? (
+        st = mem[evt_st_base + i];
+        d1 = mem[evt_d1_base + i];
+        d2 = mem[evt_d2_base + i];
+        midisend(offs, st, d1, d2);
+
+        // track active notes for flush safety
+        (st & 240) == 144 ? (
+          // note-on (vel > 0)
+          d2 > 0 ? (
+            mem[active_base + d1] += 1;
+            mem[active_base + d1] > 8 ? (mem[active_base + d1] = 8;) : 0;
+          );
+        ) : (st & 240) == 128 ? (
+          mem[active_base + d1] > 0 ? (mem[active_base + d1] -= 1;) : 0;
+        );
+
+        mem[evt_act_base + i] = 0;
+      );
+    );
+    i += 1;
+  );
+
+  last_active = active;

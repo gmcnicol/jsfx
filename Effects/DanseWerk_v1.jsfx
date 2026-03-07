@@ -1,0 +1,2363 @@
+desc:DanseWerk v1 - EBM / Industrial MIDI Drum Generator
+
+in_pin:none
+out_pin:none
+
+slider1:total_bars=8<1,32,1>Total Bars
+slider2:poi_length=4<4,8,4{4 Bars,8 Bars}>Point Of Interest Length
+slider3:ui_scale_pct=115<75,200,1>UI Scale
+
+slider4:seed=1207<0,999999,1>Seed
+slider5:master_note_length=88<10,100,1>Master Note Length
+slider6:groove_tightness=78<0,100,1>Groove Tightness
+slider7:fill_frequency=58<0,100,1>Fill Frequency
+slider8:cymbal_aggression=62<0,100,1>Clock Aggression
+slider9:kick_density=68<0,100,1>Kick Density
+slider10:tribal_weight=56<0,100,1>Stomp Emphasis
+slider11:poi_intensity=68<0,100,1>POI Intensity
+slider12:turnaround_intensity=72<0,100,1>Turnaround Intensity
+slider13:precision_amount=72<0,100,1>Command Amount
+slider14:precision_substyle=2<0,2,1{242,Ebb,Blend}>Command Substyle
+slider15:riff_amount=70<0,100,1>Contamination Amount
+slider16:weight_amount=64<0,100,1>Punishment Amount
+slider17:force_cymbal_mode=0<0,3,1{Auto,Straight Hats,Metallic Clock,Stomp Only}>Force Clock Mode
+slider18:halftime_bias=28<0,100,1>Halftime Bias
+slider19:doubletime_bias=24<0,100,1>Double-Time Bias
+
+slider20:prec_enable=1<0,1,1{Off,On}>Command Enable
+slider21:prec_mute=0<0,1,1{Off,On}>Command Mute
+slider22:prec_solo=0<0,1,1{Off,On}>Command Solo
+slider23:prec_channel=1<1,16,1>Command Channel
+slider24:prec_density=72<0,100,1>Command Density
+slider25:prec_variation=63<0,100,1>Command Variation
+slider26:prec_velocity_scale=100<10,100,1>Command Velocity Scale
+
+slider27:riff_enable=1<0,1,1{Off,On}>Contamination Enable
+slider28:riff_mute=0<0,1,1{Off,On}>Contamination Mute
+slider29:riff_solo=0<0,1,1{Off,On}>Contamination Solo
+slider30:riff_channel=1<1,16,1>Contamination Channel
+slider31:riff_density=68<0,100,1>Contamination Density
+slider32:riff_variation=66<0,100,1>Contamination Variation
+slider33:riff_velocity_scale=100<10,100,1>Contamination Velocity Scale
+
+slider34:weight_enable=1<0,1,1{Off,On}>Punishment Enable
+slider35:weight_mute=0<0,1,1{Off,On}>Punishment Mute
+slider36:weight_solo=0<0,1,1{Off,On}>Punishment Solo
+slider37:weight_channel=1<1,16,1>Punishment Channel
+slider38:weight_density=58<0,100,1>Punishment Density
+slider39:weight_variation=54<0,100,1>Punishment Variation
+slider40:weight_velocity_scale=100<10,100,1>Punishment Velocity Scale
+
+@init
+
+NUM_LAYERS = 3;
+NUM_PADS = 12;
+MAX_BARS = 32;
+ALL_SLIDER_MASK = 1099511627775;
+QUEUE_SIZE = 1024;
+STEP_BEATS = 0.25;
+
+LAYER_PRECISION = 0;
+LAYER_RIFF = 1;
+LAYER_WEIGHT = 2;
+
+LAYER_MOTORIK = LAYER_PRECISION;
+LAYER_BREAKBEAT = LAYER_RIFF;
+LAYER_PERC = LAYER_WEIGHT;
+
+CLASS_MAIN = 0;
+CLASS_VARIATION = 1;
+CLASS_PRE_FILL = 2;
+CLASS_FILL = 3;
+CLASS_POI_MAIN = 4;
+CLASS_POI_VARIATION = 5;
+CLASS_TURNAROUND = 6;
+
+BAND_SLOW = 0;
+BAND_MID = 1;
+BAND_BLEND = 2;
+BAND_THRASH = 3;
+BAND_HYPER = 4;
+
+CYMBAL_HAT = 0;
+CYMBAL_OPEN = 1;
+CYMBAL_RIDE = 2;
+CYMBAL_CRASH = 3;
+CYMBAL_TOM = 4;
+
+pad_note = 0;
+role_to_pad = 64;
+layer_activity = 128;
+slot_activity = 192;
+active_note_count = 256;
+off_time = 2304;
+off_chan = off_time + QUEUE_SIZE;
+off_note = off_chan + QUEUE_SIZE;
+bar_class = off_note + QUEUE_SIZE;
+bar_lead_layer = bar_class + MAX_BARS;
+bar_support_layer = bar_lead_layer + MAX_BARS;
+bar_cymbal_mode = bar_support_layer + MAX_BARS;
+bar_halftime = bar_cymbal_mode + MAX_BARS;
+bar_fill_owner = bar_halftime + MAX_BARS;
+bar_turn_pickup = bar_fill_owner + MAX_BARS;
+
+queue_head = 0;
+queue_tail = 0;
+
+ui_audition_pending = 0;
+ui_audition_layer = 0;
+ui_audition_pad = 0;
+
+last_mouse_down = 0;
+
+transport_is_playing = 0;
+current_cycle_step = 0;
+current_bar = 0;
+current_step_in_bar = 0;
+cycle_steps = 128;
+current_substep = 0;
+
+last_transport_is_playing = 0;
+last_beat_position = 0;
+last_block_beats = 0;
+
+abs_sample_clock = 0;
+block_abs_start = 0;
+block_abs_end = 0;
+step_samples = 0;
+note_len_samples = 0;
+form_dirty = 1;
+planned_total_bars = 0;
+planned_poi_start = 0;
+planned_poi_bars = 0;
+planned_poi_lead = 0;
+planned_tempo_band = 0;
+planned_turnaround_type = 0;
+
+function clampi(v, lo, hi)
+(
+  v < lo ? lo : v > hi ? hi : v;
+);
+
+function layer_pad_index(layer_i, pad_i)
+(
+  layer_i * NUM_PADS + pad_i;
+);
+
+function active_note_index(chan_i, note_i)
+(
+  chan_i * 128 + note_i;
+);
+
+function layer_name(layer_i)
+(
+  layer_i == LAYER_PRECISION ? sprintf(#layer_txt, "Command");
+  layer_i == LAYER_RIFF ? sprintf(#layer_txt, "Contam");
+  layer_i == LAYER_WEIGHT ? sprintf(#layer_txt, "Punish");
+);
+
+function layer_full_name(layer_i)
+(
+  layer_i == LAYER_PRECISION ? sprintf(#layer_full_txt, "Command");
+  layer_i == LAYER_RIFF ? sprintf(#layer_full_txt, "Contamination");
+  layer_i == LAYER_WEIGHT ? sprintf(#layer_full_txt, "Punishment");
+);
+
+function role_name(layer_i, role_i)
+(
+  layer_i == LAYER_PRECISION ? (
+    role_i == 0 ? sprintf(#role_txt, "Kick");
+    role_i == 1 ? sprintf(#role_txt, "Snare");
+    role_i == 2 ? sprintf(#role_txt, "Closed Hat");
+    role_i == 3 ? sprintf(#role_txt, "Open Hat");
+    role_i == 4 ? sprintf(#role_txt, "Metal Clock");
+    role_i == 5 ? sprintf(#role_txt, "Industrial Hit");
+    role_i == 6 ? sprintf(#role_txt, "Crash");
+    role_i == 7 ? sprintf(#role_txt, "Low Stomp");
+    role_i == 8 ? sprintf(#role_txt, "Mid Perc");
+    role_i == 9 ? sprintf(#role_txt, "Noise Perc");
+    role_i == 10 ? sprintf(#role_txt, "Clap");
+    role_i == 11 ? sprintf(#role_txt, "Aux FX");
+  ) :
+  layer_i == LAYER_RIFF ? (
+    role_i == 0 ? sprintf(#role_txt, "Kick");
+    role_i == 1 ? sprintf(#role_txt, "Ghost Snare");
+    role_i == 2 ? sprintf(#role_txt, "Tick Hat");
+    role_i == 3 ? sprintf(#role_txt, "Open Hat");
+    role_i == 4 ? sprintf(#role_txt, "Metal Clock");
+    role_i == 5 ? sprintf(#role_txt, "Machine Hit");
+    role_i == 6 ? sprintf(#role_txt, "Broken Hit");
+    role_i == 7 ? sprintf(#role_txt, "Low Stomp");
+    role_i == 8 ? sprintf(#role_txt, "Mid Perc");
+    role_i == 9 ? sprintf(#role_txt, "Noise Perc");
+    role_i == 10 ? sprintf(#role_txt, "Ghost Tick");
+    role_i == 11 ? sprintf(#role_txt, "Aux FX");
+  ) :
+  (
+    role_i == 0 ? sprintf(#role_txt, "Kick");
+    role_i == 1 ? sprintf(#role_txt, "Snare");
+    role_i == 2 ? sprintf(#role_txt, "Closed Hat");
+    role_i == 3 ? sprintf(#role_txt, "Open Hat");
+    role_i == 4 ? sprintf(#role_txt, "Metal Clock");
+    role_i == 5 ? sprintf(#role_txt, "Industrial Hit");
+    role_i == 6 ? sprintf(#role_txt, "Crash");
+    role_i == 7 ? sprintf(#role_txt, "Low Stomp");
+    role_i == 8 ? sprintf(#role_txt, "Mid Perc");
+    role_i == 9 ? sprintf(#role_txt, "Noise Perc");
+    role_i == 10 ? sprintf(#role_txt, "Clap");
+    role_i == 11 ? sprintf(#role_txt, "Aux FX");
+  );
+);
+
+function default_note(layer_i, pad_i)
+(
+  layer_i == LAYER_WEIGHT ? (
+    pad_i == 0 ? 36 :
+    pad_i == 1 ? 40 :
+    pad_i == 2 ? 42 :
+    pad_i == 3 ? 46 :
+    pad_i == 4 ? 51 :
+    pad_i == 5 ? 57 :
+    pad_i == 6 ? 49 :
+    pad_i == 7 ? 41 :
+    pad_i == 8 ? 47 :
+    pad_i == 9 ? 82 :
+    pad_i == 10 ? 39 :
+    67
+  ) : (
+    pad_i == 0 ? 36 :
+    pad_i == 1 ? 38 :
+    pad_i == 2 ? 42 :
+    pad_i == 3 ? 46 :
+    pad_i == 4 ? 51 :
+    pad_i == 5 ? 57 :
+    pad_i == 6 ? 49 :
+    pad_i == 7 ? 41 :
+    pad_i == 8 ? 47 :
+    pad_i == 9 ? 82 :
+    pad_i == 10 ? 39 :
+    67
+  );
+);
+
+function layer_enabled(layer_i)
+(
+  layer_i == LAYER_PRECISION ? floor(prec_enable + 0.5) :
+  layer_i == LAYER_RIFF ? floor(riff_enable + 0.5) :
+  floor(weight_enable + 0.5);
+);
+
+function layer_muted(layer_i)
+(
+  layer_i == LAYER_PRECISION ? floor(prec_mute + 0.5) :
+  layer_i == LAYER_RIFF ? floor(riff_mute + 0.5) :
+  floor(weight_mute + 0.5);
+);
+
+function layer_soloed(layer_i)
+(
+  layer_i == LAYER_PRECISION ? floor(prec_solo + 0.5) :
+  layer_i == LAYER_RIFF ? floor(riff_solo + 0.5) :
+  floor(weight_solo + 0.5);
+);
+
+function layer_channel_display(layer_i)
+(
+  layer_i == LAYER_PRECISION ? floor(prec_channel + 0.5) :
+  layer_i == LAYER_RIFF ? floor(riff_channel + 0.5) :
+  floor(weight_channel + 0.5);
+);
+
+function layer_channel_zero(layer_i)
+(
+  clampi(layer_channel_display(layer_i), 1, 16) - 1;
+);
+
+function layer_density(layer_i)
+(
+  layer_i == LAYER_PRECISION ? floor(prec_density + 0.5) :
+  layer_i == LAYER_RIFF ? floor(riff_density + 0.5) :
+  floor(weight_density + 0.5);
+);
+
+function layer_variation(layer_i)
+(
+  layer_i == LAYER_PRECISION ? floor(prec_variation + 0.5) :
+  layer_i == LAYER_RIFF ? floor(riff_variation + 0.5) :
+  floor(weight_variation + 0.5);
+);
+
+function layer_velocity_scale(layer_i)
+(
+  layer_i == LAYER_PRECISION ? floor(prec_velocity_scale + 0.5) :
+  layer_i == LAYER_RIFF ? floor(riff_velocity_scale + 0.5) :
+  floor(weight_velocity_scale + 0.5);
+);
+
+function any_layer_soloed()
+(
+  layer_soloed(LAYER_MOTORIK) || layer_soloed(LAYER_BREAKBEAT) || layer_soloed(LAYER_PERC);
+);
+
+function layer_can_emit(layer_i) local(any_solo)
+(
+  any_solo = any_layer_soloed();
+  layer_enabled(layer_i) && !layer_muted(layer_i) && (!any_solo || layer_soloed(layer_i));
+);
+
+function get_pad_note(layer_i, pad_i)
+(
+  pad_note[layer_pad_index(layer_i, pad_i)];
+);
+
+function set_pad_note(layer_i, pad_i, note_val)
+(
+  pad_note[layer_pad_index(layer_i, pad_i)] = clampi(note_val, 0, 127);
+);
+
+function get_pad_for_role(layer_i, role_i)
+(
+  role_to_pad[layer_pad_index(layer_i, role_i)];
+);
+
+function role_for_pad(layer_i, pad_i) local(role_i, found_role)
+(
+  found_role = 0;
+  role_i = 0;
+  while ((role_i < NUM_PADS) && (get_pad_for_role(layer_i, role_i) != pad_i)) (
+    role_i += 1;
+  );
+  role_i < NUM_PADS ? found_role = role_i;
+  found_role;
+);
+
+function set_layer_enabled(layer_i, value_i)
+(
+  value_i = clampi(value_i, 0, 1);
+  layer_i == LAYER_PRECISION ? (prec_enable = value_i; slider20 = value_i;) :
+  layer_i == LAYER_RIFF ? (riff_enable = value_i; slider27 = value_i;) :
+  (weight_enable = value_i; slider34 = value_i;);
+);
+
+function set_layer_muted(layer_i, value_i)
+(
+  value_i = clampi(value_i, 0, 1);
+  layer_i == LAYER_PRECISION ? (prec_mute = value_i; slider21 = value_i;) :
+  layer_i == LAYER_RIFF ? (riff_mute = value_i; slider28 = value_i;) :
+  (weight_mute = value_i; slider35 = value_i;);
+);
+
+function set_layer_soloed(layer_i, value_i)
+(
+  value_i = clampi(value_i, 0, 1);
+  layer_i == LAYER_PRECISION ? (prec_solo = value_i; slider22 = value_i;) :
+  layer_i == LAYER_RIFF ? (riff_solo = value_i; slider29 = value_i;) :
+  (weight_solo = value_i; slider36 = value_i;);
+);
+
+function set_layer_channel(layer_i, value_i)
+(
+  value_i = clampi(value_i, 1, 16);
+  layer_i == LAYER_PRECISION ? (prec_channel = value_i; slider23 = value_i;) :
+  layer_i == LAYER_RIFF ? (riff_channel = value_i; slider30 = value_i;) :
+  (weight_channel = value_i; slider37 = value_i;);
+);
+
+function set_layer_density(layer_i, value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  layer_i == LAYER_PRECISION ? (prec_density = value_i; slider24 = value_i;) :
+  layer_i == LAYER_RIFF ? (riff_density = value_i; slider31 = value_i;) :
+  (weight_density = value_i; slider38 = value_i;);
+);
+
+function set_layer_variation(layer_i, value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  layer_i == LAYER_PRECISION ? (prec_variation = value_i; slider25 = value_i;) :
+  layer_i == LAYER_RIFF ? (riff_variation = value_i; slider32 = value_i;) :
+  (weight_variation = value_i; slider39 = value_i;);
+);
+
+function set_layer_velocity_scale(layer_i, value_i)
+(
+  value_i = clampi(value_i, 10, 100);
+  layer_i == LAYER_PRECISION ? (prec_velocity_scale = value_i; slider26 = value_i;) :
+  layer_i == LAYER_RIFF ? (riff_velocity_scale = value_i; slider33 = value_i;) :
+  (weight_velocity_scale = value_i; slider40 = value_i;);
+);
+
+function set_total_bars(value_i)
+(
+  value_i = clampi(value_i, 1, 32);
+  total_bars = value_i;
+  slider1 = value_i;
+  form_dirty = 1;
+);
+
+function set_poi_length(value_i)
+(
+  value_i = value_i < 6 ? 4 : 8;
+  poi_length = value_i;
+  slider2 = value_i;
+  form_dirty = 1;
+);
+
+function set_master_note_length(value_i)
+(
+  value_i = clampi(value_i, 10, 100);
+  master_note_length = value_i;
+  slider5 = value_i;
+);
+
+function set_seed_value(value_i)
+(
+  value_i = clampi(value_i, 0, 999999);
+  seed = value_i;
+  slider4 = value_i;
+  form_dirty = 1;
+);
+
+function set_groove_tightness(value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  groove_tightness = value_i;
+  slider6 = value_i;
+);
+
+function set_fill_frequency(value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  fill_frequency = value_i;
+  slider7 = value_i;
+  form_dirty = 1;
+);
+
+function set_cymbal_aggression(value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  cymbal_aggression = value_i;
+  slider8 = value_i;
+  form_dirty = 1;
+);
+
+function set_kick_density(value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  kick_density = value_i;
+  slider9 = value_i;
+  form_dirty = 1;
+);
+
+function set_tribal_weight(value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  tribal_weight = value_i;
+  slider10 = value_i;
+  form_dirty = 1;
+);
+
+function set_poi_intensity(value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  poi_intensity = value_i;
+  slider11 = value_i;
+  form_dirty = 1;
+);
+
+function set_turnaround_intensity(value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  turnaround_intensity = value_i;
+  slider12 = value_i;
+  form_dirty = 1;
+);
+
+function set_command_amount(value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  precision_amount = value_i;
+  slider13 = value_i;
+  form_dirty = 1;
+);
+
+function set_contamination_amount(value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  riff_amount = value_i;
+  slider15 = value_i;
+  form_dirty = 1;
+);
+
+function set_punishment_amount(value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  weight_amount = value_i;
+  slider16 = value_i;
+  form_dirty = 1;
+);
+
+function get_layer_row_value(layer_i, row_i)
+(
+  row_i == 0 ? layer_channel_display(layer_i) :
+  row_i == 1 ? layer_density(layer_i) :
+  row_i == 2 ? layer_variation(layer_i) :
+  layer_velocity_scale(layer_i);
+);
+
+function set_layer_row_value(layer_i, row_i, value_i)
+(
+  row_i == 0 ? set_layer_channel(layer_i, value_i);
+  row_i == 1 ? set_layer_density(layer_i, value_i);
+  row_i == 2 ? set_layer_variation(layer_i, value_i);
+  row_i == 3 ? set_layer_velocity_scale(layer_i, value_i);
+);
+
+function adjust_global_control(control_i, delta_i)
+(
+  control_i == 0 ? set_master_note_length(master_note_length + delta_i) :
+  control_i == 1 ? set_turnaround_intensity(turnaround_intensity + delta_i) :
+  control_i == 2 ? set_cymbal_aggression(cymbal_aggression + delta_i) :
+  control_i == 3 ? set_contamination_amount(riff_amount + delta_i) :
+  control_i == 4 ? set_seed_value(seed + delta_i) :
+  control_i == 5 ? set_punishment_amount(weight_amount + delta_i) :
+  control_i == 6 ? set_fill_frequency(fill_frequency + delta_i) :
+  control_i == 7 ? set_kick_density(kick_density + delta_i) :
+  set_groove_tightness(groove_tightness + delta_i);
+);
+
+function global_control_label(control_i)
+(
+  control_i == 0 ? sprintf(#global_label_txt, "Note Length");
+  control_i == 1 ? sprintf(#global_label_txt, "Turnaround");
+  control_i == 2 ? sprintf(#global_label_txt, "Clock Aggro");
+  control_i == 3 ? sprintf(#global_label_txt, "Contamination");
+  control_i == 4 ? sprintf(#global_label_txt, "Seed");
+  control_i == 5 ? sprintf(#global_label_txt, "Punishment");
+  control_i == 6 ? sprintf(#global_label_txt, "Fill Amount");
+  control_i == 7 ? sprintf(#global_label_txt, "Kick Density");
+  control_i == 8 ? sprintf(#global_label_txt, "Groove Tight");
+);
+
+function global_control_value_text(control_i)
+(
+  control_i == 0 ? sprintf(#global_val_txt, "%d%%", floor(master_note_length + 0.5));
+  control_i == 1 ? sprintf(#global_val_txt, "%d", floor(turnaround_intensity + 0.5));
+  control_i == 2 ? sprintf(#global_val_txt, "%d", floor(cymbal_aggression + 0.5));
+  control_i == 3 ? sprintf(#global_val_txt, "%d", floor(riff_amount + 0.5));
+  control_i == 4 ? sprintf(#global_val_txt, "%d", floor(seed + 0.5));
+  control_i == 5 ? sprintf(#global_val_txt, "%d", floor(weight_amount + 0.5));
+  control_i == 6 ? sprintf(#global_val_txt, "%d", floor(fill_frequency + 0.5));
+  control_i == 7 ? sprintf(#global_val_txt, "%d", floor(kick_density + 0.5));
+  control_i == 8 ? sprintf(#global_val_txt, "%d", floor(groove_tightness + 0.5));
+);
+
+function get_global_control_value(control_i)
+(
+  control_i == 0 ? floor(master_note_length + 0.5) :
+  control_i == 1 ? floor(turnaround_intensity + 0.5) :
+  control_i == 2 ? floor(cymbal_aggression + 0.5) :
+  control_i == 3 ? floor(riff_amount + 0.5) :
+  control_i == 4 ? floor(seed + 0.5) :
+  control_i == 5 ? floor(weight_amount + 0.5) :
+  control_i == 6 ? floor(fill_frequency + 0.5) :
+  control_i == 7 ? floor(kick_density + 0.5) :
+  floor(groove_tightness + 0.5);
+);
+
+function set_global_control_value(control_i, value_i)
+(
+  control_i == 0 ? set_master_note_length(value_i) :
+  control_i == 1 ? set_turnaround_intensity(value_i) :
+  control_i == 2 ? set_cymbal_aggression(value_i) :
+  control_i == 3 ? set_contamination_amount(value_i) :
+  control_i == 4 ? set_seed_value(value_i) :
+  control_i == 5 ? set_punishment_amount(value_i) :
+  control_i == 6 ? set_fill_frequency(value_i) :
+  control_i == 7 ? set_kick_density(value_i) :
+  set_groove_tightness(value_i);
+);
+
+function scaled_velocity(layer_i, base_vel)
+(
+  clampi(floor(base_vel * layer_velocity_scale(layer_i) * 0.01 + 0.5), 1, 127);
+);
+
+function layer_amount(layer_i)
+(
+  layer_i == LAYER_PRECISION ? precision_amount :
+  layer_i == LAYER_RIFF ? riff_amount :
+  weight_amount;
+);
+
+function frac(x)
+(
+  x - floor(x);
+);
+
+function hash01(a, b, c, d, e) local(v)
+(
+  v = sin((seed + 1) * 0.071 + a * 12.989 + b * 78.233 + c * 37.719 + d * 19.913 + e * 7.133) * 43758.545;
+  frac(v < 0 ? -v : v);
+);
+
+function hash_pick(max_count, a, b, c, d, e)
+(
+  max_count <= 1 ? 0 : floor(hash01(a, b, c, d, e) * max_count);
+);
+
+function hash_hit(percent_i, a, b, c, d, e)
+(
+  hash01(a, b, c, d, e) * 100 < percent_i;
+);
+
+function tempo_band_for_bpm(bpm_i)
+(
+  bpm_i <= 104 ? BAND_SLOW :
+  bpm_i <= 124 ? BAND_MID :
+  bpm_i <= 144 ? BAND_BLEND :
+  bpm_i <= 170 ? BAND_THRASH :
+  BAND_HYPER;
+);
+
+function ms_to_samples(ms_val)
+(
+  floor(srate * ms_val * 0.001 + 0.5);
+);
+
+function bar_class_name(class_i)
+(
+  class_i == CLASS_MAIN ? sprintf(#class_txt, "main");
+  class_i == CLASS_VARIATION ? sprintf(#class_txt, "variation");
+  class_i == CLASS_PRE_FILL ? sprintf(#class_txt, "pre_fill");
+  class_i == CLASS_FILL ? sprintf(#class_txt, "fill");
+  class_i == CLASS_POI_MAIN ? sprintf(#class_txt, "poi_main");
+  class_i == CLASS_POI_VARIATION ? sprintf(#class_txt, "poi_variation");
+  class_i == CLASS_TURNAROUND ? sprintf(#class_txt, "turnaround");
+);
+
+function bar_class_value(bar_i)
+(
+  bar_class[clampi(bar_i, 0, MAX_BARS - 1)];
+);
+
+function bar_lead_value(bar_i)
+(
+  bar_lead_layer[clampi(bar_i, 0, MAX_BARS - 1)];
+);
+
+function bar_support_value(bar_i)
+(
+  bar_support_layer[clampi(bar_i, 0, MAX_BARS - 1)];
+);
+
+function bar_cymbal_value(bar_i)
+(
+  bar_cymbal_mode[clampi(bar_i, 0, MAX_BARS - 1)];
+);
+
+function bar_halftime_value(bar_i)
+(
+  bar_halftime[clampi(bar_i, 0, MAX_BARS - 1)];
+);
+
+function bar_fill_owner_value(bar_i)
+(
+  bar_fill_owner[clampi(bar_i, 0, MAX_BARS - 1)];
+);
+
+function choose_primary_lead(tempo_band_i) local(score_p, score_r, score_w, best_layer, best_score)
+(
+  score_p = precision_amount + layer_density(LAYER_PRECISION) * 0.38 + (tempo_band_i <= BAND_MID ? 18 : tempo_band_i >= BAND_THRASH ? 12 : 8) + hash01(11, tempo_band_i, 1, 0, 0) * 10;
+  score_r = riff_amount + layer_density(LAYER_RIFF) * 0.28 + (tempo_band_i <= BAND_BLEND ? 14 : -8) + hash01(13, tempo_band_i, 2, 0, 0) * 12;
+  score_w = weight_amount + layer_density(LAYER_WEIGHT) * 0.34 + (tempo_band_i >= BAND_THRASH ? 18 : tempo_band_i == BAND_BLEND ? 8 : -10) + hash01(17, tempo_band_i, 3, 0, 0) * 12;
+
+  best_layer = LAYER_PRECISION;
+  best_score = score_p;
+  score_r > best_score ? (best_layer = LAYER_RIFF; best_score = score_r;);
+  score_w > best_score ? (best_layer = LAYER_WEIGHT; best_score = score_w;);
+  best_layer;
+);
+
+function choose_support_layer(lead_layer_i, tempo_band_i) local(score_p, score_r, score_w, best_layer, best_score)
+(
+  score_p = precision_amount + (tempo_band_i >= BAND_BLEND ? 8 : 2);
+  score_r = riff_amount + (tempo_band_i <= BAND_BLEND ? 12 : -12);
+  score_w = weight_amount + (tempo_band_i >= BAND_BLEND ? 10 : -2);
+
+  lead_layer_i == LAYER_PRECISION ? score_p = -999;
+  lead_layer_i == LAYER_RIFF ? score_r = -999;
+  lead_layer_i == LAYER_WEIGHT ? score_w = -999;
+
+  best_layer = LAYER_PRECISION;
+  best_score = score_p;
+  score_r > best_score ? (best_layer = LAYER_RIFF; best_score = score_r;);
+  score_w > best_score ? (best_layer = LAYER_WEIGHT; best_score = score_w;);
+  best_layer;
+);
+
+function choose_fill_owner(class_i, tempo_band_i, bar_i) local(fill_owner_i)
+(
+  class_i == CLASS_TURNAROUND ? (
+    fill_owner_i = tempo_band_i >= BAND_THRASH ? (hash_hit(52, bar_i, 55, 1, 0, 0) ? LAYER_WEIGHT : LAYER_PRECISION) : (tempo_band_i <= BAND_MID ? (hash_hit(60, bar_i, 55, 1, 0, 0) ? LAYER_RIFF : LAYER_PRECISION) : planned_poi_lead);
+  ) : (
+    class_i == CLASS_FILL ? (
+      fill_owner_i = tempo_band_i >= BAND_THRASH ? (hash_hit(60, bar_i, 61, 2, 0, 0) ? LAYER_WEIGHT : LAYER_PRECISION) : (bar_i >= planned_poi_start && bar_i < (planned_poi_start + planned_poi_bars) ? planned_poi_lead : (tempo_band_i <= BAND_MID ? LAYER_RIFF : LAYER_PRECISION));
+    ) : (
+      fill_owner_i = -1;
+    );
+  );
+  fill_owner_i;
+);
+
+function choose_cymbal_mode(class_i, lead_layer_i, tempo_band_i, bar_i) local(mode_i)
+(
+  force_cymbal_mode == 1 ? mode_i = CYMBAL_HAT :
+  force_cymbal_mode == 2 ? mode_i = CYMBAL_RIDE :
+  force_cymbal_mode == 3 ? mode_i = CYMBAL_TOM :
+  (
+    class_i == CLASS_TURNAROUND ? mode_i = CYMBAL_CRASH :
+    class_i == CLASS_POI_MAIN ? (
+      lead_layer_i == LAYER_PRECISION ? mode_i = tempo_band_i >= BAND_BLEND ? CYMBAL_RIDE : CYMBAL_CRASH;
+      lead_layer_i == LAYER_RIFF ? mode_i = hash_hit(52, bar_i, 71, 0, 0, 0) ? CYMBAL_RIDE : CYMBAL_HAT;
+      lead_layer_i == LAYER_WEIGHT ? mode_i = tempo_band_i <= BAND_BLEND ? CYMBAL_TOM : CYMBAL_CRASH;
+    ) : (
+      tempo_band_i >= BAND_THRASH ? mode_i = CYMBAL_HAT :
+      tempo_band_i == BAND_BLEND ? mode_i = hash_hit(30 + cymbal_aggression * 0.4, bar_i, 72, 1, 0, 0) ? CYMBAL_RIDE : CYMBAL_HAT :
+      lead_layer_i == LAYER_WEIGHT ? mode_i = CYMBAL_TOM :
+      lead_layer_i == LAYER_RIFF ? mode_i = hash_hit(45, bar_i, 72, 2, 0, 0) ? CYMBAL_RIDE : CYMBAL_HAT :
+      mode_i = hash_hit(35, bar_i, 72, 3, 0, 0) ? CYMBAL_RIDE : CYMBAL_HAT;
+    );
+  );
+  mode_i;
+);
+
+function choose_halftime(class_i, lead_layer_i, tempo_band_i, bar_i) local(prob_i)
+(
+  prob_i = halftime_bias * 0.40;
+  class_i == CLASS_POI_MAIN ? prob_i += 10;
+  class_i == CLASS_POI_VARIATION ? prob_i += 5;
+  class_i == CLASS_TURNAROUND ? prob_i -= 10;
+  tempo_band_i >= BAND_THRASH ? prob_i -= 24;
+  lead_layer_i == LAYER_WEIGHT ? prob_i += 4;
+  lead_layer_i == LAYER_PRECISION ? prob_i -= 14;
+  hash_hit(clampi(prob_i, 0, 100), bar_i, 73, lead_layer_i, tempo_band_i, 0);
+);
+
+function choose_loop_pickup() local(score_i)
+(
+  score_i = 0;
+  bar_lead_layer[0] == LAYER_PRECISION ? score_i += 1;
+  bar_cymbal_mode[0] == CYMBAL_RIDE ? score_i += 1;
+  planned_tempo_band >= BAND_BLEND ? score_i += 1;
+  score_i >= 2 ? 1 : 0;
+);
+
+function plan_form() local(bar_i, poi_start_min, poi_start_max, score_riff, score_weight, develop_hit)
+(
+  planned_total_bars = clampi(floor(total_bars + 0.5), 1, MAX_BARS);
+  planned_tempo_band = tempo_band_for_bpm(max(tempo, 1));
+  planned_poi_bars = planned_total_bars >= 8 ? (poi_length < 6 ? 4 : 8) : 0;
+
+  planned_poi_bars > planned_total_bars ? planned_poi_bars = planned_total_bars;
+  planned_poi_start = 0;
+
+  planned_poi_bars > 0 ? (
+    planned_total_bars == 8 ? (
+      planned_poi_start = planned_poi_bars == 8 ? 0 : 4;
+    ) : (
+      poi_start_min = planned_total_bars >= 16 ? max(1, floor(planned_total_bars * 0.5) - 2) : max(1, floor(planned_total_bars * 0.4));
+      poi_start_max = planned_total_bars - planned_poi_bars - 1;
+      poi_start_min > poi_start_max ? poi_start_min = poi_start_max;
+      planned_poi_start = poi_start_min + hash_pick(max(1, poi_start_max - poi_start_min + 1), planned_total_bars, planned_poi_bars, planned_tempo_band, 81, 0);
+    );
+  );
+
+  score_riff = riff_amount + (planned_tempo_band <= BAND_BLEND ? 16 : -6) + hash01(91, planned_tempo_band, 0, 0, 0) * 12;
+  score_weight = weight_amount + (planned_tempo_band >= BAND_BLEND ? 12 : -10) + hash01(92, planned_tempo_band, 0, 0, 0) * 12;
+  planned_poi_lead = score_weight > score_riff ? LAYER_WEIGHT : LAYER_RIFF;
+  planned_tempo_band <= BAND_MID && hash_hit(40, planned_total_bars, planned_poi_bars, planned_tempo_band, 93, 0) ? planned_poi_lead = LAYER_RIFF;
+  planned_tempo_band >= BAND_THRASH && hash_hit(40, planned_total_bars, planned_poi_bars, planned_tempo_band, 94, 0) ? planned_poi_lead = LAYER_WEIGHT;
+
+  bar_i = 0;
+  while (bar_i < MAX_BARS) (
+    bar_class[bar_i] = CLASS_MAIN;
+    bar_lead_layer[bar_i] = choose_primary_lead(planned_tempo_band);
+    bar_support_layer[bar_i] = choose_support_layer(bar_lead_layer[bar_i], planned_tempo_band);
+    bar_cymbal_mode[bar_i] = choose_cymbal_mode(CLASS_MAIN, bar_lead_layer[bar_i], planned_tempo_band, bar_i);
+    bar_halftime[bar_i] = 0;
+    bar_fill_owner[bar_i] = -1;
+    bar_turn_pickup[bar_i] = 0;
+    bar_i += 1;
+  );
+
+  bar_i = 0;
+  while (bar_i < planned_total_bars) (
+    bar_i == (planned_total_bars - 1) ? bar_class[bar_i] = CLASS_TURNAROUND :
+    planned_poi_bars > 0 && bar_i >= planned_poi_start && bar_i < (planned_poi_start + planned_poi_bars) ? (
+      bar_class[bar_i] = bar_i == planned_poi_start ? CLASS_POI_MAIN : CLASS_POI_VARIATION;
+      bar_lead_layer[bar_i] = planned_poi_lead;
+      bar_support_layer[bar_i] = choose_support_layer(planned_poi_lead, planned_tempo_band);
+    ) :
+    planned_total_bars <= 3 ? (
+      bar_i == 0 ? bar_class[bar_i] = CLASS_MAIN : bar_class[bar_i] = CLASS_VARIATION;
+    ) :
+    planned_total_bars == 4 ? (
+      bar_i == 1 ? bar_class[bar_i] = CLASS_VARIATION;
+      bar_i == 2 ? bar_class[bar_i] = CLASS_PRE_FILL;
+    ) :
+    planned_total_bars < 8 ? (
+      develop_hit = hash_hit(55, bar_i, planned_total_bars, 95, 0, 0);
+      bar_i == (planned_total_bars - 2) ? bar_class[bar_i] = CLASS_FILL :
+      bar_i == max(1, floor((planned_total_bars - 1) * 0.5)) ? bar_class[bar_i] = CLASS_VARIATION :
+      develop_hit && (bar_i > 0) ? bar_class[bar_i] = CLASS_PRE_FILL;
+    ) :
+    (
+      bar_i == (planned_poi_start - 1) && bar_i > 0 ? bar_class[bar_i] = CLASS_PRE_FILL :
+      ((bar_i + 1) % 4) == 0 && bar_i < (planned_total_bars - 1) ? bar_class[bar_i] = CLASS_VARIATION :
+      hash_hit(layer_variation(bar_lead_layer[bar_i]) * 0.55, bar_i, planned_total_bars, 96, 0, 0) && bar_i > 0 ? bar_class[bar_i] = CLASS_VARIATION;
+    );
+
+    bar_class[bar_i] == CLASS_FILL || bar_class[bar_i] == CLASS_TURNAROUND ? (
+      bar_fill_owner[bar_i] = choose_fill_owner(bar_class[bar_i], planned_tempo_band, bar_i);
+    );
+    bar_class[bar_i] == CLASS_PRE_FILL && hash_hit(fill_frequency * 0.55, bar_i, 97, 0, 0, 0) ? bar_fill_owner[bar_i] = choose_fill_owner(CLASS_FILL, planned_tempo_band, bar_i);
+    bar_class[bar_i] == CLASS_POI_VARIATION && hash_hit(poi_intensity * 0.45, bar_i, 98, planned_poi_lead, 0, 0) ? bar_fill_owner[bar_i] = planned_poi_lead;
+
+    bar_halftime[bar_i] = choose_halftime(bar_class[bar_i], bar_lead_layer[bar_i], planned_tempo_band, bar_i);
+    bar_cymbal_mode[bar_i] = choose_cymbal_mode(bar_class[bar_i], bar_lead_layer[bar_i], planned_tempo_band, bar_i);
+    bar_i += 1;
+  );
+
+  planned_turnaround_type = choose_fill_owner(CLASS_TURNAROUND, planned_tempo_band, planned_total_bars - 1);
+  planned_total_bars > 0 ? bar_turn_pickup[planned_total_bars - 1] = choose_loop_pickup();
+  form_dirty = 0;
+);
+
+function role_timing_ms(layer_i, role_i, bar_i, step_i, cycle_bar_i, sub_i) local(base_ms, lag_ms, class_i, tight_amt)
+(
+  base_ms = planned_tempo_band == BAND_HYPER ? 4 :
+    planned_tempo_band == BAND_THRASH ? 5 :
+    planned_tempo_band == BAND_BLEND ? 7 :
+    planned_tempo_band == BAND_MID ? 9 :
+    11;
+  tight_amt = clampi(groove_tightness, 0, 100);
+  lag_ms = base_ms * (100 - tight_amt) * 0.008;
+  cycle_bar_i >= 0 ? class_i = bar_class_value(cycle_bar_i) : class_i = CLASS_MAIN;
+
+  layer_i == LAYER_PRECISION ? lag_ms *= 0.35;
+  layer_i == LAYER_RIFF ? lag_ms *= 0.75;
+  layer_i == LAYER_WEIGHT ? lag_ms *= 1.10;
+
+  role_i == 0 ? lag_ms *= 0.55;
+  role_i == 1 ? lag_ms *= 0.70;
+  role_i >= 7 && role_i <= 9 ? lag_ms *= 1.20;
+
+  class_i == CLASS_TURNAROUND && step_i >= 12 ? lag_ms *= 0.65;
+  class_i == CLASS_POI_MAIN && layer_i == bar_lead_value(cycle_bar_i) ? lag_ms *= 0.80;
+  sub_i ? lag_ms += base_ms * 0.15;
+
+  max(0, lag_ms);
+);
+
+function queue_note_off(chan_i, note_i, abs_time_i) local(next_tail)
+(
+  queue_note_off = 0;
+  next_tail = queue_tail + 1;
+  next_tail >= QUEUE_SIZE ? next_tail = 0;
+  next_tail != queue_head ? (
+    off_time[queue_tail] = abs_time_i;
+    off_chan[queue_tail] = chan_i;
+    off_note[queue_tail] = note_i;
+    queue_tail = next_tail;
+    queue_note_off = 1;
+  );
+);
+
+function flush_all_note_offs() local(i, repeat_count, note_i, chan_i, guard, repeat_guard)
+(
+  guard = 0;
+  while ((queue_head != queue_tail) && (guard < QUEUE_SIZE)) (
+    queue_head += 1;
+    queue_head >= QUEUE_SIZE ? queue_head = 0;
+    guard += 1;
+  );
+  queue_head = 0;
+  queue_tail = 0;
+
+  i = 0;
+  while (i < (16 * 128)) (
+    repeat_count = active_note_count[i];
+    note_i = i % 128;
+    chan_i = floor(i / 128);
+    repeat_guard = 0;
+    while ((repeat_count > 0) && (repeat_guard < 64)) (
+      midisend(0, 128 | chan_i, note_i);
+      repeat_count -= 1;
+      repeat_guard += 1;
+    );
+    active_note_count[i] = 0;
+    i += 1;
+  );
+);
+
+function flush_due_note_offs() local(rel_spl, chan_i, note_i, active_idx, guard)
+(
+  guard = 0;
+  while (
+    (queue_head != queue_tail) &&
+    (off_time[queue_head] < block_abs_end) &&
+    (guard < QUEUE_SIZE)
+  ) (
+    rel_spl = off_time[queue_head] - block_abs_start;
+    rel_spl < 0 ? rel_spl = 0;
+    rel_spl >= samplesblock ? rel_spl = samplesblock - 1;
+
+    chan_i = off_chan[queue_head];
+    note_i = off_note[queue_head];
+    midisend(rel_spl, 128 | chan_i, note_i);
+
+    active_idx = active_note_index(chan_i, note_i);
+    active_note_count[active_idx] > 0 ? active_note_count[active_idx] -= 1;
+
+    queue_head += 1;
+    queue_head >= QUEUE_SIZE ? queue_head = 0;
+    guard += 1;
+  );
+);
+
+function trigger_role(layer_i, role_i, base_vel, rel_offset, bar_i, step_i, cycle_bar_i, sub_i) local(pad_i, note_i, chan_i, vel_i, note_off_at, active_idx, hit_offset, timing_spl, sub_offset)
+(
+  base_vel > 0 ? (
+    pad_i = get_pad_for_role(layer_i, role_i);
+    note_i = get_pad_note(layer_i, pad_i);
+    chan_i = layer_channel_zero(layer_i);
+    vel_i = scaled_velocity(layer_i, base_vel);
+    timing_spl = ms_to_samples(role_timing_ms(layer_i, role_i, bar_i, step_i, cycle_bar_i, sub_i));
+    sub_offset = sub_i ? floor(step_samples * 0.5 + 0.5) : 0;
+    hit_offset = rel_offset + sub_offset + timing_spl;
+    hit_offset < 0 ? hit_offset = 0;
+    hit_offset >= samplesblock ? hit_offset = samplesblock - 1;
+    note_off_at = block_abs_start + hit_offset + note_len_samples;
+
+    queue_note_off(chan_i, note_i, note_off_at) ? (
+      midisend(hit_offset, 144 | chan_i, note_i | (vel_i * 256));
+      layer_activity[layer_pad_index(layer_i, pad_i)] = min(1.4, layer_activity[layer_pad_index(layer_i, pad_i)] + 0.65);
+      slot_activity[pad_i] = min(1.6, slot_activity[pad_i] + 0.55);
+      active_idx = active_note_index(chan_i, note_i);
+      active_note_count[active_idx] += 1;
+    );
+  );
+);
+
+function queue_ui_audition(layer_i, pad_i)
+(
+  ui_audition_pending = 1;
+  ui_audition_layer = layer_i;
+  ui_audition_pad = pad_i;
+);
+
+function is_downbeat_step(step_i)
+(
+  (step_i % 4) == 0;
+);
+
+function is_eighth_step(step_i)
+(
+  (step_i % 2) == 0;
+);
+
+function is_backbeat_step(step_i, halftime_i)
+(
+  halftime_i ? (step_i == 8) : ((step_i == 4) || (step_i == 12));
+);
+
+function riff_motif_step(motif_i, step_i)
+(
+  motif_i == 0 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 10)) :
+  motif_i == 1 ? ((step_i == 0) || (step_i == 4) || (step_i == 7) || (step_i == 10) || (step_i == 12)) :
+  motif_i == 2 ? ((step_i == 0) || (step_i == 5) || (step_i == 8) || (step_i == 11) || (step_i == 14)) :
+  ((step_i == 2) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 15));
+);
+
+function weight_motif_step(motif_i, step_i)
+(
+  motif_i == 0 ? ((step_i == 0) || (step_i == 6) || (step_i == 8) || (step_i == 14)) :
+  motif_i == 1 ? ((step_i == 0) || (step_i == 4) || (step_i == 8) || (step_i == 12)) :
+  motif_i == 2 ? ((step_i == 2) || (step_i == 6) || (step_i == 10) || (step_i == 14)) :
+  ((step_i == 0) || (step_i == 3) || (step_i == 8) || (step_i == 11) || (step_i == 15));
+);
+
+function precision_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, lead_i, cym_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, vel_i, extra_prob, base_hat_density, substyle_i, turn_boost_i)
+(
+  density_i = layer_density(LAYER_PRECISION);
+  variation_i = layer_variation(LAYER_PRECISION);
+  class_i = bar_class_value(cycle_bar_i);
+  lead_i = bar_lead_value(cycle_bar_i);
+  cym_i = bar_cymbal_value(cycle_bar_i);
+  halftime_i = bar_halftime_value(cycle_bar_i);
+  fill_owner_i = bar_fill_owner_value(cycle_bar_i);
+  major_fill_i = (fill_owner_i == LAYER_PRECISION) && ((class_i == CLASS_FILL) || (class_i == CLASS_TURNAROUND) || (class_i == CLASS_POI_VARIATION));
+  simplify_i = (fill_owner_i >= 0) && (fill_owner_i != LAYER_PRECISION) && ((class_i == CLASS_FILL) || (class_i == CLASS_TURNAROUND));
+  substyle_i = floor(precision_substyle + 0.5);
+  turn_boost_i = class_i == CLASS_TURNAROUND ? max(0, turnaround_intensity - 45) * 0.35 : 0;
+  vel_i = 0;
+  extra_prob = (kick_density + density_i + precision_amount + tribal_weight * 0.35) / 3.35;
+  lead_i == LAYER_WEIGHT && cym_i == CYMBAL_TOM ? extra_prob -= tribal_weight * 0.18;
+
+  role_i == 0 ? (
+    !sub_i ? (
+      step_i == 0 ? vel_i = 116;
+      !halftime_i && step_i == 8 ? vel_i = max(vel_i, 110);
+      !halftime_i && class_i != CLASS_FILL && class_i != CLASS_TURNAROUND && step_i == 12 && hash_hit(extra_prob - 18, cycle_bar_i, step_i, 125, 0, 0) ? vel_i = max(vel_i, 92);
+      halftime_i && step_i == 10 ? vel_i = max(vel_i, 100);
+      is_downbeat_step(step_i) && planned_tempo_band >= BAND_BLEND && hash_hit(extra_prob - 14, cycle_bar_i, step_i, role_i, 1, 0) ? vel_i = max(vel_i, 96);
+      ((substyle_i == 0) && ((step_i == 6) || (step_i == 11) || (step_i == 14)) && hash_hit(extra_prob - 10, cycle_bar_i, step_i, 101, 0, 0)) ? vel_i = max(vel_i, 96);
+      ((substyle_i == 1) && ((step_i == 3) || (step_i == 7) || (step_i == 10) || (step_i == 14)) && hash_hit(extra_prob, cycle_bar_i, step_i, 102, 0, 0)) ? vel_i = max(vel_i, 94);
+      ((substyle_i == 2) && ((step_i == 6) || (step_i == 10) || (step_i == 14)) && hash_hit(extra_prob - 4, cycle_bar_i, step_i, 103, 0, 0)) ? vel_i = max(vel_i, 95);
+      major_fill_i && (step_i >= 12) ? vel_i = max(vel_i, 102);
+      class_i == CLASS_TURNAROUND && bar_turn_pickup[cycle_bar_i] && step_i == 15 ? vel_i = max(vel_i, 90 + turn_boost_i);
+    ) : (
+      (planned_tempo_band >= BAND_THRASH || doubletime_bias > 55 || major_fill_i) && ((step_i == 14) || (step_i == 15) || (major_fill_i && step_i == 13)) ? vel_i = 92;
+      class_i == CLASS_TURNAROUND && bar_turn_pickup[cycle_bar_i] && step_i == 15 ? vel_i = max(vel_i, 98 + turn_boost_i);
+    );
+  );
+
+  role_i == 1 ? (
+    !sub_i ? (
+      is_backbeat_step(step_i, 0) ? vel_i = 114;
+      halftime_i && step_i == 8 ? vel_i = max(vel_i, 104);
+      !halftime_i && is_backbeat_step(step_i, 0) && class_i == CLASS_TURNAROUND ? vel_i = max(vel_i, 118);
+      class_i == CLASS_PRE_FILL && step_i == 15 && hash_hit(fill_frequency, cycle_bar_i, 104, 0, 0, 0) ? vel_i = max(vel_i, 86);
+      class_i == CLASS_TURNAROUND && fill_owner_i == LAYER_PRECISION && step_i == 15 ? vel_i = max(vel_i, 100 + turn_boost_i);
+    ) : (
+      major_fill_i && ((step_i == 14) || (step_i == 15)) ? vel_i = 84 + turn_boost_i * 0.5;
+    );
+  );
+
+  role_i == 2 ? (
+    base_hat_density = planned_tempo_band >= BAND_THRASH ? 95 : planned_tempo_band == BAND_BLEND ? 78 : 60;
+    (!simplify_i && (cym_i == CYMBAL_HAT) && !sub_i) ? (
+      (density_i + doubletime_bias > base_hat_density && !halftime_i) ? (
+        vel_i = is_eighth_step(step_i) ? (step_i % 4 == 0 ? 84 : 74) : (density_i + doubletime_bias > 88 ? 68 : 0);
+      ) : (
+        is_downbeat_step(step_i) ? vel_i = 80;
+      );
+    );
+  );
+
+  role_i == 3 ? (
+    !simplify_i && !sub_i && ((cym_i == CYMBAL_OPEN) || (cym_i == CYMBAL_HAT)) && ((step_i == 6) || (step_i == 14)) && hash_hit(cymbal_aggression, cycle_bar_i, step_i, 105, 0, 0) ? vel_i = 92;
+  );
+
+  role_i == 4 ? (
+    !simplify_i && !sub_i && (cym_i == CYMBAL_RIDE || cym_i == CYMBAL_CRASH) ? (
+      is_eighth_step(step_i) ? vel_i = (step_i % 4 == 0 ? 82 : 70);
+      cym_i == CYMBAL_CRASH && !is_eighth_step(step_i) ? vel_i = 0;
+    );
+  );
+
+  role_i == 5 ? (
+    !sub_i && step_i == 0 && ((class_i == CLASS_POI_MAIN) || (class_i == CLASS_TURNAROUND) || (cycle_bar_i == 0) || hash_hit(cymbal_aggression * 0.5, cycle_bar_i, 106, 0, 0, 0)) ? vel_i = 118;
+  );
+
+  role_i == 6 ? (
+    planned_tempo_band >= BAND_THRASH && !sub_i && ((class_i == CLASS_TURNAROUND) || ((class_i == CLASS_POI_MAIN) && step_i == 0)) && (step_i == 0) ? vel_i = 112;
+    major_fill_i && sub_i && (step_i >= 14) ? vel_i = 104;
+  );
+
+  role_i == 7 ? (
+    major_fill_i ? (
+      ((step_i == 12) && !sub_i) || ((step_i == 13) && sub_i) ? vel_i = 92;
+    ) :
+    (lead_i == LAYER_PRECISION && class_i == CLASS_POI_MAIN && !sub_i && ((step_i == 6) || (step_i == 10))) ? vel_i = 84;
+  );
+
+  role_i == 8 ? (
+    major_fill_i ? (
+      ((step_i == 13) && !sub_i) || ((step_i == 14) && sub_i) ? vel_i = 96;
+    ) :
+    (lead_i == LAYER_PRECISION && class_i == CLASS_POI_MAIN && !sub_i && (step_i == 11)) ? vel_i = 86;
+  );
+
+  role_i == 9 ? (
+    major_fill_i ? (
+      ((step_i == 14) && !sub_i) || ((step_i == 15) && sub_i) ? vel_i = 102;
+    ) :
+    (lead_i == LAYER_PRECISION && class_i == CLASS_POI_VARIATION && !sub_i && (step_i == 14)) ? vel_i = 88;
+  );
+
+  role_i == 10 ? (
+    !sub_i && is_backbeat_step(step_i, halftime_i) && ((class_i == CLASS_POI_MAIN) || (class_i == CLASS_TURNAROUND) || (substyle_i >= 1 && hash_hit(42 + variation_i * 0.3, cycle_bar_i, step_i, 107, 0, 0))) ? vel_i = 88;
+  );
+
+  role_i == 11 ? (
+    !sub_i && step_i == 15 && class_i == CLASS_PRE_FILL && hash_hit(fill_frequency * 0.6, cycle_bar_i, 108, 0, 0, 0) ? vel_i = 74;
+  );
+
+  vel_i;
+);
+
+function riff_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, lead_i, cym_i, fill_owner_i, motif_i, major_fill_i, simplify_i, vel_i, turn_boost_i, contam_prob, command_anchor_missing, halftime_i)
+(
+  density_i = layer_density(LAYER_RIFF);
+  variation_i = layer_variation(LAYER_RIFF);
+  class_i = bar_class_value(cycle_bar_i);
+  lead_i = bar_lead_value(cycle_bar_i);
+  cym_i = bar_cymbal_value(cycle_bar_i);
+  halftime_i = bar_halftime_value(cycle_bar_i);
+  fill_owner_i = bar_fill_owner_value(cycle_bar_i);
+  motif_i = hash_pick(4, floor(cycle_bar_i / 2), class_i, variation_i, 109, 0);
+  major_fill_i = (fill_owner_i == LAYER_RIFF) && ((class_i == CLASS_FILL) || (class_i == CLASS_TURNAROUND) || (class_i == CLASS_POI_VARIATION));
+  simplify_i = (fill_owner_i >= 0) && (fill_owner_i != LAYER_RIFF) && ((class_i == CLASS_FILL) || (class_i == CLASS_TURNAROUND));
+  turn_boost_i = class_i == CLASS_TURNAROUND ? max(0, turnaround_intensity - 45) * 0.35 : 0;
+  contam_prob = (density_i + variation_i + riff_amount) / 3;
+  planned_tempo_band >= BAND_THRASH ? contam_prob -= 24;
+  class_i == CLASS_POI_MAIN ? contam_prob += 12;
+  command_anchor_missing = !layer_can_emit(LAYER_PRECISION) || (fill_owner_i == LAYER_WEIGHT && (class_i == CLASS_FILL || class_i == CLASS_TURNAROUND));
+  vel_i = 0;
+
+  role_i == 0 ? (
+    !sub_i && !simplify_i && (lead_i == LAYER_RIFF) && (step_i == 0 || (class_i == CLASS_POI_MAIN && step_i == 10)) ? vel_i = 92;
+  );
+
+  role_i == 1 ? (
+    !sub_i && command_anchor_missing && is_backbeat_step(step_i, 0) ? vel_i = max(vel_i, 102);
+    !sub_i && halftime_i && command_anchor_missing && step_i == 8 ? vel_i = max(vel_i, 92);
+    !sub_i && class_i == CLASS_TURNAROUND && fill_owner_i == LAYER_RIFF && step_i == 15 ? vel_i = 96;
+  );
+
+  role_i == 2 ? (
+    !sub_i && !simplify_i && lead_i == LAYER_RIFF && cym_i == CYMBAL_HAT && is_downbeat_step(step_i) ? vel_i = 72;
+  );
+
+  role_i == 3 ? (
+    !sub_i && !simplify_i && lead_i == LAYER_RIFF && ((step_i == 6) || (step_i == 14)) && hash_hit(cymbal_aggression * 0.45, cycle_bar_i, 110, 0, 0, 0) ? vel_i = 84;
+  );
+
+  role_i == 4 ? (
+    !sub_i && !simplify_i && lead_i == LAYER_RIFF && cym_i == CYMBAL_RIDE && is_eighth_step(step_i) ? vel_i = 76;
+  );
+
+  role_i == 5 ? (
+    !sub_i && step_i == 0 && ((class_i == CLASS_POI_MAIN) || (class_i == CLASS_TURNAROUND) || (cycle_bar_i == planned_poi_start)) ? vel_i = 112;
+  );
+
+  role_i == 6 ? (
+    !sub_i && class_i == CLASS_TURNAROUND && fill_owner_i == LAYER_RIFF && step_i == 15 ? vel_i = 104 + turn_boost_i;
+  );
+
+  role_i == 7 ? (
+    major_fill_i ? (
+      (!sub_i && (step_i == 12 || step_i == 13)) || (sub_i && step_i == 13) ? vel_i = 94;
+    ) :
+    !simplify_i && riff_motif_step(motif_i, step_i) && !sub_i && (step_i < 12 || lead_i == LAYER_RIFF) && hash_hit(contam_prob, cycle_bar_i, step_i, 118, 0, 0) ? vel_i = (step_i % 8 == 0 ? 94 : 84);
+  );
+
+  role_i == 8 ? (
+    major_fill_i ? (
+      (!sub_i && (step_i == 14)) || (sub_i && step_i == 14) ? vel_i = 98;
+    ) :
+    !simplify_i && riff_motif_step(motif_i, step_i) && !sub_i && ((step_i == 6) || (step_i == 10) || (step_i == 11)) && hash_hit(contam_prob + 8, cycle_bar_i, step_i, 119, 0, 0) ? vel_i = 90;
+  );
+
+  role_i == 9 ? (
+    major_fill_i ? (
+      (!sub_i && (step_i == 15)) || (sub_i && step_i == 15) ? vel_i = 104;
+    ) :
+    !simplify_i && riff_motif_step(motif_i, step_i) && !sub_i && ((step_i == 0) || (step_i == 3) || (step_i == 12) || (step_i == 15)) && hash_hit(contam_prob + 12, cycle_bar_i, step_i, 120, 0, 0) ? vel_i = 96;
+    class_i == CLASS_TURNAROUND && bar_turn_pickup[cycle_bar_i] && step_i == 15 ? vel_i = max(vel_i, 102 + turn_boost_i);
+  );
+
+  role_i == 10 ? (
+    !sub_i && step_i == 0 && class_i == CLASS_POI_MAIN && hash_hit(cymbal_aggression * 0.35, cycle_bar_i, 111, 0, 0, 0) ? vel_i = 84;
+  );
+
+  role_i == 11 ? (
+    !sub_i && !simplify_i && riff_motif_step(motif_i, step_i) && ((step_i == 7) || (step_i == 15)) && hash_hit(contam_prob + 10, cycle_bar_i, step_i, 121, 0, 0) ? vel_i = 74;
+  );
+
+  vel_i;
+);
+
+function weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, lead_i, support_i, cym_i, fill_owner_i, motif_i, major_fill_i, simplify_i, vel_i, motif_prob, turn_boost_i)
+(
+  density_i = layer_density(LAYER_WEIGHT);
+  variation_i = layer_variation(LAYER_WEIGHT);
+  class_i = bar_class_value(cycle_bar_i);
+  lead_i = bar_lead_value(cycle_bar_i);
+  support_i = bar_support_value(cycle_bar_i);
+  cym_i = bar_cymbal_value(cycle_bar_i);
+  fill_owner_i = bar_fill_owner_value(cycle_bar_i);
+  motif_i = hash_pick(4, floor(cycle_bar_i / 2), class_i, variation_i, 112, 0);
+  major_fill_i = (fill_owner_i == LAYER_WEIGHT) && ((class_i == CLASS_FILL) || (class_i == CLASS_TURNAROUND) || (class_i == CLASS_POI_VARIATION));
+  simplify_i = (fill_owner_i >= 0) && (fill_owner_i != LAYER_WEIGHT) && ((class_i == CLASS_FILL) || (class_i == CLASS_TURNAROUND));
+  motif_prob = (density_i + tribal_weight + weight_amount) / 3;
+  planned_tempo_band == BAND_BLEND ? motif_prob += 8;
+  planned_tempo_band >= BAND_THRASH ? motif_prob += 18;
+  planned_tempo_band == BAND_HYPER ? motif_prob += 10;
+  turn_boost_i = class_i == CLASS_TURNAROUND ? max(0, turnaround_intensity - 45) * 0.35 : 0;
+  vel_i = 0;
+
+  role_i == 0 ? (
+    !sub_i && !simplify_i && ((support_i == LAYER_WEIGHT && planned_tempo_band <= BAND_BLEND && step_i == 0) || ((lead_i == LAYER_WEIGHT || planned_tempo_band >= BAND_THRASH) && ((step_i == 0) || (step_i == 12)) && hash_hit(motif_prob, cycle_bar_i, step_i, 122, 0, 0))) ? vel_i = 82;
+  );
+
+  role_i == 1 ? (
+    !sub_i && !simplify_i && class_i == CLASS_POI_VARIATION && step_i == 12 && hash_hit(tribal_weight * 0.55, cycle_bar_i, 113, 0, 0, 0) ? vel_i = 84;
+  );
+
+  role_i == 2 ? (
+    !sub_i && !simplify_i && planned_tempo_band >= BAND_THRASH && (lead_i == LAYER_WEIGHT || class_i == CLASS_POI_MAIN) && is_eighth_step(step_i) && hash_hit(motif_prob, cycle_bar_i, step_i, 123, 0, 0) ? vel_i = (step_i % 4 == 0 ? 68 : 60);
+  );
+
+  role_i == 3 ? (
+    !sub_i && !simplify_i && planned_tempo_band >= BAND_THRASH && ((step_i == 6) || (step_i == 14)) && hash_hit(motif_prob + 6, cycle_bar_i, step_i, 124, 0, 0) ? vel_i = 78;
+  );
+
+  role_i == 5 ? (
+    !sub_i && step_i == 0 && ((class_i == CLASS_POI_MAIN) || (class_i == CLASS_TURNAROUND)) ? vel_i = 108;
+  );
+
+  role_i == 7 ? (
+    major_fill_i ? (
+      (!sub_i && step_i == 13) || (sub_i && step_i == 14) ? vel_i = 88;
+    ) :
+    !simplify_i && weight_motif_step(motif_i, step_i) && !sub_i && ((step_i == 2) || (step_i == 10) || (step_i == 14)) && hash_hit(motif_prob, cycle_bar_i, step_i, 114, 0, 0) ? vel_i = 82;
+  );
+
+  role_i == 8 ? (
+    major_fill_i ? (
+      (!sub_i && step_i == 14) || (sub_i && step_i == 15) ? vel_i = 94;
+    ) :
+    !simplify_i && weight_motif_step(motif_i, step_i) && !sub_i && ((step_i == 4) || (step_i == 8) || (step_i == 11)) && hash_hit(motif_prob + 8, cycle_bar_i, step_i, 115, 0, 0) ? vel_i = 92;
+  );
+
+  role_i == 9 ? (
+    major_fill_i ? (
+      (!sub_i && (step_i == 12 || step_i == 15)) || (sub_i && step_i == 15) ? vel_i = 106;
+    ) :
+    !simplify_i && weight_motif_step(motif_i, step_i) && !sub_i && hash_hit(motif_prob + 12, cycle_bar_i, step_i, 116, 0, 0) ? vel_i = ((step_i == 0) || (step_i == 8)) ? 102 : 96;
+    class_i == CLASS_TURNAROUND && bar_turn_pickup[cycle_bar_i] && step_i == 15 ? vel_i = max(vel_i, 98 + turn_boost_i);
+  );
+
+  role_i == 11 ? (
+    !sub_i && !simplify_i && (lead_i == LAYER_WEIGHT || class_i == CLASS_POI_MAIN) && ((step_i == 3) || (step_i == 11) || (step_i == 15)) && hash_hit(tribal_weight * 0.55, cycle_bar_i, step_i, 117, 0, 0) ? vel_i = 76;
+  );
+
+  !sub_i && !simplify_i && planned_tempo_band >= BAND_THRASH && cym_i == CYMBAL_TOM && role_i == 2 && is_downbeat_step(step_i) ? vel_i = 58;
+  vel_i;
+);
+
+function layer_role_velocity(layer_i, role_i, bar_i, step_i, cycle_bar_i, sub_i)
+(
+  layer_i == LAYER_PRECISION ? precision_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) :
+  layer_i == LAYER_RIFF ? riff_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) :
+  weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i);
+);
+
+function fire_step_for_layer(layer_i, bar_i, step_i, cycle_bar_i, rel_offset) local(role_i, vel_i)
+(
+  layer_can_emit(layer_i) ? (
+    role_i = 0;
+    while (role_i < NUM_PADS) (
+      vel_i = layer_role_velocity(layer_i, role_i, bar_i, step_i, cycle_bar_i, 0);
+      vel_i > 0 ? trigger_role(layer_i, role_i, vel_i, rel_offset, bar_i, step_i, cycle_bar_i, 0);
+      vel_i = layer_role_velocity(layer_i, role_i, bar_i, step_i, cycle_bar_i, 1);
+      vel_i > 0 ? trigger_role(layer_i, role_i, vel_i, rel_offset, bar_i, step_i, cycle_bar_i, 1);
+      role_i += 1;
+    );
+  );
+);
+
+function in_rect(mx, my, x, y, w, h)
+(
+  (mx >= x) && (mx < (x + w)) && (my >= y) && (my < (y + h));
+);
+
+function init_persistent_state() local(layer_i, pad_i)
+(
+  layer_i = 0;
+  while (layer_i < NUM_LAYERS) (
+    pad_i = 0;
+    while (pad_i < NUM_PADS) (
+      role_to_pad[layer_pad_index(layer_i, pad_i)] = pad_i;
+      pad_i += 1;
+    );
+    layer_i += 1;
+  );
+
+  persistent_magic != 778812 ? (
+    selected_pad = 0;
+    edit_layer = 0;
+    preview_mode = 0;
+    host_sliders_visible = 0;
+    last_host_sliders_visible = -1;
+    layer_i = 0;
+    while (layer_i < NUM_LAYERS) (
+      pad_i = 0;
+      while (pad_i < NUM_PADS) (
+        set_pad_note(layer_i, pad_i, default_note(layer_i, pad_i));
+        pad_i += 1;
+      );
+      layer_i += 1;
+    );
+
+    persistent_magic = 778812;
+  );
+);
+
+function reset_runtime_state() local(layer_i, pad_i, i)
+(
+  i = 0;
+  while (i < NUM_PADS) (
+    slot_activity[i] = 0;
+    i += 1;
+  );
+
+  i = 0;
+  while (i < (16 * 128)) (
+    active_note_count[i] = 0;
+    i += 1;
+  );
+
+  layer_i = 0;
+  while (layer_i < NUM_LAYERS) (
+    pad_i = 0;
+    while (pad_i < NUM_PADS) (
+      layer_activity[layer_pad_index(layer_i, pad_i)] = 0;
+      pad_i += 1;
+    );
+    layer_i += 1;
+  );
+
+  queue_head = 0;
+  queue_tail = 0;
+  ui_audition_pending = 0;
+  ui_audition_layer = 0;
+  ui_audition_pad = 0;
+  last_mouse_down = 0;
+  note_drag_active = 0;
+  note_drag_layer = 0;
+  note_drag_pad = 0;
+  note_drag_start_y = 0;
+  note_drag_origin = 0;
+  layer_row_drag_active = 0;
+  layer_row_drag_layer = 0;
+  layer_row_drag_row = 0;
+  layer_row_drag_start_y = 0;
+  layer_row_drag_origin = 0;
+  global_drag_active = 0;
+  global_drag_control = 0;
+  global_drag_start_y = 0;
+  global_drag_origin = 0;
+  last_host_sliders_visible = -1;
+  transport_is_playing = 0;
+  current_cycle_step = 0;
+  current_bar = 0;
+  current_step_in_bar = 0;
+  current_substep = 0;
+  cycle_steps = 128;
+  last_transport_is_playing = 0;
+  last_beat_position = 0;
+  last_block_beats = 0;
+  abs_sample_clock = 0;
+  block_abs_start = 0;
+  block_abs_end = 0;
+  step_samples = 0;
+  note_len_samples = 0;
+  form_dirty = 1;
+  planned_total_bars = 0;
+  planned_poi_start = 0;
+  planned_poi_bars = 0;
+  planned_poi_lead = 0;
+  planned_tempo_band = 0;
+  planned_turnaround_type = 0;
+);
+
+init_persistent_state();
+reset_runtime_state();
+
+@serialize
+
+file_var(0, persistent_magic);
+file_var(0, selected_pad);
+file_var(0, edit_layer);
+file_var(0, preview_mode);
+file_var(0, host_sliders_visible);
+
+layer_i = 0;
+while (layer_i < NUM_LAYERS) (
+  pad_i = 0;
+  while (pad_i < NUM_PADS) (
+    note_tmp = pad_note[layer_pad_index(layer_i, pad_i)];
+    file_var(0, note_tmp);
+    pad_note[layer_pad_index(layer_i, pad_i)] = note_tmp;
+    pad_i += 1;
+  );
+  layer_i += 1;
+);
+
+@block
+
+while (midirecv(offset, msg1, msg23)) (
+  midisend(offset, msg1, msg23);
+);
+
+transport_is_playing = play_state & 1;
+form_dirty || (planned_total_bars != clampi(floor(total_bars + 0.5), 1, MAX_BARS)) || (planned_tempo_band != tempo_band_for_bpm(max(tempo, 1))) || (planned_poi_bars != (clampi(floor(total_bars + 0.5), 1, MAX_BARS) >= 8 ? (poi_length < 6 ? 4 : 8) : 0)) ? plan_form();
+
+cycle_steps = planned_total_bars * 16;
+step_samples = srate * 60 / max(tempo, 1) / 4;
+note_len_samples = floor(step_samples * master_note_length * 0.01 + 0.5);
+note_len_samples < 1 ? note_len_samples = 1;
+
+block_abs_start = abs_sample_clock;
+block_abs_end = block_abs_start + samplesblock;
+
+transport_step_abs = floor((beat_position / STEP_BEATS) + 0.000001);
+current_cycle_step = transport_step_abs % cycle_steps;
+current_cycle_step < 0 ? current_cycle_step += cycle_steps;
+current_bar = floor(current_cycle_step / 16);
+current_step_in_bar = current_cycle_step % 16;
+current_substep = 0;
+
+transport_jump = 0;
+!transport_is_playing && last_transport_is_playing ? transport_jump = 1;
+transport_is_playing && last_transport_is_playing ? (
+  expected_beat_position = last_beat_position + last_block_beats;
+  abs(beat_position - expected_beat_position) > (STEP_BEATS * 0.5) ? transport_jump = 1;
+  beat_position + 0.000001 < last_beat_position ? transport_jump = 1;
+);
+
+transport_jump ? flush_all_note_offs();
+flush_due_note_offs();
+
+ui_audition_pending ? (
+  audition_role = role_for_pad(ui_audition_layer, ui_audition_pad);
+  trigger_role(ui_audition_layer, audition_role, 100, 0, -1, -1, -1, 0);
+  ui_audition_pending = 0;
+);
+
+transport_is_playing ? (
+  block_beats = samplesblock * tempo / 60 / srate;
+  block_start_beats = beat_position;
+  block_end_beats = beat_position + block_beats;
+
+  step_index = floor((block_start_beats / STEP_BEATS) + 0.000001);
+  step_time = step_index * STEP_BEATS;
+  step_time < (block_start_beats - 0.000001) ? (
+    step_index += 1;
+    step_time += STEP_BEATS;
+  );
+
+  step_guard = 0;
+  while ((step_time < (block_end_beats - 0.000001)) && (step_guard < 512)) (
+    cycle_step = step_index % cycle_steps;
+    cycle_step < 0 ? cycle_step += cycle_steps;
+
+    cycle_bar_i = floor(cycle_step / 16);
+    bar_i = cycle_bar_i;
+    step_i = cycle_step % 16;
+
+    rel_offset = floor(((step_time - block_start_beats) * 60 / max(tempo, 1) * srate) + 0.5);
+    rel_offset < 0 ? rel_offset = 0;
+    rel_offset >= samplesblock ? rel_offset = samplesblock - 1;
+
+    fire_step_for_layer(LAYER_MOTORIK, bar_i, step_i, cycle_bar_i, rel_offset);
+    fire_step_for_layer(LAYER_BREAKBEAT, bar_i, step_i, cycle_bar_i, rel_offset);
+    fire_step_for_layer(LAYER_PERC, bar_i, step_i, cycle_bar_i, rel_offset);
+
+    step_index += 1;
+    step_time += STEP_BEATS;
+    step_guard += 1;
+  );
+  last_block_beats = block_beats;
+) : (
+  last_block_beats = 0;
+);
+
+last_transport_is_playing = transport_is_playing;
+last_beat_position = beat_position;
+abs_sample_clock = block_abs_end;
+
+@gfx
+
+ui_scale = ui_scale_pct * 0.01;
+
+gfx_clear = 0x101418;
+gfx_setfont(1, "Verdana", floor(21 * ui_scale));
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+
+mouse_down = mouse_cap & 1;
+click = mouse_down && !last_mouse_down;
+mouse_shift = mouse_cap & 8;
+
+host_sliders_visible = floor(host_sliders_visible + 0.5);
+host_sliders_visible = clampi(host_sliders_visible, 0, 1);
+host_sliders_visible != last_host_sliders_visible ? (
+  slider_show(ALL_SLIDER_MASK, host_sliders_visible);
+  last_host_sliders_visible = host_sliders_visible;
+);
+
+margin = 16 * ui_scale;
+gap = 12 * ui_scale;
+header_h = 48 * ui_scale;
+strip_h = 188 * ui_scale;
+tabs_h = 38 * ui_scale;
+globals_h = 118 * ui_scale;
+
+top_y = margin;
+header_y = top_y;
+strip_y = header_y + header_h + gap;
+tabs_y = strip_y + strip_h + gap;
+globals_y = tabs_y + tabs_h + gap;
+content_y = globals_y + globals_h + gap;
+content_h = gfx_h - content_y - margin;
+content_h < (260 * ui_scale) ? content_h = 260 * ui_scale;
+
+right_col_w = max(300 * ui_scale, (gfx_w - margin * 2) * 0.34);
+right_col_w > (gfx_w * 0.48) ? right_col_w = gfx_w * 0.48;
+grid_w = gfx_w - margin * 2 - gap - right_col_w;
+grid_w < (380 * ui_scale) ? (
+  right_col_w = max(280 * ui_scale, gfx_w * 0.30);
+  grid_w = gfx_w - margin * 2 - gap - right_col_w;
+);
+
+grid_x = margin;
+grid_y = content_y;
+grid_h = content_h;
+
+side_x = grid_x + grid_w + gap;
+side_y = content_y;
+editor_h = 188 * ui_scale;
+editor_h > (content_h * 0.52) ? editor_h = content_h * 0.52;
+preview_h = content_h - editor_h - gap;
+preview_h < (132 * ui_scale) ? (
+  preview_h = 132 * ui_scale;
+  editor_h = content_h - preview_h - gap;
+);
+
+click ? (
+  header_ctrl_w = 20 * ui_scale;
+  header_val_w = 42 * ui_scale;
+  header_ctrl_gap = 6 * ui_scale;
+  header_group_y = header_y + 11 * ui_scale;
+  transport_box_w = 240 * ui_scale;
+  transport_box_x = margin + 320 * ui_scale;
+  bars_label_w = 30 * ui_scale;
+  poi_label_w = 24 * ui_scale;
+
+  bars_minus_x = transport_box_x + transport_box_w + 34 * ui_scale;
+  bars_value_x = bars_minus_x + header_ctrl_w + header_ctrl_gap;
+  bars_plus_x = bars_value_x + header_val_w + header_ctrl_gap;
+
+  poi_minus_x = bars_plus_x + 58 * ui_scale;
+  poi_value_x = poi_minus_x + header_ctrl_w + header_ctrl_gap;
+  poi_plus_x = poi_value_x + header_val_w + header_ctrl_gap;
+
+  in_rect(mouse_x, mouse_y, bars_minus_x, header_group_y, header_ctrl_w, 24 * ui_scale) ? set_total_bars(total_bars - 1);
+  in_rect(mouse_x, mouse_y, bars_plus_x, header_group_y, header_ctrl_w, 24 * ui_scale) ? set_total_bars(total_bars + 1);
+  in_rect(mouse_x, mouse_y, poi_minus_x, header_group_y, header_ctrl_w, 24 * ui_scale) ? set_poi_length(poi_length - 4);
+  in_rect(mouse_x, mouse_y, poi_plus_x, header_group_y, header_ctrl_w, 24 * ui_scale) ? set_poi_length(poi_length + 4);
+
+  slider_toggle_w = 122 * ui_scale;
+  slider_toggle_h = 26 * ui_scale;
+  slider_toggle_x = gfx_w - margin - slider_toggle_w;
+  slider_toggle_y = header_y + 11 * ui_scale;
+  in_rect(mouse_x, mouse_y, slider_toggle_x, slider_toggle_y, slider_toggle_w, slider_toggle_h) ? host_sliders_visible = 1 - host_sliders_visible;
+
+  panel_w = (gfx_w - margin * 2 - gap * 2) / 3;
+  panel_h = strip_h;
+  layer_i = 0;
+  while (layer_i < NUM_LAYERS) (
+    panel_x = margin + layer_i * (panel_w + gap);
+    panel_y = strip_y;
+    panel_pad = 10 * ui_scale;
+
+    bool_y = panel_y + 34 * ui_scale;
+    bool_h = 26 * ui_scale;
+    bool_w = (panel_w - panel_pad * 2 - gap * 2) / 3;
+
+    in_rect(mouse_x, mouse_y, panel_x + panel_pad, bool_y, bool_w, bool_h) ? set_layer_enabled(layer_i, 1 - layer_enabled(layer_i));
+    in_rect(mouse_x, mouse_y, panel_x + panel_pad + bool_w + gap, bool_y, bool_w, bool_h) ? set_layer_muted(layer_i, 1 - layer_muted(layer_i));
+    in_rect(mouse_x, mouse_y, panel_x + panel_pad + (bool_w + gap) * 2, bool_y, bool_w, bool_h) ? set_layer_soloed(layer_i, 1 - layer_soloed(layer_i));
+
+    row_h = 22 * ui_scale;
+    ctrl_w = 22 * ui_scale;
+    value_w = 62 * ui_scale;
+    step_x_minus = panel_x + panel_w - panel_pad - ctrl_w - value_w - ctrl_w - gap * 2;
+    row_y = panel_y + 68 * ui_scale;
+
+    in_rect(mouse_x, mouse_y, step_x_minus, row_y, ctrl_w, row_h) ? set_layer_channel(layer_i, layer_channel_display(layer_i) - 1);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h) ? set_layer_channel(layer_i, layer_channel_display(layer_i) + 1);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap, row_y, value_w, row_h) ? (
+      layer_row_drag_active = 1;
+      layer_row_drag_layer = layer_i;
+      layer_row_drag_row = 0;
+      layer_row_drag_start_y = mouse_y;
+      layer_row_drag_origin = layer_channel_display(layer_i);
+    );
+
+    row_y += row_h + 6 * ui_scale;
+    in_rect(mouse_x, mouse_y, step_x_minus, row_y, ctrl_w, row_h) ? set_layer_density(layer_i, layer_density(layer_i) - 1);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h) ? set_layer_density(layer_i, layer_density(layer_i) + 1);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap, row_y, value_w, row_h) ? (
+      layer_row_drag_active = 1;
+      layer_row_drag_layer = layer_i;
+      layer_row_drag_row = 1;
+      layer_row_drag_start_y = mouse_y;
+      layer_row_drag_origin = layer_density(layer_i);
+    );
+
+    row_y += row_h + 6 * ui_scale;
+    in_rect(mouse_x, mouse_y, step_x_minus, row_y, ctrl_w, row_h) ? set_layer_variation(layer_i, layer_variation(layer_i) - 1);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h) ? set_layer_variation(layer_i, layer_variation(layer_i) + 1);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap, row_y, value_w, row_h) ? (
+      layer_row_drag_active = 1;
+      layer_row_drag_layer = layer_i;
+      layer_row_drag_row = 2;
+      layer_row_drag_start_y = mouse_y;
+      layer_row_drag_origin = layer_variation(layer_i);
+    );
+
+    row_y += row_h + 6 * ui_scale;
+    in_rect(mouse_x, mouse_y, step_x_minus, row_y, ctrl_w, row_h) ? set_layer_velocity_scale(layer_i, layer_velocity_scale(layer_i) - 1);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h) ? set_layer_velocity_scale(layer_i, layer_velocity_scale(layer_i) + 1);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap, row_y, value_w, row_h) ? (
+      layer_row_drag_active = 1;
+      layer_row_drag_layer = layer_i;
+      layer_row_drag_row = 3;
+      layer_row_drag_start_y = mouse_y;
+      layer_row_drag_origin = layer_velocity_scale(layer_i);
+    );
+
+    layer_i += 1;
+  );
+
+  tab_w = (gfx_w - margin * 2 - gap * 4) / 5;
+  in_rect(mouse_x, mouse_y, margin, tabs_y, tab_w, tabs_h) ? edit_layer = 0;
+  in_rect(mouse_x, mouse_y, margin + tab_w + gap, tabs_y, tab_w, tabs_h) ? edit_layer = 1;
+  in_rect(mouse_x, mouse_y, margin + (tab_w + gap) * 2, tabs_y, tab_w, tabs_h) ? edit_layer = 2;
+  in_rect(mouse_x, mouse_y, margin + (tab_w + gap) * 3, tabs_y, tab_w, tabs_h) ? preview_mode = 0;
+  in_rect(mouse_x, mouse_y, margin + (tab_w + gap) * 4, tabs_y, tab_w, tabs_h) ? preview_mode = 1;
+
+  global_cols = 5;
+  global_cell_w = (gfx_w - margin * 2 - gap * (global_cols - 1)) / global_cols;
+  global_cell_h = 34 * ui_scale;
+  global_row_gap = 12 * ui_scale;
+  global_ctrl_w = 18 * ui_scale;
+  global_val_w = 68 * ui_scale;
+  global_cluster_w = global_ctrl_w + 6 * ui_scale + global_val_w + 6 * ui_scale + global_ctrl_w;
+  global_controls_y = globals_y + 38 * ui_scale;
+  control_i = 0;
+  while (control_i < 9) (
+    control_row = floor(control_i / global_cols);
+    control_col = control_i % global_cols;
+    control_x = margin + control_col * (global_cell_w + gap);
+    control_y = global_controls_y + control_row * (global_cell_h + global_row_gap);
+    minus_x = control_x + (global_cell_w - global_cluster_w) * 0.5;
+    value_x = minus_x + global_ctrl_w + 6 * ui_scale;
+    plus_x = value_x + global_val_w + 6 * ui_scale;
+
+    in_rect(mouse_x, mouse_y, minus_x, control_y + 14 * ui_scale, global_ctrl_w, 16 * ui_scale) ? adjust_global_control(control_i, control_i == 4 ? -1 : -5);
+    in_rect(mouse_x, mouse_y, value_x, control_y + 14 * ui_scale, global_val_w, 16 * ui_scale) ? (
+      global_drag_active = 1;
+      global_drag_control = control_i;
+      global_drag_start_y = mouse_y;
+      global_drag_origin = get_global_control_value(control_i);
+    );
+    in_rect(mouse_x, mouse_y, plus_x, control_y + 14 * ui_scale, global_ctrl_w, 16 * ui_scale) ? adjust_global_control(control_i, control_i == 4 ? 1 : 5);
+    control_i += 1;
+  );
+
+  cols = 4;
+  rows = 3;
+  pad_w = (grid_w - gap * (cols - 1)) / cols;
+  pad_h = (grid_h - gap * (rows - 1)) / rows;
+  pad_i = 0;
+  while (pad_i < NUM_PADS) (
+    col_i = pad_i % cols;
+    row_i = floor(pad_i / cols);
+    pad_x = grid_x + col_i * (pad_w + gap);
+    pad_y = grid_y + row_i * (pad_h + gap);
+    note_hit_x = pad_x + 8 * ui_scale;
+    note_hit_y = pad_y + 50 * ui_scale;
+    note_hit_w = pad_w - 16 * ui_scale;
+    note_hit_h = 24 * ui_scale;
+    in_rect(mouse_x, mouse_y, note_hit_x, note_hit_y, note_hit_w, note_hit_h) ? (
+      selected_pad = pad_i;
+      note_drag_active = 1;
+      note_drag_layer = edit_layer;
+      note_drag_pad = pad_i;
+      note_drag_start_y = mouse_y;
+      note_drag_origin = get_pad_note(edit_layer, pad_i);
+    ) : in_rect(mouse_x, mouse_y, pad_x, pad_y, pad_w, pad_h) ? (
+      selected_pad == pad_i ? queue_ui_audition(edit_layer, pad_i) : selected_pad = pad_i;
+    );
+    pad_i += 1;
+  );
+
+  editor_x = side_x;
+  editor_y = side_y;
+  editor_w = right_col_w;
+  editor_pad = 12 * ui_scale;
+  button_gap = 8 * ui_scale;
+  btn_w_1 = (editor_w - editor_pad * 2 - button_gap * 3) / 4;
+  big_btn_w = (editor_w - editor_pad * 2 - button_gap) / 2;
+  big_btn_h = 32 * ui_scale;
+  btn_y_2 = editor_y + editor_h - big_btn_h - 12 * ui_scale;
+  btn_y_1 = btn_y_2 - 32 * ui_scale - 8 * ui_scale;
+
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) - 12);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap), btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) - 1);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap) * 2, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) + 1);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap) * 3, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) + 12);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad, btn_y_2, big_btn_w, big_btn_h) ? set_pad_note(edit_layer, selected_pad, default_note(edit_layer, selected_pad));
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + big_btn_w + button_gap, btn_y_2, big_btn_w, big_btn_h) ? queue_ui_audition(edit_layer, selected_pad);
+);
+
+mouse_down && note_drag_active ? (
+  drag_note_step = floor((note_drag_start_y - mouse_y) / (18 * ui_scale));
+  set_pad_note(note_drag_layer, note_drag_pad, note_drag_origin + drag_note_step);
+);
+!mouse_down ? note_drag_active = 0;
+
+mouse_down && layer_row_drag_active ? (
+  drag_row_step = floor((layer_row_drag_start_y - mouse_y) / (18 * ui_scale));
+  set_layer_row_value(layer_row_drag_layer, layer_row_drag_row, layer_row_drag_origin + drag_row_step);
+);
+!mouse_down ? layer_row_drag_active = 0;
+
+mouse_down && global_drag_active ? (
+  drag_global_step = floor((global_drag_start_y - mouse_y) / (18 * ui_scale));
+  global_drag_control == 4 ? drag_global_step = drag_global_step : drag_global_step = drag_global_step * 5;
+  set_global_control_value(global_drag_control, global_drag_origin + drag_global_step);
+);
+!mouse_down ? global_drag_active = 0;
+
+mouse_shift && (mouse_wheel != 0) ? (
+  wheel_steps = floor(abs(mouse_wheel) / 60);
+  wheel_steps < 1 ? wheel_steps = 1;
+  mouse_wheel < 0 ? wheel_steps = -wheel_steps;
+  wheel_handled = 0;
+  pad_i = 0;
+  while ((pad_i < NUM_PADS) && !wheel_handled) (
+    col_i = pad_i % cols;
+    row_i = floor(pad_i / cols);
+    pad_x = grid_x + col_i * (pad_w + gap);
+    pad_y = grid_y + row_i * (pad_h + gap);
+    note_hit_x = pad_x + 8 * ui_scale;
+    note_hit_y = pad_y + 50 * ui_scale;
+    note_hit_w = pad_w - 16 * ui_scale;
+    note_hit_h = 24 * ui_scale;
+    in_rect(mouse_x, mouse_y, note_hit_x, note_hit_y, note_hit_w, note_hit_h) ? (
+      selected_pad = pad_i;
+      set_pad_note(edit_layer, pad_i, get_pad_note(edit_layer, pad_i) + wheel_steps);
+      wheel_handled = 1;
+      mouse_wheel = 0;
+    );
+    pad_i += 1;
+  );
+);
+
+last_mouse_down = mouse_down;
+
+pad_i = 0;
+while (pad_i < NUM_PADS) (
+  slot_activity[pad_i] = max(0, slot_activity[pad_i] * 0.90 - 0.01);
+  pad_i += 1;
+);
+
+layer_i = 0;
+while (layer_i < NUM_LAYERS) (
+  pad_i = 0;
+  while (pad_i < NUM_PADS) (
+    layer_activity[layer_pad_index(layer_i, pad_i)] = max(0, layer_activity[layer_pad_index(layer_i, pad_i)] * 0.90 - 0.01);
+    pad_i += 1;
+  );
+  layer_i += 1;
+);
+
+gfx_set(0.07, 0.09, 0.11, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_set(0.11, 0.14, 0.18, 1);
+gfx_rect(margin, header_y, gfx_w - margin * 2, header_h, 1);
+
+gfx_setfont(1, "Verdana", floor(21 * ui_scale));
+gfx_set(0.95, 0.96, 0.98, 1);
+gfx_x = margin + 14 * ui_scale;
+gfx_y = header_y + 10 * ui_scale;
+gfx_drawstr("DanseWerk v1");
+
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_x = margin + 210 * ui_scale;
+gfx_y = header_y + 14 * ui_scale;
+transport_is_playing ? sprintf(#header_status, "Playing") : sprintf(#header_status, "Stopped");
+gfx_drawstr(#header_status);
+
+header_ctrl_w = 20 * ui_scale;
+header_val_w = 42 * ui_scale;
+header_ctrl_gap = 6 * ui_scale;
+header_group_y = header_y + 11 * ui_scale;
+transport_box_w = 240 * ui_scale;
+transport_box_x = margin + 320 * ui_scale;
+bars_label_w = 30 * ui_scale;
+poi_label_w = 24 * ui_scale;
+
+gfx_set(0.18, 0.22, 0.28, 1);
+gfx_rect(transport_box_x, header_y + 9 * ui_scale, transport_box_w, 28 * ui_scale, 1);
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_set(0.95, 0.96, 0.98, 1);
+gfx_x = transport_box_x + 10 * ui_scale;
+gfx_y = header_y + 14 * ui_scale;
+sprintf(#header_pos, "Bar %02d  Step %02d  Cycle %02d", current_bar + 1, current_step_in_bar + 1, planned_total_bars);
+gfx_drawstr(#header_pos);
+
+bars_minus_x = transport_box_x + transport_box_w + 34 * ui_scale;
+bars_value_x = bars_minus_x + header_ctrl_w + header_ctrl_gap;
+bars_plus_x = bars_value_x + header_val_w + header_ctrl_gap;
+
+poi_minus_x = bars_plus_x + 58 * ui_scale;
+poi_value_x = poi_minus_x + header_ctrl_w + header_ctrl_gap;
+poi_plus_x = poi_value_x + header_val_w + header_ctrl_gap;
+
+gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+gfx_set(0.92, 0.94, 0.97, 1);
+gfx_x = bars_minus_x - bars_label_w;
+gfx_y = header_y + 14 * ui_scale;
+gfx_drawstr("Bars");
+gfx_x = poi_minus_x - poi_label_w;
+gfx_drawstr("POI");
+
+gfx_set(0.24, 0.27, 0.33, 1);
+gfx_rect(bars_minus_x, header_group_y, header_ctrl_w, 24 * ui_scale, 1);
+gfx_rect(bars_value_x, header_group_y, header_val_w, 24 * ui_scale, 1);
+gfx_rect(bars_plus_x, header_group_y, header_ctrl_w, 24 * ui_scale, 1);
+gfx_rect(poi_minus_x, header_group_y, header_ctrl_w, 24 * ui_scale, 1);
+gfx_rect(poi_value_x, header_group_y, header_val_w, 24 * ui_scale, 1);
+gfx_rect(poi_plus_x, header_group_y, header_ctrl_w, 24 * ui_scale, 1);
+
+gfx_set(1, 1, 1, 1);
+gfx_x = bars_minus_x + 6 * ui_scale;
+gfx_y = header_group_y + 5 * ui_scale;
+gfx_drawstr("-");
+gfx_x = bars_value_x + 15 * ui_scale;
+sprintf(#bars_ui_txt, "%d", planned_total_bars);
+gfx_drawstr(#bars_ui_txt);
+gfx_x = bars_plus_x + 5 * ui_scale;
+gfx_drawstr("+");
+
+gfx_x = poi_minus_x + 6 * ui_scale;
+gfx_y = header_group_y + 5 * ui_scale;
+gfx_drawstr("-");
+gfx_x = poi_value_x + 14 * ui_scale;
+sprintf(#poi_ui_txt, "%d", poi_length < 6 ? 4 : 8);
+gfx_drawstr(#poi_ui_txt);
+gfx_x = poi_plus_x + 5 * ui_scale;
+gfx_drawstr("+");
+
+slider_toggle_w = 122 * ui_scale;
+slider_toggle_h = 26 * ui_scale;
+slider_toggle_x = gfx_w - margin - slider_toggle_w;
+slider_toggle_y = header_y + 11 * ui_scale;
+host_sliders_visible ? gfx_set(0.54, 0.38, 0.15, 1) : gfx_set(0.19, 0.22, 0.28, 1);
+gfx_rect(slider_toggle_x, slider_toggle_y, slider_toggle_w, slider_toggle_h, 1);
+gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+gfx_set(1, 1, 1, 1);
+gfx_x = slider_toggle_x + 10 * ui_scale;
+gfx_y = slider_toggle_y + 7 * ui_scale;
+host_sliders_visible ? gfx_drawstr("Hide Sliders") : gfx_drawstr("Show Sliders");
+
+panel_w = (gfx_w - margin * 2 - gap * 2) / 3;
+layer_i = 0;
+while (layer_i < NUM_LAYERS) (
+  panel_x = margin + layer_i * (panel_w + gap);
+  panel_y = strip_y;
+  panel_pad = 10 * ui_scale;
+  panel_armed = layer_can_emit(layer_i);
+  panel_active = transport_is_playing && panel_armed;
+  panel_muted = layer_muted(layer_i);
+  panel_enabled = layer_enabled(layer_i);
+  panel_filtered = any_layer_soloed() && panel_enabled && !panel_muted && !layer_soloed(layer_i);
+
+  panel_active ? (
+    gfx_set(0.14, 0.30, 0.27, 1);
+  ) :
+  panel_armed ? (
+    gfx_set(0.17, 0.23, 0.28, 1);
+  ) :
+  panel_muted ? (
+    gfx_set(0.23, 0.16, 0.16, 1);
+  ) :
+  panel_enabled ? (
+    gfx_set(0.17, 0.18, 0.22, 1);
+  ) : (
+    gfx_set(0.12, 0.13, 0.16, 1);
+  );
+  gfx_rect(panel_x, panel_y, panel_w, strip_h, 1);
+
+  gfx_setfont(1, "Verdana", floor(18 * ui_scale));
+  gfx_set(1, 1, 1, 1);
+  gfx_x = panel_x + panel_pad;
+  gfx_y = panel_y + 8 * ui_scale;
+  layer_full_name(layer_i);
+  gfx_drawstr(#layer_full_txt);
+
+  gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+  gfx_x = panel_x + panel_w - 118 * ui_scale;
+  gfx_y = panel_y + 12 * ui_scale;
+  panel_active ? (
+    gfx_drawstr("Generating");
+  ) :
+  panel_filtered ? (
+    gfx_drawstr("Solo-filtered");
+  ) :
+  panel_muted ? (
+    gfx_drawstr("Muted");
+  ) :
+  panel_armed ? (
+    gfx_drawstr("Armed");
+  ) :
+  panel_enabled ? (
+    gfx_drawstr("Ready");
+  ) : (
+    gfx_drawstr("Disabled");
+  );
+
+  bool_y = panel_y + 34 * ui_scale;
+  bool_h = 26 * ui_scale;
+  bool_w = (panel_w - panel_pad * 2 - gap * 2) / 3;
+
+  gfx_set(layer_enabled(layer_i) ? 0.20 : 0.14, layer_enabled(layer_i) ? 0.56 : 0.19, 0.26, 1);
+  gfx_rect(panel_x + panel_pad, bool_y, bool_w, bool_h, 1);
+  gfx_set(layer_muted(layer_i) ? 0.62 : 0.20, layer_muted(layer_i) ? 0.24 : 0.23, 0.21, 1);
+  gfx_rect(panel_x + panel_pad + bool_w + gap, bool_y, bool_w, bool_h, 1);
+  gfx_set(layer_soloed(layer_i) ? 0.68 : 0.22, layer_soloed(layer_i) ? 0.50 : 0.23, layer_soloed(layer_i) ? 0.16 : 0.27, 1);
+  gfx_rect(panel_x + panel_pad + (bool_w + gap) * 2, bool_y, bool_w, bool_h, 1);
+
+  gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+  gfx_set(1, 1, 1, 1);
+  gfx_x = panel_x + panel_pad + 10 * ui_scale;
+  gfx_y = bool_y + 6 * ui_scale;
+  gfx_drawstr("Enable");
+  gfx_x = panel_x + panel_pad + bool_w + gap + 14 * ui_scale;
+  gfx_drawstr("Mute");
+  gfx_x = panel_x + panel_pad + (bool_w + gap) * 2 + 16 * ui_scale;
+  gfx_drawstr("Solo");
+
+  row_h = 22 * ui_scale;
+  ctrl_w = 22 * ui_scale;
+  value_w = 62 * ui_scale;
+  step_x_minus = panel_x + panel_w - panel_pad - ctrl_w - value_w - ctrl_w - gap * 2;
+  row_y = panel_y + 68 * ui_scale;
+
+  gfx_setfont(2, "Verdana", floor(14 * ui_scale));
+  gfx_set(0.92, 0.94, 0.97, 1);
+  gfx_x = panel_x + panel_pad;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("Channel");
+  gfx_set(0.24, 0.27, 0.33, 1);
+  gfx_rect(step_x_minus, row_y, ctrl_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap, row_y, value_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h, 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = step_x_minus + 7 * ui_scale;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("-");
+  gfx_x = step_x_minus + ctrl_w + gap + 18 * ui_scale;
+  sprintf(#val_txt, "%d", layer_channel_display(layer_i));
+  gfx_drawstr(#val_txt);
+  gfx_x = step_x_minus + ctrl_w + gap + value_w + gap + 6 * ui_scale;
+  gfx_drawstr("+");
+
+  row_y += row_h + 6 * ui_scale;
+  gfx_x = panel_x + panel_pad;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("Density");
+  gfx_set(0.24, 0.27, 0.33, 1);
+  gfx_rect(step_x_minus, row_y, ctrl_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap, row_y, value_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h, 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = step_x_minus + 7 * ui_scale;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("-");
+  gfx_x = step_x_minus + ctrl_w + gap + 14 * ui_scale;
+  sprintf(#val_txt, "%d", layer_density(layer_i));
+  gfx_drawstr(#val_txt);
+  gfx_x = step_x_minus + ctrl_w + gap + value_w + gap + 6 * ui_scale;
+  gfx_drawstr("+");
+
+  row_y += row_h + 6 * ui_scale;
+  gfx_x = panel_x + panel_pad;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("Variation");
+  gfx_set(0.24, 0.27, 0.33, 1);
+  gfx_rect(step_x_minus, row_y, ctrl_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap, row_y, value_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h, 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = step_x_minus + 7 * ui_scale;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("-");
+  gfx_x = step_x_minus + ctrl_w + gap + 14 * ui_scale;
+  sprintf(#val_txt, "%d", layer_variation(layer_i));
+  gfx_drawstr(#val_txt);
+  gfx_x = step_x_minus + ctrl_w + gap + value_w + gap + 6 * ui_scale;
+  gfx_drawstr("+");
+
+  row_y += row_h + 6 * ui_scale;
+  gfx_x = panel_x + panel_pad;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("Velocity");
+  gfx_set(0.24, 0.27, 0.33, 1);
+  gfx_rect(step_x_minus, row_y, ctrl_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap, row_y, value_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h, 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = step_x_minus + 7 * ui_scale;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("-");
+  gfx_x = step_x_minus + ctrl_w + gap + 10 * ui_scale;
+  sprintf(#val_txt, "%d%%", layer_velocity_scale(layer_i));
+  gfx_drawstr(#val_txt);
+  gfx_x = step_x_minus + ctrl_w + gap + value_w + gap + 6 * ui_scale;
+  gfx_drawstr("+");
+
+  layer_i += 1;
+);
+
+tab_w = (gfx_w - margin * 2 - gap * 4) / 5;
+
+gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+gfx_set(0.62, 0.67, 0.74, 1);
+gfx_x = margin;
+gfx_y = tabs_y - 14 * ui_scale;
+gfx_drawstr("Edit Tabs");
+gfx_x = margin + (tab_w + gap) * 3;
+gfx_drawstr("Preview Tabs");
+
+tab_i = 0;
+while (tab_i < 5) (
+  tab_x = margin + tab_i * (tab_w + gap);
+  tab_active = (tab_i == edit_layer) || ((tab_i == 3) && (preview_mode == 0)) || ((tab_i == 4) && (preview_mode == 1));
+
+  tab_i < 3 ? (
+    tab_active ? gfx_set(0.16, 0.43, 0.60, 1) : gfx_set(0.17, 0.20, 0.25, 1);
+  ) : (
+    tab_active ? gfx_set(0.60, 0.34, 0.13, 1) : gfx_set(0.17, 0.20, 0.25, 1);
+  );
+  gfx_rect(tab_x, tabs_y, tab_w, tabs_h, 1);
+
+  gfx_setfont(2, "Verdana", floor(14 * ui_scale));
+  gfx_set(1, 1, 1, 1);
+  gfx_x = tab_x + 10 * ui_scale;
+  gfx_y = tabs_y + 10 * ui_scale;
+  tab_i == 0 ? gfx_drawstr("Edit Command");
+  tab_i == 1 ? gfx_drawstr("Edit Contam");
+  tab_i == 2 ? gfx_drawstr("Edit Punish");
+  tab_i == 3 ? gfx_drawstr("Composite");
+  tab_i == 4 ? gfx_drawstr("Form");
+  tab_i += 1;
+);
+
+gfx_set(0.11, 0.14, 0.18, 1);
+gfx_rect(margin, globals_y, gfx_w - margin * 2, globals_h, 1);
+
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_set(1, 1, 1, 1);
+gfx_x = margin + 12 * ui_scale;
+gfx_y = globals_y + 10 * ui_scale;
+gfx_drawstr("Global Controls");
+
+gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+gfx_set(0.74, 0.79, 0.86, 1);
+gfx_x = margin + 12 * ui_scale;
+gfx_y = globals_y + 28 * ui_scale;
+gfx_drawstr("Form, corruption, pressure, and seed.");
+
+global_cols = 5;
+global_cell_w = (gfx_w - margin * 2 - gap * (global_cols - 1)) / global_cols;
+global_cell_h = 34 * ui_scale;
+global_row_gap = 12 * ui_scale;
+global_ctrl_w = 18 * ui_scale;
+global_val_w = 68 * ui_scale;
+global_cluster_w = global_ctrl_w + 6 * ui_scale + global_val_w + 6 * ui_scale + global_ctrl_w;
+global_controls_y = globals_y + 40 * ui_scale;
+control_i = 0;
+while (control_i < 9) (
+  control_row = floor(control_i / global_cols);
+  control_col = control_i % global_cols;
+  control_x = margin + control_col * (global_cell_w + gap);
+  control_y = global_controls_y + control_row * (global_cell_h + global_row_gap);
+  minus_x = control_x + (global_cell_w - global_cluster_w) * 0.5;
+  value_x = minus_x + global_ctrl_w + 6 * ui_scale;
+  plus_x = value_x + global_val_w + 6 * ui_scale;
+
+  global_control_label(control_i);
+  global_control_value_text(control_i);
+
+  gfx_set(0.14, 0.18, 0.24, 1);
+  gfx_rect(control_x, control_y, global_cell_w, global_cell_h, 1);
+
+  gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+  gfx_set(0.88, 0.90, 0.94, 1);
+  gfx_x = control_x + 8 * ui_scale;
+  gfx_y = control_y + 4 * ui_scale;
+  gfx_drawstr(#global_label_txt);
+
+  gfx_set(0.24, 0.27, 0.33, 1);
+  gfx_rect(minus_x, control_y + 14 * ui_scale, global_ctrl_w, 16 * ui_scale, 1);
+  gfx_rect(value_x, control_y + 14 * ui_scale, global_val_w, 16 * ui_scale, 1);
+  gfx_rect(plus_x, control_y + 14 * ui_scale, global_ctrl_w, 16 * ui_scale, 1);
+
+  gfx_set(1, 1, 1, 1);
+  gfx_x = minus_x + 5 * ui_scale;
+  gfx_y = control_y + 16 * ui_scale;
+  gfx_drawstr("-");
+  gfx_x = value_x + 8 * ui_scale;
+  gfx_drawstr(#global_val_txt);
+  gfx_x = plus_x + 5 * ui_scale;
+  gfx_drawstr("+");
+  control_i += 1;
+);
+
+cols = 4;
+rows = 3;
+pad_w = (grid_w - gap * (cols - 1)) / cols;
+pad_h = (grid_h - gap * (rows - 1)) / rows;
+
+pad_i = 0;
+while (pad_i < NUM_PADS) (
+  col_i = pad_i % cols;
+  row_i = floor(pad_i / cols);
+  pad_x = grid_x + col_i * (pad_w + gap);
+  pad_y = grid_y + row_i * (pad_h + gap);
+
+  flash_i = min(1.0, layer_activity[layer_pad_index(edit_layer, pad_i)]);
+  selected_pad == pad_i ? (
+    gfx_set(0.18 + flash_i * 0.25, 0.33 + flash_i * 0.20, 0.57 + flash_i * 0.16, 1);
+  ) : (
+    gfx_set(0.14 + flash_i * 0.22, 0.16 + flash_i * 0.18, 0.20 + flash_i * 0.14, 1);
+  );
+  gfx_rect(pad_x, pad_y, pad_w, pad_h, 1);
+
+  selected_pad == pad_i ? (
+    gfx_set(0.98, 0.83, 0.31, 1);
+    gfx_rect(pad_x, pad_y, pad_w, 4 * ui_scale, 1);
+  );
+
+  gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+  gfx_set(1, 1, 1, 1);
+  gfx_x = pad_x + 10 * ui_scale;
+  gfx_y = pad_y + 10 * ui_scale;
+  sprintf(#pad_num_txt, "Pad %d", pad_i + 1);
+  gfx_drawstr(#pad_num_txt);
+
+  gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+  gfx_x = pad_x + 10 * ui_scale;
+  gfx_y = pad_y + 34 * ui_scale;
+  role_name(edit_layer, role_for_pad(edit_layer, pad_i));
+  gfx_drawstr(#role_txt);
+
+  gfx_setfont(2, "Verdana", floor(14 * ui_scale));
+  gfx_x = pad_x + 10 * ui_scale;
+  gfx_y = pad_y + 58 * ui_scale;
+  sprintf(#pad_note_txt, "Note %d", get_pad_note(edit_layer, pad_i));
+  gfx_drawstr(#pad_note_txt);
+
+  gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+  gfx_x = pad_x + 10 * ui_scale;
+  gfx_y = pad_y + pad_h - 22 * ui_scale;
+  selected_pad == pad_i ? gfx_drawstr("Tap again to audition") : gfx_drawstr("Tap to select");
+
+  pad_i += 1;
+);
+
+gfx_set(0.11, 0.14, 0.18, 1);
+gfx_rect(side_x, side_y, right_col_w, editor_h, 1);
+
+gfx_setfont(1, "Verdana", floor(18 * ui_scale));
+gfx_set(1, 1, 1, 1);
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = side_y + 10 * ui_scale;
+layer_full_name(edit_layer);
+sprintf(#editor_title, "Pad %d  %s", selected_pad + 1, #layer_full_txt);
+gfx_drawstr(#editor_title);
+
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = side_y + 38 * ui_scale;
+role_name(edit_layer, role_for_pad(edit_layer, selected_pad));
+gfx_drawstr(#role_txt);
+
+gfx_setfont(1, "Verdana", floor(20 * ui_scale));
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = side_y + 62 * ui_scale;
+sprintf(#editor_note_txt, "Note %d  Ch %d", get_pad_note(edit_layer, selected_pad), layer_channel_display(edit_layer));
+gfx_drawstr(#editor_note_txt);
+
+editor_x = side_x;
+editor_y = side_y;
+editor_w = right_col_w;
+editor_pad = 12 * ui_scale;
+button_gap = 8 * ui_scale;
+btn_h = 32 * ui_scale;
+btn_w_1 = (editor_w - editor_pad * 2 - button_gap * 3) / 4;
+big_btn_w = (editor_w - editor_pad * 2 - button_gap) / 2;
+big_btn_h = 32 * ui_scale;
+btn_y_2 = editor_y + editor_h - big_btn_h - 12 * ui_scale;
+btn_y_1 = btn_y_2 - btn_h - 8 * ui_scale;
+hint_y = max(editor_y + 88 * ui_scale, btn_y_1 - 14 * ui_scale);
+
+gfx_set(0.24, 0.27, 0.33, 1);
+gfx_rect(editor_x + editor_pad, btn_y_1, btn_w_1, btn_h, 1);
+gfx_rect(editor_x + editor_pad + (btn_w_1 + button_gap), btn_y_1, btn_w_1, btn_h, 1);
+gfx_rect(editor_x + editor_pad + (btn_w_1 + button_gap) * 2, btn_y_1, btn_w_1, btn_h, 1);
+gfx_rect(editor_x + editor_pad + (btn_w_1 + button_gap) * 3, btn_y_1, btn_w_1, btn_h, 1);
+gfx_rect(editor_x + editor_pad, btn_y_2, big_btn_w, big_btn_h, 1);
+gfx_rect(editor_x + editor_pad + big_btn_w + button_gap, btn_y_2, big_btn_w, big_btn_h, 1);
+
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_set(1, 1, 1, 1);
+gfx_x = editor_x + editor_pad + 10 * ui_scale;
+gfx_y = btn_y_1 + 8 * ui_scale;
+gfx_drawstr("-12");
+gfx_x = editor_x + editor_pad + (btn_w_1 + button_gap) + 14 * ui_scale;
+gfx_drawstr("-1");
+gfx_x = editor_x + editor_pad + (btn_w_1 + button_gap) * 2 + 14 * ui_scale;
+gfx_drawstr("+1");
+gfx_x = editor_x + editor_pad + (btn_w_1 + button_gap) * 3 + 10 * ui_scale;
+gfx_drawstr("+12");
+gfx_x = editor_x + editor_pad + 16 * ui_scale;
+gfx_y = btn_y_2 + 8 * ui_scale;
+gfx_drawstr("Default");
+gfx_x = editor_x + editor_pad + big_btn_w + button_gap + 14 * ui_scale;
+gfx_drawstr("Audition");
+
+gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = hint_y;
+gfx_drawstr("Drag note or Shift+wheel.");
+
+preview_y = side_y + editor_h + gap;
+preview_w = right_col_w;
+
+gfx_set(0.11, 0.14, 0.18, 1);
+gfx_rect(side_x, preview_y, preview_w, preview_h, 1);
+
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_set(1, 1, 1, 1);
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = preview_y + 10 * ui_scale;
+preview_mode == 0 ? sprintf(#preview_title, "Composite Preview") : sprintf(#preview_title, "Form Preview");
+gfx_drawstr(#preview_title);
+
+gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = preview_y + 28 * ui_scale;
+preview_mode == 0 ? (
+  role_name(edit_layer, role_for_pad(edit_layer, selected_pad));
+  sprintf(#preview_sub_txt, "Selected pad role: %s. Rows show command, contamination, and punishment.", #role_txt);
+) : (
+  sprintf(#preview_sub_txt, "Bar classes, point of interest, and final turnaround.");
+);
+gfx_drawstr(#preview_sub_txt);
+
+preview_body_y = preview_y + 52 * ui_scale;
+preview_body_h = preview_h - 64 * ui_scale;
+preview_body_h < (48 * ui_scale) ? preview_body_h = 48 * ui_scale;
+
+preview_mode == 0 ? (
+  label_w = 64 * ui_scale;
+  cell_area_x = side_x + label_w + 14 * ui_scale;
+  cell_area_w = preview_w - label_w - 24 * ui_scale;
+  cell_w = cell_area_w / 16;
+  cell_h = min(24 * ui_scale, (preview_body_h - 16 * ui_scale) / 3);
+  row_gap = 8 * ui_scale;
+  row_y = preview_body_y;
+  row_i = 0;
+  while (row_i < 3) (
+    preview_layer_i = row_i;
+    role_i = role_for_pad(preview_layer_i, selected_pad);
+
+    gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+    gfx_set(0.88, 0.90, 0.94, 1);
+    gfx_x = side_x + 12 * ui_scale;
+    gfx_y = row_y + 6 * ui_scale;
+    layer_name(preview_layer_i);
+    gfx_drawstr(#layer_txt);
+
+    step_i = 0;
+    while (step_i < 16) (
+      cell_x = cell_area_x + step_i * cell_w;
+      hit_i = layer_role_velocity(preview_layer_i, role_i, current_bar, step_i, current_bar, 0);
+      hit_i > 0 ? (
+        preview_layer_i == LAYER_PRECISION ? gfx_set(0.21, 0.53, 0.82, 1);
+        preview_layer_i == LAYER_RIFF ? gfx_set(0.69, 0.40, 0.14, 1);
+        preview_layer_i == LAYER_WEIGHT ? gfx_set(0.23, 0.57, 0.33, 1);
+      ) : (
+        gfx_set(0.21, 0.23, 0.28, 1);
+      );
+      gfx_rect(cell_x + 2, row_y, cell_w - 4, cell_h, 1);
+
+      step_i == current_step_in_bar ? (
+        gfx_set(0.96, 0.83, 0.27, 1);
+        gfx_rect(cell_x + 2, row_y, cell_w - 4, 4 * ui_scale, 1);
+      );
+
+      gfx_setfont(3, "Verdana", floor(10 * ui_scale));
+      gfx_set(1, 1, 1, 1);
+      gfx_x = cell_x + 6 * ui_scale;
+      gfx_y = row_y + 7 * ui_scale;
+      sprintf(#step_txt, "%d", step_i + 1);
+      gfx_drawstr(#step_txt);
+
+      step_i += 1;
+    );
+
+    row_y += cell_h + row_gap;
+    row_i += 1;
+  );
+) : (
+  form_x = side_x + 12 * ui_scale;
+  form_y = preview_body_y;
+  form_w = preview_w - 24 * ui_scale;
+  form_cell_w = form_w / max(planned_total_bars, 1);
+  form_cell_h = min(44 * ui_scale, preview_body_h);
+
+  bar_i = 0;
+  while (bar_i < planned_total_bars) (
+    class_i = bar_class_value(bar_i);
+    class_i == CLASS_MAIN ? gfx_set(0.24, 0.27, 0.33, 1);
+    class_i == CLASS_VARIATION ? gfx_set(0.29, 0.32, 0.39, 1);
+    class_i == CLASS_PRE_FILL ? gfx_set(0.36, 0.31, 0.18, 1);
+    class_i == CLASS_FILL ? gfx_set(0.55, 0.31, 0.17, 1);
+    class_i == CLASS_POI_MAIN ? gfx_set(0.18, 0.44, 0.35, 1);
+    class_i == CLASS_POI_VARIATION ? gfx_set(0.22, 0.38, 0.32, 1);
+    class_i == CLASS_TURNAROUND ? gfx_set(0.63, 0.22, 0.18, 1);
+    cell_x = form_x + bar_i * form_cell_w;
+    gfx_rect(cell_x + 1, form_y, form_cell_w - 2, form_cell_h, 1);
+
+    bar_i == current_bar ? (
+      gfx_set(0.96, 0.83, 0.27, 1);
+      gfx_rect(cell_x + 1, form_y, form_cell_w - 2, 4 * ui_scale, 1);
+    );
+
+    gfx_setfont(3, "Verdana", floor(10 * ui_scale));
+    gfx_set(1, 1, 1, 1);
+    gfx_x = cell_x + 4 * ui_scale;
+    gfx_y = form_y + 5 * ui_scale;
+    sprintf(#bar_num_txt, "%02d", bar_i + 1);
+    gfx_drawstr(#bar_num_txt);
+
+    bar_class_name(class_i);
+    gfx_x = cell_x + 4 * ui_scale;
+    gfx_y = form_y + 20 * ui_scale;
+    gfx_drawstr(#class_txt);
+    bar_i += 1;
+  );
+);

@@ -1,0 +1,860 @@
+desc:PulseWerk MVP - Motorik / Breakbeat / Perc MIDI Generator
+
+in_pin:none
+out_pin:none
+
+slider1:engine_mode=0<0,2,1{Motorik,Breakbeat,Perc}>Engine
+slider2:cycle_bars=8<1,8,1>Cycle Bars
+slider3:density_amt=70<0,100,1>Density
+slider4:variation_amt=55<0,100,1>Variation
+slider5:velocity_scale=100<10,150,1>Velocity Scale %
+slider6:note_len_pct=90<10,100,1>Note Length % of 16th
+slider7:ui_scale_pct=100<50,200,1>UI Scale %
+
+@init
+
+NUM_MODES = 3;
+NUM_PADS = 12;
+QUEUE_SIZE = 512;
+
+STEP_BEATS = 0.25;
+
+note_map = 0;
+activity = 128;
+off_time = 256;
+off_note = 1024;
+
+queue_head = 0;
+queue_tail = 0;
+
+selected_pad = 0;
+ui_test_pending = 0;
+ui_test_pad = 0;
+
+last_mouse_down = 0;
+
+current_cycle_step = 0;
+current_bar = 0;
+current_step_in_bar = 0;
+
+last_play_position = 0;
+last_is_playing = 0;
+
+block_start_sample = 0;
+block_end_sample = 0;
+step_samples = 0;
+
+function clampi(v, lo, hi)
+(
+  v < lo ? lo : v > hi ? hi : v;
+);
+
+function note_index(mode_i, pad_i)
+(
+  mode_i * NUM_PADS + pad_i;
+);
+
+function mode_name(mode_i)
+(
+  mode_i == 0 ? sprintf(#mode_txt, "Motorik");
+  mode_i == 1 ? sprintf(#mode_txt, "Breakbeat");
+  mode_i == 2 ? sprintf(#mode_txt, "Perc");
+);
+
+function role_name(mode_i, pad_i)
+(
+  mode_i == 0 ? (
+    pad_i == 0 ? sprintf(#role_txt, "Kick");
+    pad_i == 1 ? sprintf(#role_txt, "Snare");
+    pad_i == 2 ? sprintf(#role_txt, "CHat");
+    pad_i == 3 ? sprintf(#role_txt, "OHat");
+    pad_i == 4 ? sprintf(#role_txt, "Ghost");
+    pad_i == 5 ? sprintf(#role_txt, "Tamb");
+    pad_i == 6 ? sprintf(#role_txt, "Crash");
+    pad_i == 7 ? sprintf(#role_txt, "Perc1");
+    pad_i == 8 ? sprintf(#role_txt, "Perc2");
+    pad_i == 9 ? sprintf(#role_txt, "Clap");
+    pad_i == 10 ? sprintf(#role_txt, "TomL");
+    pad_i == 11 ? sprintf(#role_txt, "TomH");
+  ) :
+  mode_i == 1 ? (
+    pad_i == 0 ? sprintf(#role_txt, "Kick");
+    pad_i == 1 ? sprintf(#role_txt, "Snare");
+    pad_i == 2 ? sprintf(#role_txt, "CHat");
+    pad_i == 3 ? sprintf(#role_txt, "OHat");
+    pad_i == 4 ? sprintf(#role_txt, "Ghost");
+    pad_i == 5 ? sprintf(#role_txt, "Clap");
+    pad_i == 6 ? sprintf(#role_txt, "Ride");
+    pad_i == 7 ? sprintf(#role_txt, "TomL");
+    pad_i == 8 ? sprintf(#role_txt, "TomH");
+    pad_i == 9 ? sprintf(#role_txt, "Rim");
+    pad_i == 10 ? sprintf(#role_txt, "Shake");
+    pad_i == 11 ? sprintf(#role_txt, "FX");
+  ) :
+  (
+    pad_i == 0 ? sprintf(#role_txt, "Shake");
+    pad_i == 1 ? sprintf(#role_txt, "Tamb");
+    pad_i == 2 ? sprintf(#role_txt, "Clap");
+    pad_i == 3 ? sprintf(#role_txt, "Rim");
+    pad_i == 4 ? sprintf(#role_txt, "Cowbl");
+    pad_i == 5 ? sprintf(#role_txt, "CongaL");
+    pad_i == 6 ? sprintf(#role_txt, "CongaH");
+    pad_i == 7 ? sprintf(#role_txt, "BongoL");
+    pad_i == 8 ? sprintf(#role_txt, "BongoH");
+    pad_i == 9 ? sprintf(#role_txt, "Wood");
+    pad_i == 10 ? sprintf(#role_txt, "CHat");
+    pad_i == 11 ? sprintf(#role_txt, "OHat");
+  );
+);
+
+function default_note(mode_i, pad_i)
+(
+  mode_i == 0 ? (
+    pad_i == 0 ? 36 :
+    pad_i == 1 ? 38 :
+    pad_i == 2 ? 42 :
+    pad_i == 3 ? 46 :
+    pad_i == 4 ? 37 :
+    pad_i == 5 ? 54 :
+    pad_i == 6 ? 49 :
+    pad_i == 7 ? 50 :
+    pad_i == 8 ? 51 :
+    pad_i == 9 ? 39 :
+    pad_i == 10 ? 45 :
+    47
+  ) :
+  mode_i == 1 ? (
+    pad_i == 0 ? 36 :
+    pad_i == 1 ? 38 :
+    pad_i == 2 ? 42 :
+    pad_i == 3 ? 46 :
+    pad_i == 4 ? 37 :
+    pad_i == 5 ? 39 :
+    pad_i == 6 ? 51 :
+    pad_i == 7 ? 45 :
+    pad_i == 8 ? 47 :
+    pad_i == 9 ? 37 :
+    pad_i == 10 ? 82 :
+    83
+  ) :
+  (
+    pad_i == 0 ? 82 :
+    pad_i == 1 ? 54 :
+    pad_i == 2 ? 39 :
+    pad_i == 3 ? 37 :
+    pad_i == 4 ? 56 :
+    pad_i == 5 ? 64 :
+    pad_i == 6 ? 63 :
+    pad_i == 7 ? 60 :
+    pad_i == 8 ? 61 :
+    pad_i == 9 ? 76 :
+    pad_i == 10 ? 42 :
+    46
+  );
+);
+
+function init_note_map() local(m, p)
+(
+  m = 0;
+  while (m < NUM_MODES) (
+    p = 0;
+    while (p < NUM_PADS) (
+      note_map[note_index(m, p)] = default_note(m, p);
+      activity[p] = 0;
+      p += 1;
+    );
+    m += 1;
+  );
+);
+
+function set_note(mode_i, pad_i, note_val)
+(
+  note_map[note_index(mode_i, pad_i)] = clampi(note_val, 0, 127);
+);
+
+function get_note(mode_i, pad_i)
+(
+  note_map[note_index(mode_i, pad_i)];
+);
+
+function scaled_velocity(v) local(out_v)
+(
+  out_v = floor(v * velocity_scale * 0.01 + 0.5);
+  clampi(out_v, 1, 127);
+);
+
+function queue_note_off(note_num, abs_sample) local(next_tail)
+(
+  next_tail = queue_tail + 1;
+  next_tail >= QUEUE_SIZE ? next_tail = 0;
+
+  next_tail != queue_head ? (
+    off_time[queue_tail] = abs_sample;
+    off_note[queue_tail] = note_num;
+    queue_tail = next_tail;
+  );
+);
+
+function flush_all_note_offs() local(n)
+(
+  while (queue_head != queue_tail) (
+    n = off_note[queue_head];
+    midisend(0, 128, n);
+    queue_head += 1;
+    queue_head >= QUEUE_SIZE ? queue_head = 0;
+  );
+);
+
+function flush_due_note_offs() local(rel_spl)
+(
+  while (
+    (queue_head != queue_tail) &&
+    (off_time[queue_head] < block_end_sample)
+  ) (
+    rel_spl = off_time[queue_head] - block_start_sample;
+    rel_spl < 0 ? rel_spl = 0;
+    rel_spl >= samplesblock ? rel_spl = samplesblock - 1;
+
+    midisend(rel_spl, 128, off_note[queue_head]);
+
+    queue_head += 1;
+    queue_head >= QUEUE_SIZE ? queue_head = 0;
+  );
+);
+
+function hat_cycle_velocity(step_i)
+(
+  (step_i % 8) == 0 ? 85 :
+  (step_i % 8) == 2 ? 70 :
+  (step_i % 8) == 4 ? 80 :
+  72;
+);
+
+function bb_hat_velocity(step_i)
+(
+  (step_i % 4) == 0 ? 82 :
+  (step_i % 2) == 0 ? 74 :
+  66;
+);
+
+function perc_shaker_velocity(step_i)
+(
+  (step_i % 2) == 0 ? 72 : 58;
+);
+
+function step_in_list8(step_i, a0, a1, a2, a3, a4, a5, a6, a7)
+(
+  (step_i == a0) ||
+  (step_i == a1) ||
+  (step_i == a2) ||
+  (step_i == a3) ||
+  (step_i == a4) ||
+  (step_i == a5) ||
+  (step_i == a6) ||
+  (step_i == a7);
+);
+
+function step_in_list7(step_i, a0, a1, a2, a3, a4, a5, a6)
+(
+  (step_i == a0) ||
+  (step_i == a1) ||
+  (step_i == a2) ||
+  (step_i == a3) ||
+  (step_i == a4) ||
+  (step_i == a5) ||
+  (step_i == a6);
+);
+
+function step_in_list6(step_i, a0, a1, a2, a3, a4, a5)
+(
+  (step_i == a0) ||
+  (step_i == a1) ||
+  (step_i == a2) ||
+  (step_i == a3) ||
+  (step_i == a4) ||
+  (step_i == a5);
+);
+
+function step_in_list5(step_i, a0, a1, a2, a3, a4)
+(
+  (step_i == a0) ||
+  (step_i == a1) ||
+  (step_i == a2) ||
+  (step_i == a3) ||
+  (step_i == a4);
+);
+
+function hit_velocity(mode_i, pad_i, bar_i, step_i) local(v, dens_hi, var_hi)
+(
+  v = 0;
+  dens_hi = density_amt >= 65;
+  var_hi = variation_amt >= 45;
+
+  mode_i == 0 ? (
+
+    pad_i == 0 ? (
+      (step_i % 4) == 0 ? v = 110;
+      (bar_i == 2) && (step_i == 7) && (variation_amt >= 25) ? v = max(v, 80);
+      (bar_i == 7) && (step_i == 14) && (variation_amt >= 35) ? v = max(v, 95);
+    );
+
+    pad_i == 1 ? (
+      ((step_i == 4) || (step_i == 12)) ? v = 100;
+      (bar_i == 7) && (step_i == 15) && (variation_amt >= 35) ? v = max(v, 95);
+    );
+
+    pad_i == 2 ? (
+      (density_amt >= 35) && ((step_i % 2) == 0) ? v = hat_cycle_velocity(step_i);
+      (bar_i == 3) && (step_i == 15) && (variation_amt >= 20) && (density_amt >= 45) ? v = max(v, 68);
+      (bar_i == 6) && (step_i == 14) && (variation_amt >= 45) ? v = 0;
+    );
+
+    pad_i == 3 ? (
+      (bar_i == 6) && (step_i == 14) && (variation_amt >= 45) ? v = 90;
+    );
+
+    pad_i == 4 ? (
+      (variation_amt >= 20) && (
+        ((bar_i == 1) && (step_i == 3)) ||
+        ((bar_i == 5) && (step_i == 11))
+      ) ? v = 50;
+    );
+
+    pad_i == 5 ? (
+      (density_amt >= 55) && ((bar_i % 2) == 1) && ((step_i % 4) == 0) ? v = 76;
+    );
+
+    pad_i == 6 ? (
+      (variation_amt >= 50) &&
+      (((bar_i == 0) || (bar_i == 4)) && (step_i == 0)) ? v = 112;
+    );
+
+  ) :
+  mode_i == 1 ? (
+
+    pad_i == 0 ? (
+      bar_i == 0 ? (step_in_list6(step_i, 0, 6, 10, -1, -1, -1) ? v = 112;);
+      bar_i == 1 ? (step_in_list6(step_i, 0, 7, 10, -1, -1, -1) ? v = 110;);
+      bar_i == 2 ? (step_in_list6(step_i, 0, 5, 8, 10, -1, -1) ? v = 112;);
+      bar_i == 3 ? (step_in_list6(step_i, 0, 6, 9, -1, -1, -1) ? v = 108;);
+      bar_i == 4 ? (step_in_list6(step_i, 0, 6, 10, 15, -1, -1) ? v = 112;);
+      bar_i == 5 ? (step_in_list6(step_i, 0, 7, 10, -1, -1, -1) ? v = 110;);
+      bar_i == 6 ? (step_in_list6(step_i, 0, 5, 11, -1, -1, -1) ? v = 106;);
+      bar_i == 7 ? (step_in_list6(step_i, 0, 6, 10, -1, -1, -1) ? v = 110;);
+    );
+
+    pad_i == 1 ? (
+      ((step_i == 4) || (step_i == 12)) ? v = 102;
+      (bar_i == 7) && (step_i == 15) && (variation_amt >= 40) ? v = max(v, 96);
+    );
+
+    pad_i == 2 ? (
+      bar_i == 0 ? (step_in_list8(step_i, 0, 2, 3, 6, 8, 10, 11, 14) ? v = bb_hat_velocity(step_i););
+      bar_i == 1 ? (step_in_list7(step_i, 0, 2, 5, 6, 8, 11, 14) ? v = bb_hat_velocity(step_i););
+      bar_i == 2 ? (((step_i % 2) == 0) ? v = bb_hat_velocity(step_i););
+      bar_i == 3 ? (step_in_list8(step_i, 0, 2, 3, 6, 8, 10, 14, 15) ? v = bb_hat_velocity(step_i););
+      bar_i == 4 ? (step_in_list8(step_i, 0, 2, 3, 6, 8, 10, 11, 14) ? v = bb_hat_velocity(step_i););
+      bar_i == 5 ? (step_in_list7(step_i, 0, 2, 5, 6, 8, 11, 14) ? v = bb_hat_velocity(step_i););
+      bar_i == 6 ? (step_in_list7(step_i, 0, 3, 6, 8, 10, 13, 14) ? v = bb_hat_velocity(step_i););
+      bar_i == 7 ? (((step_i % 2) == 0) ? v = bb_hat_velocity(step_i););
+    );
+
+    pad_i == 3 ? (
+      (variation_amt >= 35) && (
+        ((bar_i == 2) && (step_i == 14)) ||
+        ((bar_i == 6) && (step_i == 14)) ||
+        ((bar_i == 7) && (step_i == 14))
+      ) ? v = 88;
+    );
+
+    pad_i == 4 ? (
+      (variation_amt >= 25) && (
+        ((bar_i == 0) && (step_i == 15)) ||
+        ((bar_i == 1) && (step_i == 3)) ||
+        ((bar_i == 2) && (step_i == 11)) ||
+        ((bar_i == 5) && (step_i == 11)) ||
+        ((bar_i == 6) && (step_i == 15))
+      ) ? v = 48;
+    );
+
+    pad_i == 5 ? (
+      (((bar_i == 1) || (bar_i == 5)) && (step_i == 12)) ? v = 90;
+      (bar_i == 7) && (step_i == 15) && (variation_amt >= 40) ? v = max(v, 96);
+    );
+
+    pad_i == 6 ? (
+      (density_amt >= 60) && (bar_i == 6) &&
+      (((step_i == 2) || (step_i == 6) || (step_i == 10) || (step_i == 14))) ? v = 74;
+    );
+
+    pad_i == 7 ? (
+      (variation_amt >= 35) && (
+        ((bar_i == 3) && (step_i == 13)) ||
+        ((bar_i == 7) && (step_i == 13))
+      ) ? v = 82;
+    );
+
+    pad_i == 8 ? (
+      (variation_amt >= 35) && (
+        ((bar_i == 3) && (step_i == 15)) ||
+        ((bar_i == 7) && (step_i == 14))
+      ) ? v = 84;
+    );
+
+    pad_i == 9 ? (
+      (variation_amt >= 30) && (
+        (((bar_i == 0) || (bar_i == 4)) && (step_i == 7)) ||
+        (((bar_i == 2) || (bar_i == 6)) && (step_i == 3))
+      ) ? v = 70;
+    );
+
+    pad_i == 10 ? (
+      (density_amt >= 70) && (bar_i >= 4) && ((step_i % 2) == 0) ? v = 58;
+    );
+
+    pad_i == 11 ? (
+      (variation_amt >= 55) && (bar_i == 7) && (step_i == 15) ? v = 76;
+    );
+
+  ) :
+  (
+
+    pad_i == 0 ? (
+      density_amt >= 65 ? (
+        v = perc_shaker_velocity(step_i);
+      ) : (
+        ((step_i % 2) == 0) ? v = 66;
+      );
+    );
+
+    pad_i == 1 ? (
+      ((bar_i % 2) == 0) && ((step_i % 4) == 0) ? v = 78;
+    );
+
+    pad_i == 2 ? (
+      (density_amt >= 45) &&
+      (((bar_i == 1) || (bar_i == 5)) && ((step_i == 4) || (step_i == 12))) ? v = 92;
+    );
+
+    pad_i == 3 ? (
+      (((bar_i == 0) || (bar_i == 2) || (bar_i == 4) || (bar_i == 6)) &&
+      ((step_i == 6) || (step_i == 14))) ? v = 76;
+    );
+
+    pad_i == 4 ? (
+      (((bar_i == 3) || (bar_i == 7)) &&
+      ((step_i == 2) || (step_i == 10))) ? v = 82;
+    );
+
+    pad_i == 5 ? (
+      ((((bar_i == 0) || (bar_i == 4)) && ((step_i == 3) || (step_i == 11))) ||
+      (((bar_i == 2) || (bar_i == 6)) && (step_i == 7))) ? v = 78;
+    );
+
+    pad_i == 6 ? (
+      ((((bar_i == 1) || (bar_i == 5)) && ((step_i == 7) || (step_i == 15))) ||
+      (((bar_i == 3) || (bar_i == 7)) && (step_i == 10))) ? v = 82;
+    );
+
+    pad_i == 7 ? (
+      (((bar_i == 2) || (bar_i == 6)) && ((step_i == 5) || (step_i == 13))) ? v = 74;
+    );
+
+    pad_i == 8 ? (
+      (variation_amt >= 30) &&
+      (((bar_i == 3) || (bar_i == 7)) && ((step_i == 1) || (step_i == 9))) ? v = 72;
+    );
+
+    pad_i == 9 ? (
+      ((bar_i % 4) == 3) && (step_i == 15) ? v = 70;
+    );
+
+    pad_i == 10 ? (
+      (density_amt < 65) && ((step_i % 2) == 0) ? v = 64;
+    );
+
+    pad_i == 11 ? (
+      ((bar_i == 7) && (step_i == 14) && (variation_amt >= 35)) ? v = 86;
+    );
+
+  );
+
+  v;
+);
+
+function emit_pad(mode_i, pad_i, vel_i, rel_offset) local(note_num, vel_out, note_off_at)
+(
+  vel_i > 0 ? (
+    note_num = get_note(mode_i, pad_i);
+    vel_out = scaled_velocity(vel_i);
+
+    midisend(rel_offset, 144, note_num | (vel_out * 256));
+
+    activity[pad_i] = 1;
+
+    note_off_at = block_start_sample + rel_offset + floor(step_samples * note_len_pct * 0.01 + 0.5);
+    queue_note_off(note_num, note_off_at);
+  );
+);
+
+function fire_step(mode_i, bar_i, step_i, rel_offset) local(p, v)
+(
+  p = 0;
+  while (p < NUM_PADS) (
+    v = hit_velocity(mode_i, p, bar_i, step_i);
+    v > 0 ? emit_pad(mode_i, p, v, rel_offset);
+    p += 1;
+  );
+);
+
+function in_rect(mx, my, x, y, w, h)
+(
+  (mx >= x) && (mx < (x + w)) && (my >= y) && (my < (y + h));
+);
+
+init_note_map();
+
+@slider
+
+engine_mode = floor(slider1 + 0.0001);
+cycle_bars = floor(slider2 + 0.0001);
+density_amt = floor(slider3 + 0.0001);
+variation_amt = floor(slider4 + 0.0001);
+velocity_scale = slider5;
+note_len_pct = slider6;
+ui_scale = slider7 * 0.01;
+
+@block
+
+while (midirecv(offset, msg1, msg23)) (
+  midisend(offset, msg1, msg23);
+);
+
+is_playing = play_state & 1;
+
+step_samples = srate * 60 / max(tempo, 1) / 4;
+
+block_start_sample = floor(play_position * srate + 0.5);
+block_end_sample = block_start_sample + samplesblock;
+
+ui_test_pending ? (
+  emit_pad(engine_mode, ui_test_pad, 100, 0);
+  ui_test_pending = 0;
+);
+
+(!is_playing && last_is_playing) ? (
+  flush_all_note_offs();
+);
+
+(is_playing && last_is_playing && (play_position + 0.001 < last_play_position)) ? (
+  flush_all_note_offs();
+);
+
+flush_due_note_offs();
+
+abs_step = floor((beat_position / STEP_BEATS) + 0.000001);
+cycle_steps = cycle_bars * 16;
+cycle_steps < 1 ? cycle_steps = 16;
+
+current_cycle_step = abs_step % cycle_steps;
+current_cycle_step < 0 ? current_cycle_step += cycle_steps;
+
+current_bar = floor(current_cycle_step / 16);
+current_step_in_bar = current_cycle_step % 16;
+
+is_playing ? (
+  block_start_beats = beat_position;
+  block_end_beats = beat_position + (samplesblock * tempo / 60 / srate);
+
+  step_index = floor((block_start_beats / STEP_BEATS) + 0.000001);
+  step_time = step_index * STEP_BEATS;
+
+  step_time < (block_start_beats - 0.000001) ? (
+    step_index += 1;
+    step_time += STEP_BEATS;
+  );
+
+  while (step_time < (block_end_beats - 0.000001)) (
+    cycle_step = step_index % cycle_steps;
+    cycle_step < 0 ? cycle_step += cycle_steps;
+
+    bar_i = floor(cycle_step / 16);
+    step_i = cycle_step % 16;
+
+    rel_offset = floor(((step_time - block_start_beats) * 60 / tempo * srate) + 0.5);
+    rel_offset < 0 ? rel_offset = 0;
+    rel_offset >= samplesblock ? rel_offset = samplesblock - 1;
+
+    fire_step(engine_mode, bar_i, step_i, rel_offset);
+
+    step_index += 1;
+    step_time += STEP_BEATS;
+  );
+);
+
+last_play_position = play_position;
+last_is_playing = is_playing;
+
+@gfx
+
+ui_scale = slider7 * 0.01;
+
+gfx_clear = 0x111318;
+gfx_setfont(1, "Arial", floor(16 * ui_scale));
+
+mouse_down = mouse_cap & 1;
+click = mouse_down && !last_mouse_down;
+
+margin = 16 * ui_scale;
+header_h = 52 * ui_scale;
+preview_h = 88 * ui_scale;
+editor_h = 168 * ui_scale;
+gap = 10 * ui_scale;
+
+grid_y = margin + header_h + gap + preview_h + gap;
+grid_h = gfx_h - grid_y - editor_h - (margin * 2);
+grid_h < (180 * ui_scale) ? grid_h = 180 * ui_scale;
+
+cols = 4;
+rows = 3;
+pad_w = (gfx_w - (margin * 2) - (gap * (cols - 1))) / cols;
+pad_h = (grid_h - (gap * (rows - 1))) / rows;
+
+editor_y = grid_y + grid_h + gap;
+
+click ? (
+
+  tab_w = (gfx_w - (margin * 2) - (gap * 2)) / 3;
+  t = 0;
+  while (t < 3) (
+    tab_x = margin + t * (tab_w + gap);
+    tab_y = margin;
+    in_rect(mouse_x, mouse_y, tab_x, tab_y, tab_w, header_h) ? (
+      engine_mode = t;
+      slider1 = t;
+    );
+    t += 1;
+  );
+
+  p = 0;
+  while (p < NUM_PADS) (
+    col = p % cols;
+    row = floor(p / cols);
+
+    px = margin + col * (pad_w + gap);
+    py = grid_y + row * (pad_h + gap);
+
+    in_rect(mouse_x, mouse_y, px, py, pad_w, pad_h) ? (
+      selected_pad == p ? (
+        ui_test_pad = p;
+        ui_test_pending = 1;
+      ) : (
+        selected_pad = p;
+      );
+    );
+
+    p += 1;
+  );
+
+  minus_x = margin + 10 * ui_scale;
+  minus_y = editor_y + 90 * ui_scale;
+  btn_w = 42 * ui_scale;
+  btn_h = 34 * ui_scale;
+
+  plus_x = minus_x + btn_w + 120 * ui_scale;
+
+  def_x = plus_x + btn_w + 24 * ui_scale;
+  def_w = 96 * ui_scale;
+
+  in_rect(mouse_x, mouse_y, minus_x, minus_y, btn_w, btn_h) ? (
+    set_note(engine_mode, selected_pad, get_note(engine_mode, selected_pad) - 1);
+  );
+
+  in_rect(mouse_x, mouse_y, plus_x, minus_y, btn_w, btn_h) ? (
+    set_note(engine_mode, selected_pad, get_note(engine_mode, selected_pad) + 1);
+  );
+
+  in_rect(mouse_x, mouse_y, def_x, minus_y, def_w, btn_h) ? (
+    set_note(engine_mode, selected_pad, default_note(engine_mode, selected_pad));
+  );
+);
+
+last_mouse_down = mouse_down;
+
+gfx_set(0.15, 0.17, 0.21, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+tab_w = (gfx_w - (margin * 2) - (gap * 2)) / 3;
+
+t = 0;
+while (t < 3) (
+  tab_x = margin + t * (tab_w + gap);
+  tab_y = margin;
+
+  engine_mode == t ? (
+    gfx_set(0.30, 0.52, 0.95, 1);
+  ) : (
+    gfx_set(0.22, 0.24, 0.29, 1);
+  );
+  gfx_rect(tab_x, tab_y, tab_w, header_h, 1);
+
+  gfx_set(1, 1, 1, 1);
+  gfx_x = tab_x + 14 * ui_scale;
+  gfx_y = tab_y + 15 * ui_scale;
+  mode_name(t);
+  gfx_drawstr(#mode_txt);
+
+  t += 1;
+);
+
+gfx_set(1, 1, 1, 1);
+gfx_x = margin;
+gfx_y = margin + header_h + 8 * ui_scale;
+sprintf(#topline, "Cycle %d bars   Density %d   Variation %d   Step %d.%d",
+  cycle_bars, density_amt, variation_amt, current_bar + 1, current_step_in_bar + 1);
+gfx_drawstr(#topline);
+
+preview_x = margin;
+preview_y = margin + header_h + 28 * ui_scale;
+preview_w = gfx_w - margin * 2;
+cell_w = preview_w / 16;
+cell_h = 38 * ui_scale;
+
+gfx_set(0.20, 0.22, 0.27, 1);
+gfx_rect(preview_x, preview_y, preview_w, preview_h, 1);
+
+gfx_set(1, 1, 1, 1);
+gfx_x = preview_x + 10 * ui_scale;
+gfx_y = preview_y + 8 * ui_scale;
+role_name(engine_mode, selected_pad);
+sprintf(#preview_title, "Selected pad preview: %s  Note %d", #role_txt, get_note(engine_mode, selected_pad));
+gfx_drawstr(#preview_title);
+
+s = 0;
+while (s < 16) (
+  cx = preview_x + s * cell_w;
+  cy = preview_y + 34 * ui_scale;
+
+  hv = hit_velocity(engine_mode, selected_pad, current_bar, s);
+
+  hv > 0 ? (
+    gfx_set(0.35, 0.70, 0.40, 1);
+  ) : (
+    gfx_set(0.28, 0.30, 0.35, 1);
+  );
+  gfx_rect(cx + 2, cy, cell_w - 4, cell_h, 1);
+
+  s == current_step_in_bar ? (
+    gfx_set(0.95, 0.85, 0.20, 1);
+    gfx_rect(cx + 2, cy, cell_w - 4, 4 * ui_scale, 1);
+  );
+
+  gfx_set(1, 1, 1, 1);
+  gfx_x = cx + 8 * ui_scale;
+  gfx_y = cy + 9 * ui_scale;
+  sprintf(#step_num, "%d", s + 1);
+  gfx_drawstr(#step_num);
+
+  s += 1;
+);
+
+p = 0;
+while (p < NUM_PADS) (
+  col = p % cols;
+  row = floor(p / cols);
+
+  px = margin + col * (pad_w + gap);
+  py = grid_y + row * (pad_h + gap);
+
+  a = activity[p];
+  a = a * 0.92;
+  a < 0.01 ? a = 0;
+  activity[p] = a;
+
+  selected_pad == p ? (
+    gfx_set(0.24 + a * 0.35, 0.36 + a * 0.35, 0.62 + a * 0.25, 1);
+  ) : (
+    gfx_set(0.20 + a * 0.30, 0.22 + a * 0.25, 0.27 + a * 0.20, 1);
+  );
+  gfx_rect(px, py, pad_w, pad_h, 1);
+
+  gfx_set(1, 1, 1, 1);
+  gfx_x = px + 10 * ui_scale;
+  gfx_y = py + 10 * ui_scale;
+  sprintf(#pad_hdr, "Pad %d", p + 1);
+  gfx_drawstr(#pad_hdr);
+
+  role_name(engine_mode, p);
+  gfx_x = px + 10 * ui_scale;
+  gfx_y = py + 36 * ui_scale;
+  gfx_drawstr(#role_txt);
+
+  gfx_x = px + 10 * ui_scale;
+  gfx_y = py + 62 * ui_scale;
+  sprintf(#pad_note, "Note %d", get_note(engine_mode, p));
+  gfx_drawstr(#pad_note);
+
+  gfx_x = px + 10 * ui_scale;
+  gfx_y = py + pad_h - 24 * ui_scale;
+  p == selected_pad ? (
+    gfx_drawstr("Tap again to test");
+  ) : (
+    gfx_drawstr("Tap to select");
+  );
+
+  p += 1;
+);
+
+gfx_set(0.18, 0.20, 0.25, 1);
+gfx_rect(margin, editor_y, gfx_w - margin * 2, editor_h, 1);
+
+gfx_set(1, 1, 1, 1);
+gfx_x = margin + 10 * ui_scale;
+gfx_y = editor_y + 10 * ui_scale;
+mode_name(engine_mode);
+role_name(engine_mode, selected_pad);
+sprintf(#editor_title, "Edit %s pad %d - %s", #mode_txt, selected_pad + 1, #role_txt);
+gfx_drawstr(#editor_title);
+
+gfx_x = margin + 10 * ui_scale;
+gfx_y = editor_y + 38 * ui_scale;
+sprintf(#editor_help, "Per-mode note mapping. Switch mode tabs, then edit this pad's note for that mode.");
+gfx_drawstr(#editor_help);
+
+gfx_x = margin + 10 * ui_scale;
+gfx_y = editor_y + 62 * ui_scale;
+sprintf(#note_label, "Current MIDI note: %d", get_note(engine_mode, selected_pad));
+gfx_drawstr(#note_label);
+
+minus_x = margin + 10 * ui_scale;
+minus_y = editor_y + 90 * ui_scale;
+btn_w = 42 * ui_scale;
+btn_h = 34 * ui_scale;
+
+gfx_set(0.30, 0.32, 0.38, 1);
+gfx_rect(minus_x, minus_y, btn_w, btn_h, 1);
+gfx_rect(minus_x + btn_w + 120 * ui_scale, minus_y, btn_w, btn_h, 1);
+gfx_rect(minus_x + btn_w + 120 * ui_scale + btn_w + 24 * ui_scale, minus_y, 96 * ui_scale, btn_h, 1);
+
+gfx_set(1, 1, 1, 1);
+
+gfx_x = minus_x + 15 * ui_scale;
+gfx_y = minus_y + 8 * ui_scale;
+gfx_drawstr("-");
+
+gfx_x = minus_x + btn_w + 46 * ui_scale;
+gfx_y = minus_y + 8 * ui_scale;
+sprintf(#note_mid, "%d", get_note(engine_mode, selected_pad));
+gfx_drawstr(#note_mid);
+
+gfx_x = minus_x + btn_w + 120 * ui_scale + 15 * ui_scale;
+gfx_y = minus_y + 8 * ui_scale;
+gfx_drawstr("+");
+
+gfx_x = minus_x + btn_w + 120 * ui_scale + btn_w + 24 * ui_scale + 16 * ui_scale;
+gfx_y = minus_y + 8 * ui_scale;
+gfx_drawstr("Default");
+
+gfx_x = margin + 10 * ui_scale;
+gfx_y = editor_y + 132 * ui_scale;
+gfx_drawstr("Engine generates by mode. Notes are independent per mode, per pad.");
