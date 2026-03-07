@@ -1016,18 +1016,28 @@ function is_false_peak_bar(bar_i) local(peak_i)
   is_false_peak_bar;
 );
 
-function is_afterglow_entry_bar(bar_i)
+function compute_afterglow_entry_bar(bar_i)
 (
   bar_i >= 0 && bar_class_value(bar_i) == CLASS_AFTERGLOW && (bar_i == 0 || bar_class_value(bar_i - 1) != CLASS_AFTERGLOW);
 );
 
-function false_peak_release_level(bar_i)
+function is_afterglow_entry_bar(bar_i)
+(
+  bar_afterglow_entry_value(bar_i);
+);
+
+function compute_false_peak_release_level(bar_i)
 (
   bar_i >= 0 && !is_false_peak_bar(bar_i) ? (
     is_false_peak_bar(bar_i - 1) ? 2 :
     is_false_peak_bar(bar_i - 2) ? 1 :
     0;
   ) : 0;
+);
+
+function false_peak_release_level(bar_i)
+(
+  bar_false_peak_release_value(bar_i);
 );
 
 function choose_poi_lead(tempo_band_i) local(score_nerve, score_surge)
@@ -1295,6 +1305,12 @@ function plan_form() local(bar_i, macro_i, class_i, is_long_form, quarter_i, aft
 
   bar_i = 0;
   while (bar_i < planned_total_bars) (
+    bar_false_peak_release[bar_i] = compute_false_peak_release_level(bar_i);
+    bar_i += 1;
+  );
+
+  bar_i = 0;
+  while (bar_i < planned_total_bars) (
     macro_i =
       is_long_form && bar_i == planned_landing_bar ? MACRO_LANDING :
       bar_i == planned_turnaround_bar ? MACRO_TURNAROUND :
@@ -1339,8 +1355,7 @@ function plan_form() local(bar_i, macro_i, class_i, is_long_form, quarter_i, aft
 
   bar_i = 0;
   while (bar_i < planned_total_bars) (
-    bar_false_peak_release[bar_i] = false_peak_release_level(bar_i);
-    bar_afterglow_entry[bar_i] = is_afterglow_entry_bar(bar_i);
+    bar_afterglow_entry[bar_i] = compute_afterglow_entry_bar(bar_i);
     bar_i += 1;
   );
 
