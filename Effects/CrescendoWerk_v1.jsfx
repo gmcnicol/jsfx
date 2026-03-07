@@ -2037,7 +2037,8 @@ click ? (
   header_ctrl_gap = 6 * ui_scale;
   header_group_y = header_y + 14 * ui_scale;
   transport_box_w = 268 * ui_scale;
-  transport_box_x = margin + 250 * ui_scale;
+  header_status_x = margin + 360 * ui_scale;
+  transport_box_x = margin + 450 * ui_scale;
   bars_label_w = 30 * ui_scale;
   poi_label_w = 24 * ui_scale;
   seed_label_w = 28 * ui_scale;
@@ -2289,14 +2290,15 @@ gfx_rect(0, 0, gfx_w, gfx_h, 1);
 gfx_set(0.11, 0.14, 0.18, 1);
 gfx_rect(margin, header_y, gfx_w - margin * 2, header_h, 1);
 
-gfx_setfont(1, "Verdana", floor(21 * ui_scale));
+gfx_setfont(1, "Verdana", floor(19 * ui_scale));
 gfx_set(0.95, 0.96, 0.98, 1);
 gfx_x = margin + 14 * ui_scale;
-gfx_y = header_y + 13 * ui_scale;
+gfx_y = header_y + 15 * ui_scale;
 gfx_drawstr("CrescendoWerk v1");
 
 gfx_setfont(2, "Verdana", floor(15 * ui_scale));
-gfx_x = margin + 190 * ui_scale;
+header_status_x = margin + 360 * ui_scale;
+gfx_x = header_status_x;
 gfx_y = header_y + 18 * ui_scale;
 transport_is_playing ? sprintf(#header_status, "Playing") : sprintf(#header_status, "Stopped");
 gfx_drawstr(#header_status);
@@ -2306,7 +2308,7 @@ header_val_w = 48 * ui_scale;
 header_ctrl_gap = 6 * ui_scale;
 header_group_y = header_y + 14 * ui_scale;
 transport_box_w = 268 * ui_scale;
-transport_box_x = margin + 250 * ui_scale;
+transport_box_x = margin + 450 * ui_scale;
 bars_label_w = 30 * ui_scale;
 poi_label_w = 24 * ui_scale;
 seed_label_w = 28 * ui_scale;
