@@ -37,7 +37,7 @@ slider29:prec_solo=0<0,1,1{Off,On}>Patient Pulse Solo
 slider30:prec_channel=1<1,16,1>Patient Pulse Channel
 slider31:prec_density=72<0,100,1>Patient Pulse Density
 slider32:prec_variation=42<0,100,1>Patient Pulse Variation
-slider33:prec_velocity_scale=100<10,120,1>Patient Pulse Velocity Scale
+slider33:prec_velocity_scale=88<10,120,1>Patient Pulse Velocity Scale
 
 slider34:riff_enable=1<0,1,1{Off,On}>Procession Enable
 slider35:riff_mute=0<0,1,1{Off,On}>Procession Mute
@@ -45,7 +45,7 @@ slider36:riff_solo=0<0,1,1{Off,On}>Procession Solo
 slider37:riff_channel=1<1,16,1>Procession Channel
 slider38:riff_density=58<0,100,1>Procession Density
 slider39:riff_variation=48<0,100,1>Procession Variation
-slider40:riff_velocity_scale=100<10,120,1>Procession Velocity Scale
+slider40:riff_velocity_scale=84<10,120,1>Procession Velocity Scale
 
 slider41:weight_enable=1<0,1,1{Off,On}>Weight / Tom Motion Enable
 slider42:weight_mute=0<0,1,1{Off,On}>Weight / Tom Motion Mute
@@ -53,7 +53,7 @@ slider43:weight_solo=0<0,1,1{Off,On}>Weight / Tom Motion Solo
 slider44:weight_channel=1<1,16,1>Weight / Tom Motion Channel
 slider45:weight_density=56<0,100,1>Weight / Tom Motion Density
 slider46:weight_variation=44<0,100,1>Weight / Tom Motion Variation
-slider47:weight_velocity_scale=100<10,120,1>Weight / Tom Motion Velocity Scale
+slider47:weight_velocity_scale=86<10,120,1>Weight / Tom Motion Velocity Scale
 
 @init
 
@@ -1454,6 +1454,48 @@ function macro_density_bias(macro_i)
   -0.08;
 );
 
+function tension_backbeat_velocity(macro_i, class_i, energy_i) local(base_i)
+(
+  base_i =
+    macro_i == MACRO_ESTABLISH ? 62 :
+    macro_i == MACRO_DEEPEN ? 70 :
+    macro_i == MACRO_LIFT ? 78 :
+    macro_i == MACRO_CREST ? 86 :
+    macro_i == MACRO_RELEASE ? 66 :
+    macro_i == MACRO_TURNAROUND_ZONE ? 74 :
+    64;
+  class_i == CLASS_POI_MAIN ? base_i += 10;
+  class_i == CLASS_POI_VARIATION ? base_i += 6;
+  class_i == CLASS_TURNAROUND ? base_i += 10;
+  class_i == CLASS_LANDING ? base_i -= 8;
+  clampi(floor(base_i + energy_i * 10 + 0.5), 1, 127);
+);
+
+function tension_backbeat_probability(macro_i, class_i, lead_i, support_i) local(prob_i)
+(
+  prob_i =
+    macro_i == MACRO_ESTABLISH ? 58 :
+    macro_i == MACRO_DEEPEN ? 72 :
+    macro_i == MACRO_LIFT ? 84 :
+    macro_i == MACRO_CREST ? 92 :
+    macro_i == MACRO_RELEASE ? 68 :
+    macro_i == MACRO_TURNAROUND_ZONE ? 80 :
+    62;
+  class_i == CLASS_POI_MAIN ? prob_i += 10;
+  class_i == CLASS_POI_VARIATION ? prob_i += 6;
+  class_i == CLASS_TURNAROUND ? prob_i += 12;
+  lead_i == LAYER_PROCESSION ? prob_i += 8;
+  support_i == LAYER_PROCESSION ? prob_i += 5;
+  planned_total_bars <= 16 ? (
+    prob_i -= 18;
+    macro_i == MACRO_ESTABLISH ? prob_i -= 10;
+    macro_i == MACRO_DEEPEN ? prob_i -= 6;
+    class_i == CLASS_POI_MAIN ? prob_i += 6;
+    class_i == CLASS_TURNAROUND ? prob_i += 4;
+  );
+  clampi(prob_i, 0, 100);
+);
+
 function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, energy_i, motif_i, prob_i, vel_i, accent_i)
 (
   density_i = layer_density(LAYER_PATIENT);
@@ -1559,7 +1601,7 @@ function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(
   vel_i;
 );
 
-function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, fill_owner_i, major_fill_i, simplify_i, energy_i, motif_i, prob_i, vel_i)
+function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, patient_missing_i, compact_form_i, energy_i, motif_i, prob_i, backbeat_prob_i, backbeat_vel_i, vel_i)
 (
   density_i = layer_density(LAYER_PROCESSION);
   variation_i = layer_variation(LAYER_PROCESSION);
@@ -1568,12 +1610,26 @@ function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) loc
   lead_i = bar_lead_value(cycle_bar_i);
   support_i = bar_support_value(cycle_bar_i);
   clock_i = bar_cymbal_value(cycle_bar_i);
+  halftime_i = bar_halftime_value(cycle_bar_i);
   fill_owner_i = bar_fill_owner_value(cycle_bar_i);
   major_fill_i = (fill_owner_i == LAYER_PROCESSION) && ((class_i == CLASS_FILL) || (class_i == CLASS_TURNAROUND));
   simplify_i = (fill_owner_i >= 0) && (fill_owner_i != LAYER_PROCESSION) && ((class_i == CLASS_FILL) || (class_i == CLASS_TURNAROUND));
+  patient_missing_i = halftime_i || !layer_can_emit(LAYER_PATIENT);
+  compact_form_i = planned_total_bars <= 16;
   energy_i = layer_macro_energy(LAYER_PROCESSION, cycle_bar_i) + macro_density_bias(macro_i) * 0.45;
   motif_i = hash_pick(4, floor(cycle_bar_i / max(4, planned_recurrence_window * 0.5)), variation_i, class_i, 207, 0);
   prob_i = density_i * 0.40 + riff_amount * 0.34 + percussion_amount * 0.22 + energy_i * 28;
+  compact_form_i ? (
+    prob_i -= 18;
+    macro_i == MACRO_ESTABLISH ? prob_i -= 12;
+    macro_i == MACRO_DEEPEN ? prob_i -= 8;
+    class_i == CLASS_POI_MAIN ? prob_i += 10;
+    class_i == CLASS_POI_VARIATION ? prob_i += 4;
+    class_i == CLASS_TURNAROUND ? prob_i += 8;
+  );
+  backbeat_prob_i = tension_backbeat_probability(macro_i, class_i, lead_i, support_i);
+  backbeat_vel_i = tension_backbeat_velocity(macro_i, class_i, energy_i);
+  compact_form_i ? backbeat_vel_i = max(1, backbeat_vel_i - 10);
   vel_i = 0;
 
   role_i == 0 ? (
@@ -1582,7 +1638,8 @@ function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) loc
 
   role_i == 1 ? (
     !sub_i ? (
-      procession_motif_step(motif_i, step_i) && (macro_i >= MACRO_DEEPEN || class_i == CLASS_POI_MAIN || class_i == CLASS_POI_VARIATION) ? vel_i = 82 + energy_i * 12;
+      patient_missing_i && (step_i == 4 || step_i == 12) && hash_hit(backbeat_prob_i, cycle_bar_i, step_i, 307, 0, 0) ? vel_i = max(vel_i, backbeat_vel_i);
+      (!compact_form_i || class_i == CLASS_POI_MAIN || class_i == CLASS_POI_VARIATION || class_i == CLASS_TURNAROUND || macro_i >= MACRO_LIFT) && procession_motif_step(motif_i, step_i) && (macro_i >= MACRO_DEEPEN || class_i == CLASS_POI_MAIN || class_i == CLASS_POI_VARIATION) && hash_hit(compact_form_i ? (prob_i - 12) : prob_i, cycle_bar_i, step_i, 309, 0, 0) ? vel_i = max(vel_i, (compact_form_i ? 72 : 82) + energy_i * 12);
       class_i == CLASS_POI_MAIN && (step_i == 4 || step_i == 12) ? vel_i = max(vel_i, 96 + energy_i * 10);
       class_i == CLASS_TURNAROUND && major_fill_i && step_i >= 14 ? vel_i = max(vel_i, 94);
     ) : (
@@ -1591,7 +1648,8 @@ function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) loc
   );
 
   role_i == 2 ? (
-    !sub_i && !simplify_i && procession_motif_step((motif_i + 1) % 4, step_i) && hash_hit(prob_i, cycle_bar_i, step_i, 208, 0, 0) ? vel_i = 64 + energy_i * 8;
+    !sub_i && patient_missing_i && macro_i >= MACRO_DEEPEN && (step_i == 12) && hash_hit(backbeat_prob_i - 10, cycle_bar_i, step_i, 308, 0, 0) ? vel_i = max(vel_i, backbeat_vel_i - 16);
+    (!compact_form_i || class_i == CLASS_POI_MAIN || class_i == CLASS_TURNAROUND || macro_i >= MACRO_LIFT) && !sub_i && !simplify_i && procession_motif_step((motif_i + 1) % 4, step_i) && hash_hit(compact_form_i ? (prob_i - 14) : prob_i, cycle_bar_i, step_i, 208, 0, 0) ? vel_i = max(vel_i, (compact_form_i ? 56 : 64) + energy_i * 8);
   );
 
   role_i == 3 ? (
