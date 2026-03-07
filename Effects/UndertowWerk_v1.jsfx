@@ -122,11 +122,12 @@ ENV_CREST_RELEASE = 5;
 ENV_WAVE = 6;
 
 pad_note = 0;
-role_to_pad = 64;
-layer_activity = 128;
-slot_activity = 192;
-active_note_count = 256;
-off_time = 2304;
+pad_note_loud = 64;
+role_to_pad = 128;
+layer_activity = 192;
+slot_activity = 256;
+active_note_count = 320;
+off_time = 2368;
 off_chan = off_time + QUEUE_SIZE;
 off_note = off_chan + QUEUE_SIZE;
 bar_class = off_note + QUEUE_SIZE;
@@ -139,7 +140,8 @@ bar_turn_pickup = bar_fill_owner + MAX_BARS;
 bar_macro_section = bar_turn_pickup + MAX_BARS;
 bar_false_peak_release = bar_macro_section + MAX_BARS;
 bar_afterglow_entry = bar_false_peak_release + MAX_BARS;
-layer_envelope_shape = bar_afterglow_entry + MAX_BARS;
+bar_loud_note = bar_afterglow_entry + MAX_BARS;
+layer_envelope_shape = bar_loud_note + MAX_BARS;
 false_peak_start = layer_envelope_shape + NUM_LAYERS;
 false_peak_span = false_peak_start + MAX_FALSE_PEAKS;
 
@@ -149,8 +151,10 @@ queue_tail = 0;
 ui_audition_pending = 0;
 ui_audition_layer = 0;
 ui_audition_pad = 0;
+ui_audition_loud = 0;
 
 last_mouse_down = 0;
+note_edit_mode = 0;
 
 transport_is_playing = 0;
 current_cycle_step = 0;
@@ -280,6 +284,11 @@ function default_note(layer_i, pad_i)
   );
 );
 
+function default_loud_note(layer_i, pad_i)
+(
+  default_note(layer_i, pad_i);
+);
+
 function layer_enabled(layer_i)
 (
   layer_i == LAYER_PRECISION ? floor(prec_enable + 0.5) :
@@ -353,6 +362,26 @@ function get_pad_note(layer_i, pad_i)
 function set_pad_note(layer_i, pad_i, note_val)
 (
   pad_note[layer_pad_index(layer_i, pad_i)] = clampi(note_val, 0, 127);
+);
+
+function get_pad_loud_note(layer_i, pad_i)
+(
+  pad_note_loud[layer_pad_index(layer_i, pad_i)];
+);
+
+function set_pad_loud_note(layer_i, pad_i, note_val)
+(
+  pad_note_loud[layer_pad_index(layer_i, pad_i)] = clampi(note_val, 0, 127);
+);
+
+function get_pad_note_variant(layer_i, pad_i, loud_i)
+(
+  loud_i ? get_pad_loud_note(layer_i, pad_i) : get_pad_note(layer_i, pad_i);
+);
+
+function set_pad_note_variant(layer_i, pad_i, loud_i, note_val)
+(
+  loud_i ? set_pad_loud_note(layer_i, pad_i, note_val) : set_pad_note(layer_i, pad_i, note_val);
 );
 
 function get_pad_for_role(layer_i, role_i)
@@ -986,6 +1015,11 @@ function bar_afterglow_entry_value(bar_i)
   bar_afterglow_entry[clampi(bar_i, 0, MAX_BARS - 1)];
 );
 
+function bar_loud_note_value(bar_i)
+(
+  bar_loud_note[clampi(bar_i, 0, MAX_BARS - 1)];
+);
+
 function recurrence_window_for_bars(total_bars_i)
 (
   total_bars_i <= 8 ? 4 :
@@ -1048,6 +1082,24 @@ function has_false_peak_cooldown(bar_i)
 function allow_clock_roles(class_i, release_i)
 (
   class_i != CLASS_AFTERGLOW && release_i == 0;
+);
+
+function class_uses_loud_note(class_i)
+(
+  class_i == CLASS_FALSE_PEAK ||
+  class_i == CLASS_IMPACT_ENTRY ||
+  class_i == CLASS_IMPACT_MAIN ||
+  class_i == CLASS_IMPACT_VARIATION ||
+  class_i == CLASS_TURNAROUND ||
+  class_i == CLASS_LANDING;
+);
+
+function resolve_pad_note_variant(layer_i, pad_i, cycle_bar_i, loud_override_i) local(use_loud_i)
+(
+  loud_override_i >= 0 ? use_loud_i = loud_override_i :
+  cycle_bar_i >= 0 ? use_loud_i = bar_loud_note_value(cycle_bar_i) :
+  use_loud_i = 0;
+  get_pad_note_variant(layer_i, pad_i, use_loud_i);
 );
 
 function choose_poi_lead(tempo_band_i) local(score_nerve, score_surge)
@@ -1310,6 +1362,7 @@ function plan_form() local(bar_i, macro_i, class_i, is_long_form, quarter_i, aft
     bar_macro_section[bar_i] = MACRO_QUIET_A;
     bar_false_peak_release[bar_i] = 0;
     bar_afterglow_entry[bar_i] = 0;
+    bar_loud_note[bar_i] = 0;
     bar_i += 1;
   );
 
@@ -1358,6 +1411,7 @@ function plan_form() local(bar_i, macro_i, class_i, is_long_form, quarter_i, aft
     bar_fill_owner[bar_i] = choose_fill_owner(class_i, planned_tempo_band, bar_i);
     class_i == CLASS_FALSE_PEAK && hash_hit(fill_frequency * 0.32, bar_i, 450, seed, 0, 0) ? bar_fill_owner[bar_i] = LAYER_PROCESSION;
     class_i == CLASS_IMPACT_VARIATION && hash_hit(poi_intensity * 0.44, bar_i, 451, planned_poi_lead, 0, 0) ? bar_fill_owner[bar_i] = planned_poi_lead;
+    bar_loud_note[bar_i] = class_uses_loud_note(class_i);
 
     (class_i == CLASS_TURNAROUND || class_i == CLASS_LANDING) ? bar_turn_pickup[bar_i] = choose_loop_pickup();
     bar_i += 1;
@@ -1464,11 +1518,11 @@ function flush_due_note_offs() local(rel_spl, chan_i, note_i, active_idx, guard)
   );
 );
 
-function trigger_role(layer_i, role_i, base_vel, rel_offset, bar_i, step_i, cycle_bar_i, sub_i) local(pad_i, note_i, chan_i, vel_i, note_off_at, active_idx, hit_offset, timing_spl, sub_offset)
+function trigger_role(layer_i, role_i, base_vel, rel_offset, bar_i, step_i, cycle_bar_i, sub_i, loud_override_i) local(pad_i, note_i, chan_i, vel_i, note_off_at, active_idx, hit_offset, timing_spl, sub_offset)
 (
   base_vel > 0 ? (
     pad_i = get_pad_for_role(layer_i, role_i);
-    note_i = get_pad_note(layer_i, pad_i);
+    note_i = resolve_pad_note_variant(layer_i, pad_i, cycle_bar_i, loud_override_i);
     chan_i = layer_channel_zero(layer_i);
     vel_i = scaled_velocity(layer_i, base_vel);
     timing_spl = ms_to_samples(role_timing_ms(layer_i, role_i, bar_i, step_i, cycle_bar_i, sub_i));
@@ -1488,11 +1542,12 @@ function trigger_role(layer_i, role_i, base_vel, rel_offset, bar_i, step_i, cycl
   );
 );
 
-function queue_ui_audition(layer_i, pad_i)
+function queue_ui_audition(layer_i, pad_i, loud_i)
 (
   ui_audition_pending = 1;
   ui_audition_layer = layer_i;
   ui_audition_pad = pad_i;
+  ui_audition_loud = loud_i;
 );
 
 function is_downbeat_step(step_i)
@@ -2013,12 +2068,12 @@ function layer_role_velocity(layer_i, role_i, bar_i, step_i, cycle_bar_i, sub_i)
 function fire_step_for_layer(layer_i, bar_i, step_i, cycle_bar_i, rel_offset) local(role_i, vel_i)
 (
   layer_can_emit(layer_i) ? (
-    role_i = 0;
-    while (role_i < NUM_PADS) (
-      vel_i = layer_role_velocity(layer_i, role_i, bar_i, step_i, cycle_bar_i, 0);
-      vel_i > 0 ? trigger_role(layer_i, role_i, vel_i, rel_offset, bar_i, step_i, cycle_bar_i, 0);
+      role_i = 0;
+      while (role_i < NUM_PADS) (
+        vel_i = layer_role_velocity(layer_i, role_i, bar_i, step_i, cycle_bar_i, 0);
+      vel_i > 0 ? trigger_role(layer_i, role_i, vel_i, rel_offset, bar_i, step_i, cycle_bar_i, 0, -1);
       vel_i = layer_role_velocity(layer_i, role_i, bar_i, step_i, cycle_bar_i, 1);
-      vel_i > 0 ? trigger_role(layer_i, role_i, vel_i, rel_offset, bar_i, step_i, cycle_bar_i, 1);
+      vel_i > 0 ? trigger_role(layer_i, role_i, vel_i, rel_offset, bar_i, step_i, cycle_bar_i, 1, -1);
       role_i += 1;
     );
   );
@@ -2046,12 +2101,14 @@ function init_persistent_state() local(layer_i, pad_i)
     edit_layer = 0;
     preview_mode = 0;
     host_sliders_visible = 0;
+    note_edit_mode = 0;
     last_host_sliders_visible = -1;
     layer_i = 0;
     while (layer_i < NUM_LAYERS) (
       pad_i = 0;
       while (pad_i < NUM_PADS) (
         set_pad_note(layer_i, pad_i, default_note(layer_i, pad_i));
+        set_pad_loud_note(layer_i, pad_i, default_loud_note(layer_i, pad_i));
         pad_i += 1;
       );
       layer_i += 1;
@@ -2090,10 +2147,12 @@ function reset_runtime_state() local(layer_i, pad_i, i)
   ui_audition_pending = 0;
   ui_audition_layer = 0;
   ui_audition_pad = 0;
+  ui_audition_loud = 0;
   last_mouse_down = 0;
   note_drag_active = 0;
   note_drag_layer = 0;
   note_drag_pad = 0;
+  note_drag_loud = 0;
   note_drag_start_y = 0;
   note_drag_origin = 0;
   layer_row_drag_active = 0;
@@ -2155,6 +2214,9 @@ while (layer_i < NUM_LAYERS) (
     note_tmp = pad_note[layer_pad_index(layer_i, pad_i)];
     file_var(0, note_tmp);
     pad_note[layer_pad_index(layer_i, pad_i)] = note_tmp;
+    note_loud_tmp = note_tmp;
+    file_var(0, note_loud_tmp);
+    pad_note_loud[layer_pad_index(layer_i, pad_i)] = clampi(note_loud_tmp, 0, 127);
     pad_i += 1;
   );
   layer_i += 1;
@@ -2210,7 +2272,7 @@ flush_due_note_offs();
 
 ui_audition_pending ? (
   audition_role = role_for_pad(ui_audition_layer, ui_audition_pad);
-  trigger_role(ui_audition_layer, audition_role, 100, 0, -1, -1, -1, 0);
+  trigger_role(ui_audition_layer, audition_role, 100, 0, -1, -1, -1, 0, ui_audition_loud);
   ui_audition_pending = 0;
 );
 
@@ -2306,7 +2368,7 @@ grid_h = content_h;
 
 side_x = grid_x + grid_w + gap;
 side_y = content_y;
-editor_h = 188 * ui_scale;
+editor_h = 214 * ui_scale;
 editor_h > (content_h * 0.52) ? editor_h = content_h * 0.52;
 preview_h = content_h - editor_h - gap;
 preview_h < (132 * ui_scale) ? (
@@ -2467,18 +2529,30 @@ click ? (
     pad_x = grid_x + col_i * (pad_w + gap);
     pad_y = grid_y + row_i * (pad_h + gap);
     note_hit_x = pad_x + 8 * ui_scale;
-    note_hit_y = pad_y + 50 * ui_scale;
+    quiet_note_hit_y = pad_y + 50 * ui_scale;
+    loud_note_hit_y = pad_y + 72 * ui_scale;
     note_hit_w = pad_w - 16 * ui_scale;
-    note_hit_h = 24 * ui_scale;
-    in_rect(mouse_x, mouse_y, note_hit_x, note_hit_y, note_hit_w, note_hit_h) ? (
+    note_hit_h = 20 * ui_scale;
+    in_rect(mouse_x, mouse_y, note_hit_x, quiet_note_hit_y, note_hit_w, note_hit_h) ? (
       selected_pad = pad_i;
+      note_edit_mode = 0;
       note_drag_active = 1;
       note_drag_layer = edit_layer;
       note_drag_pad = pad_i;
+      note_drag_loud = 0;
       note_drag_start_y = mouse_y;
-      note_drag_origin = get_pad_note(edit_layer, pad_i);
+      note_drag_origin = get_pad_note_variant(edit_layer, pad_i, 0);
+    ) : in_rect(mouse_x, mouse_y, note_hit_x, loud_note_hit_y, note_hit_w, note_hit_h) ? (
+      selected_pad = pad_i;
+      note_edit_mode = 1;
+      note_drag_active = 1;
+      note_drag_layer = edit_layer;
+      note_drag_pad = pad_i;
+      note_drag_loud = 1;
+      note_drag_start_y = mouse_y;
+      note_drag_origin = get_pad_note_variant(edit_layer, pad_i, 1);
     ) : in_rect(mouse_x, mouse_y, pad_x, pad_y, pad_w, pad_h) ? (
-      selected_pad == pad_i ? queue_ui_audition(edit_layer, pad_i) : selected_pad = pad_i;
+      selected_pad == pad_i ? queue_ui_audition(edit_layer, pad_i, note_edit_mode) : selected_pad = pad_i;
     );
     pad_i += 1;
   );
@@ -2488,23 +2562,28 @@ click ? (
   editor_w = right_col_w;
   editor_pad = 12 * ui_scale;
   button_gap = 8 * ui_scale;
+  note_mode_y = editor_y + 62 * ui_scale;
+  note_mode_h = 28 * ui_scale;
+  note_mode_w = (editor_w - editor_pad * 2 - button_gap) / 2;
   btn_w_1 = (editor_w - editor_pad * 2 - button_gap * 3) / 4;
   big_btn_w = (editor_w - editor_pad * 2 - button_gap) / 2;
   big_btn_h = 32 * ui_scale;
   btn_y_2 = editor_y + editor_h - big_btn_h - 12 * ui_scale;
   btn_y_1 = btn_y_2 - 32 * ui_scale - 8 * ui_scale;
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad, note_mode_y, note_mode_w, note_mode_h) ? note_edit_mode = 0;
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + note_mode_w + button_gap, note_mode_y, note_mode_w, note_mode_h) ? note_edit_mode = 1;
 
-  in_rect(mouse_x, mouse_y, editor_x + editor_pad, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) - 12);
-  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap), btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) - 1);
-  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap) * 2, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) + 1);
-  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap) * 3, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) + 12);
-  in_rect(mouse_x, mouse_y, editor_x + editor_pad, btn_y_2, big_btn_w, big_btn_h) ? set_pad_note(edit_layer, selected_pad, default_note(edit_layer, selected_pad));
-  in_rect(mouse_x, mouse_y, editor_x + editor_pad + big_btn_w + button_gap, btn_y_2, big_btn_w, big_btn_h) ? queue_ui_audition(edit_layer, selected_pad);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note_variant(edit_layer, selected_pad, note_edit_mode, get_pad_note_variant(edit_layer, selected_pad, note_edit_mode) - 12);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap), btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note_variant(edit_layer, selected_pad, note_edit_mode, get_pad_note_variant(edit_layer, selected_pad, note_edit_mode) - 1);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap) * 2, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note_variant(edit_layer, selected_pad, note_edit_mode, get_pad_note_variant(edit_layer, selected_pad, note_edit_mode) + 1);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap) * 3, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note_variant(edit_layer, selected_pad, note_edit_mode, get_pad_note_variant(edit_layer, selected_pad, note_edit_mode) + 12);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad, btn_y_2, big_btn_w, big_btn_h) ? set_pad_note_variant(edit_layer, selected_pad, note_edit_mode, note_edit_mode ? default_loud_note(edit_layer, selected_pad) : default_note(edit_layer, selected_pad));
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + big_btn_w + button_gap, btn_y_2, big_btn_w, big_btn_h) ? queue_ui_audition(edit_layer, selected_pad, note_edit_mode);
 );
 
 mouse_down && note_drag_active ? (
   drag_note_step = floor((note_drag_start_y - mouse_y) / (18 * ui_scale));
-  set_pad_note(note_drag_layer, note_drag_pad, note_drag_origin + drag_note_step);
+  set_pad_note_variant(note_drag_layer, note_drag_pad, note_drag_loud, note_drag_origin + drag_note_step);
 );
 !mouse_down ? note_drag_active = 0;
 
@@ -2536,12 +2615,21 @@ mouse_shift && (mouse_wheel != 0) ? (
     pad_x = grid_x + col_i * (pad_w + gap);
     pad_y = grid_y + row_i * (pad_h + gap);
     note_hit_x = pad_x + 8 * ui_scale;
-    note_hit_y = pad_y + 50 * ui_scale;
+    quiet_note_hit_y = pad_y + 50 * ui_scale;
+    loud_note_hit_y = pad_y + 72 * ui_scale;
     note_hit_w = pad_w - 16 * ui_scale;
-    note_hit_h = 24 * ui_scale;
-    in_rect(mouse_x, mouse_y, note_hit_x, note_hit_y, note_hit_w, note_hit_h) ? (
+    note_hit_h = 20 * ui_scale;
+    in_rect(mouse_x, mouse_y, note_hit_x, quiet_note_hit_y, note_hit_w, note_hit_h) ? (
       selected_pad = pad_i;
-      set_pad_note(edit_layer, pad_i, get_pad_note(edit_layer, pad_i) + wheel_steps);
+      note_edit_mode = 0;
+      set_pad_note_variant(edit_layer, pad_i, 0, get_pad_note_variant(edit_layer, pad_i, 0) + wheel_steps);
+      wheel_handled = 1;
+      mouse_wheel = 0;
+    ) :
+    in_rect(mouse_x, mouse_y, note_hit_x, loud_note_hit_y, note_hit_w, note_hit_h) ? (
+      selected_pad = pad_i;
+      note_edit_mode = 1;
+      set_pad_note_variant(edit_layer, pad_i, 1, get_pad_note_variant(edit_layer, pad_i, 1) + wheel_steps);
       wheel_handled = 1;
       mouse_wheel = 0;
     );
@@ -2970,11 +3058,25 @@ while (pad_i < NUM_PADS) (
   role_name(edit_layer, role_for_pad(edit_layer, pad_i));
   gfx_drawstr(#role_txt);
 
-  gfx_setfont(2, "Verdana", floor(14 * ui_scale));
+  gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+  selected_pad == pad_i && note_edit_mode == 0 && edit_layer >= 0 ? (
+    gfx_set(0.98, 0.83, 0.31, 1);
+    gfx_rect(pad_x + 8 * ui_scale, pad_y + 66 * ui_scale, pad_w - 16 * ui_scale, 2 * ui_scale, 1);
+  );
+  gfx_set(1, 1, 1, 1);
   gfx_x = pad_x + 10 * ui_scale;
-  gfx_y = pad_y + 58 * ui_scale;
-  sprintf(#pad_note_txt, "Note %d", get_pad_note(edit_layer, pad_i));
+  gfx_y = pad_y + 56 * ui_scale;
+  sprintf(#pad_note_txt, "Quiet %d", get_pad_note(edit_layer, pad_i));
   gfx_drawstr(#pad_note_txt);
+  selected_pad == pad_i && note_edit_mode == 1 && edit_layer >= 0 ? (
+    gfx_set(0.98, 0.83, 0.31, 1);
+    gfx_rect(pad_x + 8 * ui_scale, pad_y + 88 * ui_scale, pad_w - 16 * ui_scale, 2 * ui_scale, 1);
+    gfx_set(1, 1, 1, 1);
+  );
+  gfx_x = pad_x + 10 * ui_scale;
+  gfx_y = pad_y + 78 * ui_scale;
+  sprintf(#pad_note_loud_txt, "Loud  %d", get_pad_loud_note(edit_layer, pad_i));
+  gfx_drawstr(#pad_note_loud_txt);
 
   gfx_setfont(3, "Verdana", floor(11 * ui_scale));
   gfx_x = pad_x + 10 * ui_scale;
@@ -3004,7 +3106,8 @@ gfx_drawstr(#role_txt);
 gfx_setfont(1, "Verdana", floor(20 * ui_scale));
 gfx_x = side_x + 12 * ui_scale;
 gfx_y = side_y + 62 * ui_scale;
-sprintf(#editor_note_txt, "Note %d  Ch %d", get_pad_note(edit_layer, selected_pad), layer_channel_display(edit_layer));
+note_edit_mode ? sprintf(#editor_note_txt, "Loud Note %d  Ch %d", get_pad_loud_note(edit_layer, selected_pad), layer_channel_display(edit_layer)) :
+sprintf(#editor_note_txt, "Quiet Note %d  Ch %d", get_pad_note(edit_layer, selected_pad), layer_channel_display(edit_layer));
 gfx_drawstr(#editor_note_txt);
 
 editor_x = side_x;
@@ -3012,13 +3115,21 @@ editor_y = side_y;
 editor_w = right_col_w;
 editor_pad = 12 * ui_scale;
 button_gap = 8 * ui_scale;
+note_mode_y = editor_y + 92 * ui_scale;
+note_mode_h = 28 * ui_scale;
+note_mode_w = (editor_w - editor_pad * 2 - button_gap) / 2;
 btn_h = 32 * ui_scale;
 btn_w_1 = (editor_w - editor_pad * 2 - button_gap * 3) / 4;
 big_btn_w = (editor_w - editor_pad * 2 - button_gap) / 2;
 big_btn_h = 32 * ui_scale;
 btn_y_2 = editor_y + editor_h - big_btn_h - 12 * ui_scale;
 btn_y_1 = btn_y_2 - btn_h - 8 * ui_scale;
-hint_y = max(editor_y + 88 * ui_scale, btn_y_1 - 14 * ui_scale);
+hint_y = max(editor_y + 130 * ui_scale, btn_y_1 - 14 * ui_scale);
+
+note_edit_mode ? gfx_set(0.16, 0.20, 0.25, 1) : gfx_set(0.16, 0.43, 0.60, 1);
+gfx_rect(editor_x + editor_pad, note_mode_y, note_mode_w, note_mode_h, 1);
+note_edit_mode ? gfx_set(0.60, 0.34, 0.13, 1) : gfx_set(0.16, 0.20, 0.25, 1);
+gfx_rect(editor_x + editor_pad + note_mode_w + button_gap, note_mode_y, note_mode_w, note_mode_h, 1);
 
 gfx_set(0.24, 0.27, 0.33, 1);
 gfx_rect(editor_x + editor_pad, btn_y_1, btn_w_1, btn_h, 1);
@@ -3030,6 +3141,11 @@ gfx_rect(editor_x + editor_pad + big_btn_w + button_gap, btn_y_2, big_btn_w, big
 
 gfx_setfont(2, "Verdana", floor(15 * ui_scale));
 gfx_set(1, 1, 1, 1);
+gfx_x = editor_x + editor_pad + 14 * ui_scale;
+gfx_y = note_mode_y + 6 * ui_scale;
+gfx_drawstr("Quiet");
+gfx_x = editor_x + editor_pad + note_mode_w + button_gap + 16 * ui_scale;
+gfx_drawstr("Loud");
 gfx_x = editor_x + editor_pad + 10 * ui_scale;
 gfx_y = btn_y_1 + 8 * ui_scale;
 gfx_drawstr("-12");
@@ -3048,7 +3164,7 @@ gfx_drawstr("Audition");
 gfx_setfont(3, "Verdana", floor(11 * ui_scale));
 gfx_x = side_x + 12 * ui_scale;
 gfx_y = hint_y;
-gfx_drawstr("Drag note or Shift+wheel.");
+gfx_drawstr("Drag quiet/loud note or use Shift+wheel.");
 
 preview_y = side_y + editor_h + gap;
 preview_w = right_col_w;
