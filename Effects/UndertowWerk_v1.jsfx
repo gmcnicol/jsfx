@@ -1659,7 +1659,7 @@ function patient_rim_backbeat_velocity(macro_i, class_i, energy_i) local(base_i)
   clampi(floor(base_i + energy_i * 8 + 0.5), 1, 127);
 );
 
-function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, energy_i, motif_i, prob_i, vel_i, accent_i, anchor_vel_i, rim_anchor_vel_i, afterglow_entry_i, release_i)
+function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, energy_i, motif_i, prob_i, vel_i, accent_i, anchor_vel_i, rim_anchor_vel_i, afterglow_entry_i, release_i, clock_active_i)
 (
   density_i = layer_density(LAYER_PATIENT);
   variation_i = layer_variation(LAYER_PATIENT);
@@ -1682,6 +1682,7 @@ function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(
   release_i > 0 ? (
     prob_i -= release_i * 10;
   );
+  clock_active_i = class_i != CLASS_AFTERGLOW && release_i == 0;
   vel_i = 0;
 
   role_i == 0 ? (
@@ -1719,7 +1720,7 @@ function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(
   );
 
   role_i == 3 ? (
-    class_i != CLASS_AFTERGLOW && !simplify_i && !sub_i && clock_i == CLOCK_HAT ? (
+    clock_active_i && !simplify_i && !sub_i && clock_i == CLOCK_HAT ? (
       !halftime_i && (density_i + energy_i * 26 + doubletime_bias) > 72 ? (
         is_eighth_step(step_i) ? vel_i = (step_i % 4 == 0 ? 78 : 70) :
         ((density_i + doubletime_bias) > 84 && hash_hit(density_i * 0.55 + energy_i * 24, cycle_bar_i, step_i, 203, 0, 0) ? vel_i = 62 : 0);
@@ -1730,11 +1731,11 @@ function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(
   );
 
   role_i == 4 ? (
-    class_i != CLASS_AFTERGLOW && !simplify_i && !sub_i && (clock_i == CLOCK_OPEN || clock_i == CLOCK_HAT) && ((step_i == 6) || (step_i == 14)) && hash_hit((100 - cymbal_wash) * 0.55 + energy_i * 20, cycle_bar_i, step_i, 204, 0, 0) ? vel_i = 84 + energy_i * 8;
+    clock_active_i && !simplify_i && !sub_i && (clock_i == CLOCK_OPEN || clock_i == CLOCK_HAT) && ((step_i == 6) || (step_i == 14)) && hash_hit((100 - cymbal_wash) * 0.55 + energy_i * 20, cycle_bar_i, step_i, 204, 0, 0) ? vel_i = 84 + energy_i * 8;
   );
 
   role_i == 5 ? (
-    class_i != CLASS_AFTERGLOW && !simplify_i && !sub_i && clock_i == CLOCK_RIDE && is_eighth_step(step_i) ? vel_i = (step_i % 4 == 0 ? 80 : 72) + energy_i * 6 + (macro_i == MACRO_IMPACT ? 8 : 0);
+    clock_active_i && !simplify_i && !sub_i && clock_i == CLOCK_RIDE && is_eighth_step(step_i) ? vel_i = (step_i % 4 == 0 ? 80 : 72) + energy_i * 6 + (macro_i == MACRO_IMPACT ? 8 : 0);
   );
 
   role_i == 6 ? (
@@ -1779,7 +1780,7 @@ function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(
   vel_i;
 );
 
-function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, patient_missing_i, compact_form_i, energy_i, motif_i, prob_i, backbeat_prob_i, backbeat_vel_i, vel_i, afterglow_entry_i, release_i)
+function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, patient_missing_i, compact_form_i, energy_i, motif_i, prob_i, backbeat_prob_i, backbeat_vel_i, vel_i, afterglow_entry_i, release_i, clock_active_i)
 (
   density_i = layer_density(LAYER_PROCESSION);
   variation_i = layer_variation(LAYER_PROCESSION);
@@ -1816,6 +1817,7 @@ function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) loc
     backbeat_vel_i -= release_i * 10;
     release_i > 1 ? simplify_i = 1;
   );
+  clock_active_i = class_i != CLASS_AFTERGLOW && release_i == 0;
   vel_i = 0;
 
   role_i == 0 ? (
@@ -1840,15 +1842,15 @@ function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) loc
   );
 
   role_i == 3 ? (
-    class_i != CLASS_AFTERGLOW && !sub_i && !simplify_i && lead_i == LAYER_PROCESSION && clock_i == CLOCK_HAT && is_downbeat_step(step_i) ? vel_i = 70 + energy_i * 6;
+    clock_active_i && !sub_i && !simplify_i && lead_i == LAYER_PROCESSION && clock_i == CLOCK_HAT && is_downbeat_step(step_i) ? vel_i = 70 + energy_i * 6;
   );
 
   role_i == 4 ? (
-    class_i != CLASS_AFTERGLOW && !sub_i && !simplify_i && lead_i == LAYER_PROCESSION && clock_i == CLOCK_OPEN && (step_i == 6 || step_i == 14) ? vel_i = 80;
+    clock_active_i && !sub_i && !simplify_i && lead_i == LAYER_PROCESSION && clock_i == CLOCK_OPEN && (step_i == 6 || step_i == 14) ? vel_i = 80;
   );
 
   role_i == 5 ? (
-    class_i != CLASS_AFTERGLOW && !sub_i && !simplify_i && lead_i == LAYER_PROCESSION && clock_i == CLOCK_RIDE && is_eighth_step(step_i) ? vel_i = (step_i % 4 == 0 ? 76 : 68) + energy_i * 6 + (macro_i == MACRO_IMPACT ? 10 : 0);
+    clock_active_i && !sub_i && !simplify_i && lead_i == LAYER_PROCESSION && clock_i == CLOCK_RIDE && is_eighth_step(step_i) ? vel_i = (step_i % 4 == 0 ? 76 : 68) + energy_i * 6 + (macro_i == MACRO_IMPACT ? 10 : 0);
   );
 
   role_i == 6 ? (
@@ -1890,7 +1892,7 @@ function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) loc
   vel_i;
 );
 
-function weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, fill_owner_i, major_fill_i, simplify_i, energy_i, motif_i, prob_i, vel_i, afterglow_entry_i, release_i)
+function weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, energy_i, motif_i, prob_i, vel_i, afterglow_entry_i, release_i, clock_active_i)
 (
   density_i = layer_density(LAYER_WEIGHT);
   variation_i = layer_variation(LAYER_WEIGHT);
@@ -1899,6 +1901,7 @@ function weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(d
   lead_i = bar_lead_value(cycle_bar_i);
   support_i = bar_support_value(cycle_bar_i);
   clock_i = bar_cymbal_value(cycle_bar_i);
+  halftime_i = bar_halftime_value(cycle_bar_i);
   fill_owner_i = bar_fill_owner_value(cycle_bar_i);
   major_fill_i = (fill_owner_i == LAYER_WEIGHT) && ((class_i == CLASS_IMPACT_VARIATION) || (class_i == CLASS_TURNAROUND) || (class_i == CLASS_LANDING));
   simplify_i = (fill_owner_i >= 0) && (fill_owner_i != LAYER_WEIGHT) && ((class_i == CLASS_FALSE_PEAK) || (class_i == CLASS_IMPACT_VARIATION) || (class_i == CLASS_TURNAROUND));
@@ -1915,10 +1918,11 @@ function weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(d
     prob_i -= release_i * 30;
     release_i > 1 ? simplify_i = 1;
   );
+  clock_active_i = class_i != CLASS_AFTERGLOW && release_i == 0;
   vel_i = 0;
 
   role_i == 0 ? (
-    !sub_i && !simplify_i && (class_i == CLASS_IMPACT_ENTRY || class_i == CLASS_IMPACT_MAIN || class_i == CLASS_IMPACT_VARIATION || class_i == CLASS_TURNAROUND || class_i == CLASS_LANDING || support_i == LAYER_WEIGHT || lead_i == LAYER_WEIGHT) && (step_i == 0 || (!bar_halftime_value(cycle_bar_i) && step_i == 8)) ? vel_i = 84 + energy_i * 10;
+    !sub_i && !simplify_i && (class_i == CLASS_IMPACT_ENTRY || class_i == CLASS_IMPACT_MAIN || class_i == CLASS_IMPACT_VARIATION || class_i == CLASS_TURNAROUND || class_i == CLASS_LANDING || support_i == LAYER_WEIGHT || lead_i == LAYER_WEIGHT) && (step_i == 0 || (!halftime_i && step_i == 8)) ? vel_i = 84 + energy_i * 10;
   );
 
   role_i == 1 ? (
@@ -1931,15 +1935,15 @@ function weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(d
   );
 
   role_i == 3 ? (
-    class_i != CLASS_AFTERGLOW && !sub_i && !simplify_i && lead_i == LAYER_WEIGHT && clock_i == CLOCK_HAT && is_downbeat_step(step_i) ? vel_i = 62;
+    clock_active_i && !sub_i && !simplify_i && lead_i == LAYER_WEIGHT && clock_i == CLOCK_HAT && is_downbeat_step(step_i) ? vel_i = 62;
   );
 
   role_i == 4 ? (
-    class_i != CLASS_AFTERGLOW && !sub_i && !simplify_i && lead_i == LAYER_WEIGHT && clock_i == CLOCK_OPEN && (step_i == 6 || step_i == 14) ? vel_i = 76;
+    clock_active_i && !sub_i && !simplify_i && lead_i == LAYER_WEIGHT && clock_i == CLOCK_OPEN && (step_i == 6 || step_i == 14) ? vel_i = 76;
   );
 
   role_i == 5 ? (
-    class_i != CLASS_AFTERGLOW && !sub_i && !simplify_i && lead_i == LAYER_WEIGHT && clock_i == CLOCK_RIDE && is_eighth_step(step_i) ? vel_i = (step_i % 4 == 0 ? 76 : 68) + energy_i * 6 + (macro_i == MACRO_IMPACT ? 10 : 0);
+    clock_active_i && !sub_i && !simplify_i && lead_i == LAYER_WEIGHT && clock_i == CLOCK_RIDE && is_eighth_step(step_i) ? vel_i = (step_i % 4 == 0 ? 76 : 68) + energy_i * 6 + (macro_i == MACRO_IMPACT ? 10 : 0);
   );
 
   role_i == 6 ? (
