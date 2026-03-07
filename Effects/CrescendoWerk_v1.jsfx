@@ -1973,7 +1973,7 @@ last_transport_is_playing = transport_is_playing;
 last_beat_position = beat_position;
 abs_sample_clock = block_abs_end;
 
-@gfx
+@gfx 1500 1100
 
 ui_scale = ui_scale_pct * 0.01;
 
