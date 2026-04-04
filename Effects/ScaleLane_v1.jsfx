@@ -9,8 +9,11 @@ slider1:ui_scale_pct=100<75,200,1>UI Scale
 
 ext_noinit = 1;
 
-PERSIST_MAGIC = 4101041;
+PERSIST_MAGIC_LEGACY = 4101041;
+PERSIST_MAGIC = 4101042;
 EPS = 0.000001;
+MIN_GLOBAL_OCTAVE = 0;
+MAX_GLOBAL_OCTAVE = 8;
 
 NUM_LANES = 4;
 NUM_PATTERNS = 16;
@@ -42,7 +45,7 @@ DRAG_GATE = 2;
 DRAG_VEL = 3;
 DRAG_ROOT = 4;
 DRAG_SCALE = 5;
-DRAG_TS_NUM = 6;
+DRAG_OCTAVE = 6;
 DRAG_LANE_CH = 7;
 DRAG_LANE_DIV = 8;
 DRAG_LANE_MODE = 9;
@@ -208,6 +211,11 @@ function scale_name(scale_i)
   sprintf(#scale_txt, "Chromatic");
 );
 
+function octave_name(oct_i)
+(
+  sprintf(#oct_txt, "%d", oct_i);
+);
+
 function division_name(div_i)
 (
   div_i == DIV_1_32 ? sprintf(#div_txt, "1/32") :
@@ -292,6 +300,15 @@ function sanitize_note_indices_against_scale() local(i, hi_i)
   );
 );
 
+function retune_off_steps_to_default() local(i)
+(
+  i = 0;
+  while (i < TOTAL_PATTERN_STEP_COUNT) (
+    pat_step_mode[i] == STEP_OFF ? pat_step_note_idx[i] = scale_default_note_idx;
+    i += 1;
+  );
+);
+
 function scale_contains_pc(scale_i, pc_i) local(i, n_i, found_i)
 (
   found_i = 0;
@@ -304,7 +321,7 @@ function scale_contains_pc(scale_i, pc_i) local(i, n_i, found_i)
   found_i;
 );
 
-function rebuild_scale_pool() local(note_i, rel_pc, best_i, best_dist, dist_i, i)
+function rebuild_scale_pool() local(note_i, rel_pc, best_i, best_dist, dist_i, i, target_note_i)
 (
   scale_pool_count = 0;
   note_i = 0;
@@ -322,11 +339,12 @@ function rebuild_scale_pool() local(note_i, rel_pc, best_i, best_dist, dist_i, i
     scale_pool_count = 1;
   );
 
+  target_note_i = clampi((global_octave + 2) * 12 + global_root, 0, 127);
   best_i = 0;
   best_dist = 999;
   i = 0;
   while (i < scale_pool_count) (
-    dist_i = absf(scale_pool_midi[i] - 60);
+    dist_i = absf(scale_pool_midi[i] - target_note_i);
     dist_i < best_dist ? (
       best_dist = dist_i;
       best_i = i;
@@ -335,6 +353,7 @@ function rebuild_scale_pool() local(note_i, rel_pc, best_i, best_dist, dist_i, i
   );
   scale_default_note_idx = best_i;
   sanitize_note_indices_against_scale();
+  retune_off_steps_to_default();
 );
 
 function scale_degree_to_midi(note_idx)
@@ -388,7 +407,6 @@ function set_step_defaults(step_idx_i)
 function step_is_default(step_idx_i)
 (
   pat_step_mode[step_idx_i] == STEP_OFF &&
-  pat_step_note_idx[step_idx_i] == scale_default_note_idx &&
   pat_step_vel[step_idx_i] == 100 &&
   pat_step_gate[step_idx_i] == 50;
 );
@@ -533,8 +551,7 @@ function init_defaults()
 
   global_root = 0;
   global_scale = 1;
-  ts_num = 4;
-  ts_den = 4;
+  global_octave = 3;
 
   rebuild_scale_pool();
 
@@ -903,7 +920,7 @@ function compute_layout()
   top_info_w = approx_text_w("Edit Lane 4  Pattern 16  Page 4", 7.0) + 20 * ui_scale;
   top_root_w = measure_cycle_box_w("ROOT", "A#", 96);
   top_scale_w = measure_cycle_box_w("SCALE", "Harmonic Minor", 176);
-  top_time_w = measure_cycle_box_w("TIME", "16/8", 96);
+  top_oct_w = measure_cycle_box_w("OCT", "8", 96);
   top_title_x = top_x + top_pad_l;
   top_title_y = top_y + top_pad_t;
   top_subtitle_x = top_title_x;
@@ -914,9 +931,9 @@ function compute_layout()
   top_scale_x = top_root_x + top_root_w + top_ctrl_gap;
   top_scale_y = top_root_y;
   top_scale_h = top_root_h;
-  top_time_x = top_scale_x + top_scale_w + top_ctrl_gap;
-  top_time_y = top_root_y;
-  top_time_h = top_root_h;
+  top_oct_x = top_scale_x + top_scale_w + top_ctrl_gap;
+  top_oct_y = top_root_y;
+  top_oct_h = top_root_h;
   top_info_x = top_x + top_w - top_info_w - top_pad_r;
   top_info_y = top_y + top_pad_t + 12 * ui_scale;
 
@@ -992,8 +1009,8 @@ function draw_top_bar()
   draw_cycle_box(top_root_x, top_root_y, top_root_w, top_root_h, "ROOT", #root_txt);
   scale_name(global_scale);
   draw_cycle_box(top_scale_x, top_scale_y, top_scale_w, top_scale_h, "SCALE", #scale_txt);
-  sprintf(#ts_txt, "%d/%d", ts_num, ts_den);
-  draw_cycle_box(top_time_x, top_time_y, top_time_w, top_time_h, "TIME", #ts_txt);
+  octave_name(global_octave);
+  draw_cycle_box(top_oct_x, top_oct_y, top_oct_w, top_oct_h, "OCT", #oct_txt);
 
   sprintf(#top_info_txt, "Edit Lane %d  Pattern %d  Page %d", ui_lane + 1, current_ui_pattern() + 1, ui_page + 1);
   draw_text(top_info_x, top_info_y, 0.84, 0.88, 0.94, #top_info_txt);
@@ -1114,14 +1131,14 @@ function handle_mouse_control_drag(mouse_down_i) local(delta_i, lane_i, idx_i)
       delta_i = floor((drag_start_y - mouse_y) / (14 * ui_scale));
       drag_mode == DRAG_ROOT ? global_root = wrapi(drag_origin + delta_i, 12);
       drag_mode == DRAG_SCALE ? global_scale = wrapi(drag_origin + delta_i, MAX_SCALES);
-      drag_mode == DRAG_TS_NUM ? ts_num = clampi(drag_origin + delta_i, 1, 16);
+      drag_mode == DRAG_OCTAVE ? global_octave = clampi(drag_origin + delta_i, MIN_GLOBAL_OCTAVE, MAX_GLOBAL_OCTAVE);
       drag_mode == DRAG_LANE_CH ? lane_midi_chan[drag_lane] = clampi(drag_origin + delta_i, 1, 16);
       drag_mode == DRAG_LANE_DIV ? lane_division[drag_lane] = wrapi(drag_origin + delta_i, DIV_1_1 + 1);
       drag_mode == DRAG_LANE_MODE ? lane_mode[drag_lane] = wrapi(drag_origin + delta_i, MODE_CHAIN + 1);
       drag_mode == DRAG_PAT_LEN ? pat_length[idx_pat_meta(drag_lane, drag_pattern)] = clampi(drag_origin + delta_i, 1, MAX_STEPS);
       drag_mode == DRAG_CHAIN_LEN ? lane_chain_len[drag_lane] = clampi(drag_origin + delta_i, 1, MAX_CHAIN_LEN);
       drag_mode == DRAG_CHAIN_SLOT ? lane_chain_pat[idx_chain(drag_lane, drag_step)] = clampi(drag_origin + delta_i, 0, NUM_PATTERNS - 1);
-      (drag_mode == DRAG_ROOT || drag_mode == DRAG_SCALE) ? (
+      (drag_mode == DRAG_ROOT || drag_mode == DRAG_SCALE || drag_mode == DRAG_OCTAVE) ? (
         rebuild_scale_pool();
       );
     ) : (
@@ -1213,7 +1230,7 @@ function draw_step_grid() local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i,
   );
 );
 
-function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, mode_y, note_y, gate_y, vel_y, step_panel_x)
+function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, mode_y, note_y, gate_y, vel_y, step_panel_x, prev_mode_i)
 (
   pat_i = current_ui_pattern();
   pat_len_i = safe_pattern_length(ui_lane, pat_i);
@@ -1233,10 +1250,13 @@ function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, s
 
       step_i < pat_len_i ? (
         in_rect(mouse_x, mouse_y, step_panel_x, mode_y, step_inner_w, step_mode_h) ? (
+          prev_mode_i = pat_step_mode[idx_i];
           pat_step_mode[idx_i] += 1;
           pat_step_mode[idx_i] > STEP_HOLD ? pat_step_mode[idx_i] = STEP_OFF;
+          prev_mode_i != STEP_NOTE && pat_step_mode[idx_i] == STEP_NOTE ? pat_step_note_idx[idx_i] = scale_default_note_idx;
         ) :
         in_rect(mouse_x, mouse_y, step_panel_x, note_y, step_inner_w, step_note_h) ? (
+          pat_step_mode[idx_i] != STEP_NOTE ? pat_step_note_idx[idx_i] = scale_default_note_idx;
           drag_mode = DRAG_NOTE;
           drag_lane = ui_lane;
           drag_pattern = pat_i;
@@ -1319,20 +1339,15 @@ function handle_mouse()
       drag_start_y = mouse_y;
     );
 
-    delta_i = rect_hit_delta(mouse_x, mouse_y, top_time_x, top_time_y, top_time_w, top_time_h);
+    delta_i = rect_hit_delta(mouse_x, mouse_y, top_oct_x, top_oct_y, top_oct_w, top_oct_h);
     delta_i ? (
-      ts_num = clampi(ts_num + delta_i, 1, 16);
+      global_octave = clampi(global_octave + delta_i, MIN_GLOBAL_OCTAVE, MAX_GLOBAL_OCTAVE);
+      rebuild_scale_pool();
     ) :
-    in_rect(mouse_x, mouse_y, top_time_x, top_time_y, top_time_w, top_time_h) ? (
-      center_l = top_time_x + top_time_w * 0.24;
-      center_r = top_time_x + top_time_w * 0.76;
-      mouse_x >= center_l && mouse_x < center_r ? (
-        ts_den = ts_den == 4 ? 8 : 4;
-      ) : (
-        drag_mode = DRAG_TS_NUM;
-        drag_origin = ts_num;
-        drag_start_y = mouse_y;
-      );
+    in_rect(mouse_x, mouse_y, top_oct_x, top_oct_y, top_oct_w, top_oct_h) ? (
+      drag_mode = DRAG_OCTAVE;
+      drag_origin = global_octave;
+      drag_start_y = mouse_y;
     );
 
     lane_i = 0;
@@ -1529,11 +1544,23 @@ ui_scale_pct != last_layout_scale_pct ? layout_dirty = 1;
 @serialize
 
 file_var(0, persistent_magic);
-file_var(0, global_root);
-file_var(0, global_scale);
-file_var(0, ts_num);
-file_var(0, ts_den);
-file_mem(0, pat_step_mode, lane_transpose_semi + NUM_LANES - pat_step_mode);
+persistent_magic == PERSIST_MAGIC ? (
+  file_var(0, global_root);
+  file_var(0, global_scale);
+  file_var(0, global_octave);
+  file_mem(0, pat_step_mode, lane_transpose_semi + NUM_LANES - pat_step_mode);
+) :
+persistent_magic == PERSIST_MAGIC_LEGACY ? (
+  file_var(0, global_root);
+  file_var(0, global_scale);
+  file_var(0, legacy_ts_num);
+  file_var(0, legacy_ts_den);
+  file_mem(0, pat_step_mode, lane_transpose_semi + NUM_LANES - pat_step_mode);
+  global_octave = 3;
+  persistent_magic = PERSIST_MAGIC;
+) : (
+  init_defaults();
+);
 rebuild_scale_pool();
 sync_preview_state();
 
