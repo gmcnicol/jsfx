@@ -31,6 +31,7 @@ slider22:perc_channel=3<1,16,1>Perc Channel
 slider23:perc_density=60<0,100,1>Perc Density
 slider24:perc_variation=55<0,100,1>Perc Variation
 slider25:perc_velocity_scale=100<10,150,1>Perc Velocity Scale
+slider26:reset_cycle_trigger=0<0,1,1{Idle,Fire}>Reset Cycle Trigger
 
 @init
 
@@ -86,6 +87,7 @@ global_drag_active = 0;
 global_drag_control = 0;
 global_drag_start_y = 0;
 global_drag_origin = 0;
+last_reset_cycle_trigger = 0;
 
 function clampi(v, lo, hi)
 (
@@ -377,6 +379,14 @@ function set_master_note_length(value_i)
 function relative_step_index_for_beats(beat_val)
 (
   floor(((beat_val - cycle_origin_beats) / STEP_BEATS) + 0.000001);
+);
+
+function reset_cycle_to_beats(beat_val)
+(
+  cycle_origin_beats = beat_val;
+  current_cycle_step = 0;
+  current_bar = 0;
+  current_step_in_bar = 0;
 );
 
 function set_seed_value(value_i)
@@ -1213,6 +1223,7 @@ function reset_runtime_state() local(layer_i, pad_i, i)
   global_drag_start_y = 0;
   global_drag_origin = 0;
   last_host_sliders_visible = -1;
+  last_reset_cycle_trigger = 0;
   transport_is_playing = 0;
   current_cycle_step = 0;
   current_bar = 0;
@@ -1259,6 +1270,10 @@ while (midirecv(offset, msg1, msg23)) (
   midisend(offset, msg1, msg23);
 );
 
+reset_cycle_trigger_now = floor(reset_cycle_trigger + 0.5);
+reset_cycle_request = reset_cycle_trigger_now && !last_reset_cycle_trigger;
+last_reset_cycle_trigger = reset_cycle_trigger_now;
+
 transport_is_playing = play_state & 1;
 cycle_steps = clampi(floor(cycle_bars + 0.5), 1, 32) * 16;
 step_samples = srate * 60 / max(tempo, 1) / 4;
@@ -1286,14 +1301,12 @@ transport_is_playing && last_transport_is_playing ? (
   beat_position + 0.000001 < last_beat_position ? transport_jump = 1;
 );
 
-transport_jump ? flush_all_note_offs();
+transport_jump && !transport_is_playing ? flush_all_note_offs();
 flush_due_note_offs();
 
-transport_is_playing && transport_jump ? (
-  cycle_origin_beats = block_start_beats;
-  current_cycle_step = 0;
-  current_bar = 0;
-  current_step_in_bar = 0;
+transport_is_playing && (transport_jump || reset_cycle_request) ? (
+  flush_all_note_offs();
+  reset_cycle_to_beats(block_start_beats);
 );
 
 ui_audition_pending ? (
@@ -1356,7 +1369,7 @@ mouse_shift = mouse_cap & 8;
 host_sliders_visible = floor(host_sliders_visible + 0.5);
 host_sliders_visible = clampi(host_sliders_visible, 0, 1);
 host_sliders_visible != last_host_sliders_visible ? (
-  slider_show(33554431, host_sliders_visible);
+  slider_show(67108863, host_sliders_visible);
   last_host_sliders_visible = host_sliders_visible;
 );
 
