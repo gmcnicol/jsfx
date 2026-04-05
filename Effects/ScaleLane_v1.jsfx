@@ -3,7 +3,7 @@ desc:ScaleLane v1 - Lean 4-Lane Scale Sequencer
 in_pin:none
 out_pin:none
 
-slider1:ui_scale_pct=100<75,200,1>UI Scale
+slider1:ui_scale_pct=100<75,150,1>-UI Scale
 
 @init
 
@@ -52,6 +52,7 @@ DRAG_LANE_MODE = 9;
 DRAG_PAT_LEN = 10;
 DRAG_CHAIN_LEN = 11;
 DRAG_CHAIN_SLOT = 12;
+DRAG_UI_SCALE = 13;
 
 TOTAL_PATTERN_COUNT = NUM_LANES * NUM_PATTERNS;
 TOTAL_PATTERN_STEP_COUNT = TOTAL_PATTERN_COUNT * MAX_STEPS;
@@ -214,6 +215,11 @@ function scale_name(scale_i)
 function octave_name(oct_i)
 (
   sprintf(#oct_txt, "%d", oct_i);
+);
+
+function format_ui_scale_pct(scale_pct_i)
+(
+  sprintf(#ui_scale_txt, "%d%%", clampi(scale_pct_i, 75, 150));
 );
 
 function division_name(div_i)
@@ -833,7 +839,7 @@ function compute_layout()
   fit_scale = min(gfx_w / 1280, gfx_h / 820);
   fit_scale > 1 ? fit_scale = 1;
   fit_scale < 0.65 ? fit_scale = 0.65;
-  ui_scale = clampf(ui_scale_pct * 0.01 * fit_scale, 0.65, 1.8);
+  ui_scale = clampf(ui_scale_pct * 0.01 * fit_scale, 0.65, 1.5);
 
   margin = 20 * ui_scale;
   gap = 14 * ui_scale;
@@ -921,19 +927,31 @@ function compute_layout()
   top_root_w = measure_cycle_box_w("ROOT", "A#", 96);
   top_scale_w = measure_cycle_box_w("SCALE", "Harmonic Minor", 176);
   top_oct_w = measure_cycle_box_w("OCT", "8", 96);
+  top_ui_w = measure_cycle_box_w("UI", "150%", 104);
+  top_ctrl_row_w = top_root_w + top_scale_w + top_oct_w + top_ui_w + top_ctrl_gap * 3;
+  top_ctrl_avail_w = top_w - top_pad_l - top_pad_r - top_title_w - top_info_w - top_ctrl_gap * 2;
+  top_ctrl_fit = top_ctrl_row_w > 0 ? clampf(top_ctrl_avail_w / top_ctrl_row_w, 0.45, 1) : 1;
+  top_root_w *= top_ctrl_fit;
+  top_scale_w *= top_ctrl_fit;
+  top_oct_w *= top_ctrl_fit;
+  top_ui_w *= top_ctrl_fit;
+  top_ctrl_gap_eff = max(8 * ui_scale, top_ctrl_gap * top_ctrl_fit);
   top_title_x = top_x + top_pad_l;
   top_title_y = top_y + top_pad_t;
   top_subtitle_x = top_title_x;
   top_subtitle_y = top_title_y + 28 * ui_scale;
-  top_root_x = top_title_x + top_title_w + top_ctrl_gap;
+  top_root_x = top_title_x + top_title_w + top_ctrl_gap_eff;
   top_root_y = top_y + top_pad_t;
   top_root_h = 50 * ui_scale;
-  top_scale_x = top_root_x + top_root_w + top_ctrl_gap;
+  top_scale_x = top_root_x + top_root_w + top_ctrl_gap_eff;
   top_scale_y = top_root_y;
   top_scale_h = top_root_h;
-  top_oct_x = top_scale_x + top_scale_w + top_ctrl_gap;
+  top_oct_x = top_scale_x + top_scale_w + top_ctrl_gap_eff;
   top_oct_y = top_root_y;
   top_oct_h = top_root_h;
+  top_ui_x = top_oct_x + top_oct_w + top_ctrl_gap_eff;
+  top_ui_y = top_root_y;
+  top_ui_h = top_root_h;
   top_info_x = top_x + top_w - top_info_w - top_pad_r;
   top_info_y = top_y + top_pad_t + 12 * ui_scale;
 
@@ -946,13 +964,20 @@ function compute_layout()
   lane_div_w = measure_cycle_box_w("DIV", "1/32", 92);
   lane_mode_min_w = measure_cycle_box_w("MODE", "PATTERN", 138);
   lane_cycle_gap = cycle_gap;
+  lane_card_inner_w = lane_card_w - lane_card_pad_l - lane_card_pad_r;
+  lane_cycle_total_w = lane_ch_w + lane_div_w + lane_mode_min_w + lane_cycle_gap * 2;
+  lane_cycle_fit = lane_cycle_total_w > 0 ? clampf(lane_card_inner_w / lane_cycle_total_w, 0.45, 1) : 1;
+  lane_ch_w *= lane_cycle_fit;
+  lane_div_w *= lane_cycle_fit;
+  lane_mode_min_w *= lane_cycle_fit;
+  lane_cycle_gap *= lane_cycle_fit;
   lane_cycle_x0 = lane_card_pad_l;
   lane_cycle_y = lane_btn_y + small_btn_h + control_row_gap;
   lane_cycle_h = 50 * ui_scale;
   lane_ch_x_off = lane_cycle_x0;
   lane_div_x_off = lane_ch_x_off + lane_ch_w + lane_cycle_gap;
   lane_mode_x_off = lane_div_x_off + lane_div_w + lane_cycle_gap;
-  lane_mode_w = lane_card_w - lane_mode_x_off - lane_card_pad_r;
+  lane_mode_w = lane_card_inner_w - (lane_mode_x_off - lane_cycle_x0);
   lane_mode_w < lane_mode_min_w ? lane_mode_w = lane_mode_min_w;
 
   pat_title_y = pat_y + section_pad_t;
@@ -1011,6 +1036,8 @@ function draw_top_bar()
   draw_cycle_box(top_scale_x, top_scale_y, top_scale_w, top_scale_h, "SCALE", #scale_txt);
   octave_name(global_octave);
   draw_cycle_box(top_oct_x, top_oct_y, top_oct_w, top_oct_h, "OCT", #oct_txt);
+  format_ui_scale_pct(ui_scale_pct);
+  draw_cycle_box(top_ui_x, top_ui_y, top_ui_w, top_ui_h, "UI", #ui_scale_txt);
 
   sprintf(#top_info_txt, "Edit Lane %d  Pattern %d  Page %d", ui_lane + 1, current_ui_pattern() + 1, ui_page + 1);
   draw_text(top_info_x, top_info_y, 0.84, 0.88, 0.94, #top_info_txt);
@@ -1132,12 +1159,17 @@ function handle_mouse_control_drag(mouse_down_i) local(delta_i, lane_i, idx_i)
       drag_mode == DRAG_ROOT ? global_root = wrapi(drag_origin + delta_i, 12);
       drag_mode == DRAG_SCALE ? global_scale = wrapi(drag_origin + delta_i, MAX_SCALES);
       drag_mode == DRAG_OCTAVE ? global_octave = clampi(drag_origin + delta_i, MIN_GLOBAL_OCTAVE, MAX_GLOBAL_OCTAVE);
+      drag_mode == DRAG_UI_SCALE ? ui_scale_pct = clampi(drag_origin + delta_i * 2, 75, 150);
       drag_mode == DRAG_LANE_CH ? lane_midi_chan[drag_lane] = clampi(drag_origin + delta_i, 1, 16);
       drag_mode == DRAG_LANE_DIV ? lane_division[drag_lane] = wrapi(drag_origin + delta_i, DIV_1_1 + 1);
       drag_mode == DRAG_LANE_MODE ? lane_mode[drag_lane] = wrapi(drag_origin + delta_i, MODE_CHAIN + 1);
       drag_mode == DRAG_PAT_LEN ? pat_length[idx_pat_meta(drag_lane, drag_pattern)] = clampi(drag_origin + delta_i, 1, MAX_STEPS);
       drag_mode == DRAG_CHAIN_LEN ? lane_chain_len[drag_lane] = clampi(drag_origin + delta_i, 1, MAX_CHAIN_LEN);
       drag_mode == DRAG_CHAIN_SLOT ? lane_chain_pat[idx_chain(drag_lane, drag_step)] = clampi(drag_origin + delta_i, 0, NUM_PATTERNS - 1);
+      drag_mode == DRAG_UI_SCALE ? (
+        sliderchange(1);
+        layout_dirty = 1;
+      );
       (drag_mode == DRAG_ROOT || drag_mode == DRAG_SCALE || drag_mode == DRAG_OCTAVE) ? (
         rebuild_scale_pool();
       );
@@ -1350,6 +1382,18 @@ function handle_mouse()
       drag_start_y = mouse_y;
     );
 
+    delta_i = rect_hit_delta(mouse_x, mouse_y, top_ui_x, top_ui_y, top_ui_w, top_ui_h);
+    delta_i ? (
+      ui_scale_pct = clampi(ui_scale_pct + delta_i * 2, 75, 150);
+      sliderchange(1);
+      layout_dirty = 1;
+    ) :
+    in_rect(mouse_x, mouse_y, top_ui_x, top_ui_y, top_ui_w, top_ui_h) ? (
+      drag_mode = DRAG_UI_SCALE;
+      drag_origin = ui_scale_pct;
+      drag_start_y = mouse_y;
+    );
+
     lane_i = 0;
     while (lane_i < NUM_LANES) (
       lx_i = lane_x + lane_i * (lane_card_w + lane_gap);
@@ -1538,7 +1582,7 @@ sync_preview_state();
 
 @slider
 
-ui_scale_pct = clampi(ui_scale_pct, 75, 200);
+ui_scale_pct = clampi(ui_scale_pct, 75, 150);
 ui_scale_pct != last_layout_scale_pct ? layout_dirty = 1;
 
 @serialize
