@@ -14,3 +14,8 @@ JSFX Scripts that I've written for Cockos Reaper.
 # Checks
 * Run `./scripts/check_no_scientific_notation.sh` to verify there are no scientific-notation numeric literals in `Effects/`.
 * Git pre-commit hook path is `.githooks` and runs this check automatically.
+
+# UI Editing Rules
+* Do not change control interaction behavior unless explicitly requested. Preserve existing step size, drag sensitivity, click semantics, and reachable values.
+* For `@gfx` controls, avoid self-referential interaction math where changing a value also changes that control's drag resolution mid-gesture.
+* If a UI behavior change is necessary, treat it as a deliberate UX change and call it out clearly rather than slipping it in with unrelated fixes.
