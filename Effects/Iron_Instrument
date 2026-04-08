@@ -1,0 +1,104 @@
+desc:Iron (Master) — 1 knob, ultra-subtle safety glue
+
+slider1:0.35<0,1,0.01>Iron
+
+@init
+sr = srate;
+
+zInL=0; zInR=0;
+aaL=0; aaR=0;
+
+env=0;
+matchIn=0; matchOut=0;
+
+hfL=0; hfR=0;
+
+dcL=0; dcR=0;
+dcXL=0; dcXR=0;
+
+function clamp(x,lo,hi)(x<lo?lo:(x>hi?hi:x));
+
+function tanh_approx(x) local(x2)(
+  x = clamp(x,-6,6);
+  x2 = x*x;
+  x*(27+x2)/(27+9*x2);
+);
+
+function lp_a(fc) local(x)(
+  fc = clamp(fc, 10, 0.49*sr);
+  x = -2*$pi * fc / sr;
+  1 - exp(x);
+);
+
+function sat_master(x, drive) (
+  // very gentle, no extra “character”
+  tanh_approx(drive * x) / drive;
+);
+
+@slider
+amt = clamp(slider1,0,1);
+
+aaA  = lp_a(18000);
+envA = lp_a(10);        // slow program envelope
+hfA  = lp_a(18500);     // essentially transparent
+matchA = 1 - exp(-2*$pi * 6 / sr); // slow RMS level matcher
+
+@sample
+inL = spl0;
+inR = spl1;
+
+// program envelope (mono)
+mono = 0.5*(inL + inR);
+env += envA * (abs(mono) - env);
+
+// tiny crosstalk for cohesion (kept extremely small)
+xt = 0.001 + 0.006*amt;       // 0.1%..0.7%
+xL = inL + xt*inR;
+xR = inR + xt*inL;
+
+// program-dependent drive ceiling (stays polite)
+drive = 1.4 + 1.6*amt + 2.0*amt*env;   // gentle, increases only when busy
+
+// 2x oversample
+x0L = xL; x0R = xR;
+os1L = 0.5*(xL + zInL);
+os1R = 0.5*(xR + zInR);
+zInL = xL; zInR = xR;
+
+// saturate
+y1L = sat_master(os1L, drive);
+y1R = sat_master(os1R, drive);
+y0L = sat_master(x0L, drive);
+y0R = sat_master(x0R, drive);
+
+// downsample + AA
+dsL = 0.5*(y0L + y1L);
+dsR = 0.5*(y0R + y1R);
+
+aaL += aaA*(dsL - aaL);
+aaR += aaA*(dsR - aaR);
+
+// essentially-flat HF path (prevents any edgy overs artifacts)
+hfL += hfA*(aaL - hfL);
+hfR += hfA*(aaR - hfR);
+
+// DC safety
+outL = hfL - dcXL + 0.995*dcL;
+dcXL = hfL;
+dcL = outL;
+
+outR = hfR - dcXR + 0.995*dcR;
+dcXR = hfR;
+dcR = outR;
+
+// Auto-match output to input RMS so Iron stays unity across knob values.
+detIn = inL*inL + inR*inR;
+detOut = outL*outL + outR*outR;
+
+matchIn += matchA*(detIn - matchIn);
+matchOut += matchA*(detOut - matchOut);
+autoGain = sqrt((matchIn + 0.000000000001) / (matchOut + 0.000000000001));
+autoGain = clamp(autoGain, 0.25, 4.0);
+
+spl0 = outL * autoGain;
+spl1 = outR * autoGain;
