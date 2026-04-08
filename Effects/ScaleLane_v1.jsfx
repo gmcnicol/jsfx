@@ -769,6 +769,12 @@ function compute_layout()
 
   margin = 20 * ui_scale;
   gap = 14 * ui_scale;
+  top_pad_t = 16 * ui_scale;
+  top_pad_r = 18 * ui_scale;
+  top_pad_b = 14 * ui_scale;
+  top_pad_l = 14 * ui_scale;
+  top_title_gap_y = 8 * ui_scale;
+  top_ctrl_gap = 14 * ui_scale;
   section_pad_t = 12 * ui_scale;
   section_pad_r = 12 * ui_scale;
   section_pad_b = 12 * ui_scale;
@@ -787,6 +793,27 @@ function compute_layout()
   pattern_btn_gap_x = 8 * ui_scale;
   pattern_btn_gap_y = 8 * ui_scale;
   chain_slot_h = 16 * ui_scale;
+  lane_card_pad_t = 12 * ui_scale;
+  lane_card_pad_r = 12 * ui_scale;
+  lane_card_pad_b = 12 * ui_scale;
+  lane_card_pad_l = 12 * ui_scale;
+  lane_title_gap = 10 * ui_scale;
+  grid_pad_t = 6 * ui_scale;
+  grid_pad_r = 0;
+  grid_pad_b = 6 * ui_scale;
+  grid_pad_l = 0;
+  step_cell_pad_t = 4 * ui_scale;
+  step_cell_pad_r = 5 * ui_scale;
+  step_cell_pad_b = 6 * ui_scale;
+  step_cell_pad_l = 5 * ui_scale;
+  step_section_gap = 6 * ui_scale;
+  step_num_pad_x = 6 * ui_scale;
+  step_text_pad_x = 8 * ui_scale;
+  step_fill_pad_x = 6 * ui_scale;
+  step_fill_pad_b = 6 * ui_scale;
+  step_badge_pad_x = 8 * ui_scale;
+  step_badge_pad_y = 2 * ui_scale;
+  step_badge_w = 28 * ui_scale;
 
   top_x = margin;
   top_y = margin;
@@ -796,7 +823,7 @@ function compute_layout()
   lane_x = margin;
   lane_y = top_y + top_h + gap;
   lane_w = top_w;
-  lane_h = section_pad_t + section_title_h + section_title_gap + small_btn_h + control_row_gap + 50 * ui_scale + section_pad_b;
+  lane_h = lane_card_pad_t + section_title_h + lane_title_gap + small_btn_h + control_row_gap + 50 * ui_scale + lane_card_pad_b;
 
   pat_x = margin;
   pat_y = lane_y + lane_h + gap;
@@ -818,13 +845,16 @@ function compute_layout()
   lane_card_w = (lane_w - lane_gap * 3) / 4;
 
   top_title_w = 220 * ui_scale;
-  top_ctrl_gap = 14 * ui_scale;
   top_info_w = approx_text_w("Edit Lane 4  Pattern 16  Page 4", 7.0) + 20 * ui_scale;
   top_root_w = measure_cycle_box_w("ROOT", "A#", 96);
   top_scale_w = measure_cycle_box_w("SCALE", "Harmonic Minor", 176);
   top_time_w = measure_cycle_box_w("TIME", "16/8", 96);
-  top_root_x = top_x + top_title_w + 18 * ui_scale;
-  top_root_y = top_y + 18 * ui_scale;
+  top_title_x = top_x + top_pad_l;
+  top_title_y = top_y + top_pad_t;
+  top_subtitle_x = top_title_x;
+  top_subtitle_y = top_title_y + 28 * ui_scale;
+  top_root_x = top_title_x + top_title_w + top_ctrl_gap;
+  top_root_y = top_y + top_pad_t;
   top_root_h = 50 * ui_scale;
   top_scale_x = top_root_x + top_root_w + top_ctrl_gap;
   top_scale_y = top_root_y;
@@ -832,22 +862,25 @@ function compute_layout()
   top_time_x = top_scale_x + top_scale_w + top_ctrl_gap;
   top_time_y = top_root_y;
   top_time_h = top_root_h;
-  top_info_x = top_x + top_w - top_info_w - 18 * ui_scale;
+  top_info_x = top_x + top_w - top_info_w - top_pad_r;
+  top_info_y = top_y + top_pad_t + 12 * ui_scale;
 
-  lane_btn_y = lane_y + section_pad_t + section_title_h + section_title_gap;
+  lane_title_x = lane_card_pad_l;
+  lane_title_y = lane_y + lane_card_pad_t;
+  lane_btn_y = lane_title_y + section_title_h + lane_title_gap;
   lane_btn_w = measure_button_w("SO", 36);
   lane_btn_gap = 6 * ui_scale;
   lane_ch_w = measure_cycle_box_w("CH", "16", 68);
   lane_div_w = measure_cycle_box_w("DIV", "1/32", 92);
   lane_mode_min_w = measure_cycle_box_w("MODE", "PATTERN", 138);
   lane_cycle_gap = cycle_gap;
-  lane_cycle_x0 = section_pad_l;
+  lane_cycle_x0 = lane_card_pad_l;
   lane_cycle_y = lane_btn_y + small_btn_h + control_row_gap;
   lane_cycle_h = 50 * ui_scale;
   lane_ch_x_off = lane_cycle_x0;
   lane_div_x_off = lane_ch_x_off + lane_ch_w + lane_cycle_gap;
   lane_mode_x_off = lane_div_x_off + lane_div_w + lane_cycle_gap;
-  lane_mode_w = lane_card_w - lane_mode_x_off - section_pad_r;
+  lane_mode_w = lane_card_w - lane_mode_x_off - lane_card_pad_r;
   lane_mode_w < lane_mode_min_w ? lane_mode_w = lane_mode_min_w;
 
   pat_title_y = pat_y + section_pad_t;
@@ -878,12 +911,14 @@ function compute_layout()
   chain_slot_y = chain_page_y + chain_control_h + control_row_gap;
 
   step_gap = 8 * ui_scale;
-  step_w = (grid_w - step_gap * 15) / 16;
+  step_w = (grid_w - grid_pad_l - grid_pad_r - step_gap * 15) / 16;
   step_num_h = 16 * ui_scale;
   step_mode_h = 20 * ui_scale;
   step_note_h = 46 * ui_scale;
   step_gate_h = 22 * ui_scale;
-  step_vel_h = grid_h - step_num_h - step_mode_h - step_note_h - step_gate_h - 22 * ui_scale;
+  step_outer_h = grid_h - grid_pad_t - grid_pad_b;
+  step_inner_w = step_w - step_cell_pad_l - step_cell_pad_r;
+  step_vel_h = step_outer_h - step_cell_pad_t - step_cell_pad_b - step_num_h - step_mode_h - step_note_h - step_gate_h - step_section_gap * 3;
   step_vel_h < 110 * ui_scale ? step_vel_h = 110 * ui_scale;
 );
 
@@ -893,11 +928,11 @@ function draw_top_bar()
   draw_fill(top_x, top_y, top_w, 3 * ui_scale, 0.86, 0.66, 0.34);
   draw_frame(top_x, top_y, top_w, top_h, 0.23, 0.28, 0.35);
   gfx_setfont(1, "Verdana", floor(24 * ui_scale));
-  draw_text(top_x + 14 * ui_scale, top_y + 18 * ui_scale, 0.98, 0.99, 1, "ScaleLane v1");
+  draw_text(top_title_x, top_title_y, 0.98, 0.99, 1, "ScaleLane v1");
 
   gfx_setfont(2, "Verdana", floor(12 * ui_scale));
   root_name(global_root);
-  draw_text(top_x + 14 * ui_scale, top_y + 46 * ui_scale, 0.62, 0.69, 0.78, "Lean 4-lane melodic sequencer");
+  draw_text(top_subtitle_x, top_subtitle_y, 0.62, 0.69, 0.78, "Lean 4-lane melodic sequencer");
   draw_cycle_box(top_root_x, top_root_y, top_root_w, top_root_h, "ROOT", #root_txt);
   scale_name(global_scale);
   draw_cycle_box(top_scale_x, top_scale_y, top_scale_w, top_scale_h, "SCALE", #scale_txt);
@@ -905,7 +940,7 @@ function draw_top_bar()
   draw_cycle_box(top_time_x, top_time_y, top_time_w, top_time_h, "TIME", #ts_txt);
 
   sprintf(#top_info_txt, "Edit Lane %d  Pattern %d  Page %d", ui_lane + 1, current_ui_pattern() + 1, ui_page + 1);
-  draw_text(top_info_x, top_y + 28 * ui_scale, 0.84, 0.88, 0.94, #top_info_txt);
+  draw_text(top_info_x, top_info_y, 0.84, 0.88, 0.94, #top_info_txt);
 );
 
 function draw_lane_bar() local(lane_i, x_i)
@@ -918,11 +953,11 @@ function draw_lane_bar() local(lane_i, x_i)
     lane_i == ui_lane ? draw_fill(x_i, lane_y, lane_card_w, 3 * ui_scale, 0.86, 0.66, 0.34);
     draw_frame(x_i, lane_y, lane_card_w, lane_h, lane_i == ui_lane ? 0.36 : 0.22, lane_i == ui_lane ? 0.42 : 0.28, lane_i == ui_lane ? 0.48 : 0.34);
     sprintf(#lane_lbl, "Lane %d", lane_i + 1);
-    draw_text(x_i + 12 * ui_scale, lane_y + 10 * ui_scale, 0.95, 0.97, 1, #lane_lbl);
+    draw_text(x_i + lane_title_x, lane_title_y, 0.95, 0.97, 1, #lane_lbl);
 
-    draw_button(x_i + section_pad_l, lane_btn_y, lane_btn_w, small_btn_h, "EN", lane_enabled[lane_i]);
-    draw_button(x_i + section_pad_l + (lane_btn_w + lane_btn_gap), lane_btn_y, lane_btn_w, small_btn_h, "MU", lane_mute[lane_i]);
-    draw_button(x_i + section_pad_l + (lane_btn_w + lane_btn_gap) * 2, lane_btn_y, lane_btn_w, small_btn_h, "SO", lane_solo[lane_i]);
+    draw_button(x_i + lane_card_pad_l, lane_btn_y, lane_btn_w, small_btn_h, "EN", lane_enabled[lane_i]);
+    draw_button(x_i + lane_card_pad_l + (lane_btn_w + lane_btn_gap), lane_btn_y, lane_btn_w, small_btn_h, "MU", lane_mute[lane_i]);
+    draw_button(x_i + lane_card_pad_l + (lane_btn_w + lane_btn_gap) * 2, lane_btn_y, lane_btn_w, small_btn_h, "SO", lane_solo[lane_i]);
 
     sprintf(#chan_val, "%d", lane_midi_chan[lane_i]);
     draw_cycle_box(x_i + lane_ch_x_off, lane_cycle_y, lane_ch_w, lane_cycle_h, "CH", #chan_val);
@@ -1031,7 +1066,7 @@ function handle_mouse_control_drag(mouse_down_i) local(delta_i, lane_i, idx_i)
   );
 );
 
-function draw_step_grid() local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, y_i, mode_i, gate_fill_h, gate_fill_w, vel_fill_h, note_y, gate_y, vel_y)
+function draw_step_grid() local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, y_i, mode_i, vel_fill_h, note_y, gate_y, vel_y, step_panel_x, step_panel_y)
 (
   draw_fill(grid_x, grid_y, grid_w, grid_h, 0.05, 0.07, 0.10);
   draw_frame(grid_x, grid_y, grid_w, grid_h, 0.23, 0.28, 0.35);
@@ -1044,75 +1079,76 @@ function draw_step_grid() local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i,
   while (vis_i < PAGE_SIZE) (
     step_i = start_i + vis_i;
     idx_i = idx_pat_step(ui_lane, pat_i, step_i);
-    x_i = grid_x + vis_i * (step_w + step_gap);
-    y_i = grid_y + 6 * ui_scale;
+    x_i = grid_x + grid_pad_l + vis_i * (step_w + step_gap);
+    y_i = grid_y + grid_pad_t;
+    step_panel_x = x_i + step_cell_pad_l;
+    step_panel_y = y_i + step_cell_pad_t + step_num_h;
 
     step_i >= pat_len_i ? (
-      draw_fill(x_i, y_i, step_w, grid_h - 12 * ui_scale, 0.06, 0.07, 0.09);
+      draw_fill(x_i, y_i, step_w, step_outer_h, 0.06, 0.07, 0.09);
     ) : (
-      draw_fill(x_i, y_i, step_w, grid_h - 12 * ui_scale, 0.09, 0.11, 0.15);
+      draw_fill(x_i, y_i, step_w, step_outer_h, 0.09, 0.11, 0.15);
     );
-    draw_frame(x_i, y_i, step_w, grid_h - 12 * ui_scale, 0.17, 0.21, 0.27);
+    draw_frame(x_i, y_i, step_w, step_outer_h, 0.17, 0.21, 0.27);
 
     sprintf(#step_lbl, "%d", step_i + 1);
-    draw_text(x_i + 6 * ui_scale, y_i + 4 * ui_scale, 0.72, 0.78, 0.86, #step_lbl);
+    draw_text(x_i + step_num_pad_x, y_i + step_cell_pad_t, 0.72, 0.78, 0.86, #step_lbl);
 
     mode_i = pat_step_mode[idx_i];
-    mode_i == STEP_OFF ? draw_fill(x_i + 5 * ui_scale, y_i + step_num_h, step_w - 10 * ui_scale, step_mode_h, 0.24, 0.23, 0.22);
-    mode_i == STEP_NOTE ? draw_fill(x_i + 5 * ui_scale, y_i + step_num_h, step_w - 10 * ui_scale, step_mode_h, 0.19, 0.38, 0.36);
-    mode_i == STEP_HOLD ? draw_fill(x_i + 5 * ui_scale, y_i + step_num_h, step_w - 10 * ui_scale, step_mode_h, 0.55, 0.42, 0.18);
-    draw_frame(x_i + 5 * ui_scale, y_i + step_num_h, step_w - 10 * ui_scale, step_mode_h, 0.18, 0.20, 0.24);
+    mode_i == STEP_OFF ? draw_fill(step_panel_x, step_panel_y, step_inner_w, step_mode_h, 0.24, 0.23, 0.22);
+    mode_i == STEP_NOTE ? draw_fill(step_panel_x, step_panel_y, step_inner_w, step_mode_h, 0.19, 0.38, 0.36);
+    mode_i == STEP_HOLD ? draw_fill(step_panel_x, step_panel_y, step_inner_w, step_mode_h, 0.55, 0.42, 0.18);
+    draw_frame(step_panel_x, step_panel_y, step_inner_w, step_mode_h, 0.18, 0.20, 0.24);
     mode_i == STEP_OFF ? sprintf(#mode_draw_txt, "OFF");
     mode_i == STEP_NOTE ? sprintf(#mode_draw_txt, "NOTE");
     mode_i == STEP_HOLD ? sprintf(#mode_draw_txt, "HOLD");
-    draw_text(x_i + 9 * ui_scale, y_i + step_num_h + 4 * ui_scale, 0.98, 0.99, 1, #mode_draw_txt);
+    draw_text(step_panel_x + 4 * ui_scale, step_panel_y + 4 * ui_scale, 0.98, 0.99, 1, #mode_draw_txt);
 
-    note_y = y_i + step_num_h + step_mode_h + 6 * ui_scale;
-    draw_fill(x_i + 5 * ui_scale, note_y, step_w - 10 * ui_scale, step_note_h, 0.08, 0.10, 0.13);
-    draw_frame(x_i + 5 * ui_scale, note_y, step_w - 10 * ui_scale, step_note_h, 0.18, 0.20, 0.24);
+    note_y = step_panel_y + step_mode_h + step_section_gap;
+    draw_fill(step_panel_x, note_y, step_inner_w, step_note_h, 0.08, 0.10, 0.13);
+    draw_frame(step_panel_x, note_y, step_inner_w, step_note_h, 0.18, 0.20, 0.24);
     mode_i == STEP_NOTE ? (
       format_note_name(clampi(scale_degree_to_midi(pat_step_note_idx[idx_i]) + lane_transpose_oct[ui_lane] * 12 + lane_transpose_semi[ui_lane], 0, 127));
       gfx_setfont(1, "Verdana", floor(14 * ui_scale));
-      draw_text(x_i + 8 * ui_scale, note_y + 13 * ui_scale, 0.96, 0.98, 1, #note_txt);
+      draw_text(step_panel_x + step_text_pad_x, note_y + 13 * ui_scale, 0.96, 0.98, 1, #note_txt);
     ) :
     mode_i == STEP_HOLD ? (
       gfx_setfont(2, "Verdana", floor(11 * ui_scale));
-      step_has_valid_hold_source(ui_lane, pat_i, step_i) ? draw_text(x_i + 8 * ui_scale, note_y + 14 * ui_scale, 0.84, 0.89, 0.94, "Continue") :
-      draw_text(x_i + 8 * ui_scale, note_y + 14 * ui_scale, 0.92, 0.58, 0.58, "Invalid");
+      step_has_valid_hold_source(ui_lane, pat_i, step_i) ? draw_text(step_panel_x + step_text_pad_x, note_y + 14 * ui_scale, 0.84, 0.89, 0.94, "Continue") :
+      draw_text(step_panel_x + step_text_pad_x, note_y + 14 * ui_scale, 0.92, 0.58, 0.58, "Invalid");
     ) :
     (
       gfx_setfont(2, "Verdana", floor(11 * ui_scale));
-      draw_text(x_i + 8 * ui_scale, note_y + 14 * ui_scale, 0.60, 0.66, 0.74, "Rest");
+      draw_text(step_panel_x + step_text_pad_x, note_y + 14 * ui_scale, 0.60, 0.66, 0.74, "Rest");
     );
     gfx_setfont(2, "Verdana", floor(11 * ui_scale));
 
-    gate_y = note_y + step_note_h + 6 * ui_scale;
-    draw_fill(x_i + 5 * ui_scale, gate_y, step_w - 10 * ui_scale, step_gate_h, 0.08, 0.10, 0.13);
-    draw_frame(x_i + 5 * ui_scale, gate_y, step_w - 10 * ui_scale, step_gate_h, 0.18, 0.20, 0.24);
+    gate_y = note_y + step_note_h + step_section_gap;
+    draw_fill(step_panel_x, gate_y, step_inner_w, step_gate_h, 0.08, 0.10, 0.13);
+    draw_frame(step_panel_x, gate_y, step_inner_w, step_gate_h, 0.18, 0.20, 0.24);
     mode_i == STEP_NOTE ? (
-      gate_badge_w = 28 * ui_scale;
-      draw_text(x_i + 8 * ui_scale, gate_y + 2 * ui_scale, 0.58, 0.66, 0.75, "GATE");
-      draw_fill(x_i + step_w - gate_badge_w - 8 * ui_scale, gate_y + 2 * ui_scale, gate_badge_w, 12 * ui_scale, 0.13, 0.16, 0.21);
-      draw_frame(x_i + step_w - gate_badge_w - 8 * ui_scale, gate_y + 2 * ui_scale, gate_badge_w, 12 * ui_scale, 0.24, 0.29, 0.35);
+      draw_text(step_panel_x + step_text_pad_x, gate_y + step_badge_pad_y, 0.58, 0.66, 0.75, "GATE");
+      draw_fill(step_panel_x + step_inner_w - step_badge_w - step_badge_pad_x, gate_y + step_badge_pad_y, step_badge_w, 12 * ui_scale, 0.13, 0.16, 0.21);
+      draw_frame(step_panel_x + step_inner_w - step_badge_w - step_badge_pad_x, gate_y + step_badge_pad_y, step_badge_w, 12 * ui_scale, 0.24, 0.29, 0.35);
       sprintf(#gate_draw_txt, "%d", pat_step_gate[idx_i]);
-      draw_text(x_i + step_w - gate_badge_w - 2 * ui_scale, gate_y + 2 * ui_scale, 0.97, 0.98, 1, #gate_draw_txt);
+      draw_text(step_panel_x + step_inner_w - step_badge_w - step_badge_pad_x + 6 * ui_scale, gate_y + step_badge_pad_y, 0.97, 0.98, 1, #gate_draw_txt);
     );
 
-    vel_y = gate_y + step_gate_h + 6 * ui_scale;
-    draw_fill(x_i + 5 * ui_scale, vel_y, step_w - 10 * ui_scale, step_vel_h, 0.07, 0.09, 0.12);
-    draw_frame(x_i + 5 * ui_scale, vel_y, step_w - 10 * ui_scale, step_vel_h, 0.18, 0.20, 0.24);
+    vel_y = gate_y + step_gate_h + step_section_gap;
+    draw_fill(step_panel_x, vel_y, step_inner_w, step_vel_h, 0.07, 0.09, 0.12);
+    draw_frame(step_panel_x, vel_y, step_inner_w, step_vel_h, 0.18, 0.20, 0.24);
     mode_i == STEP_NOTE ? (
-      vel_fill_h = (step_vel_h - 12 * ui_scale) * (pat_step_vel[idx_i] - 1) / 126;
-      draw_fill(x_i + 11 * ui_scale, vel_y + step_vel_h - 6 * ui_scale - vel_fill_h, step_w - 22 * ui_scale, vel_fill_h, 0.84, 0.58, 0.26);
+      vel_fill_h = (step_vel_h - step_fill_pad_b - step_badge_pad_y * 2) * (pat_step_vel[idx_i] - 1) / 126;
+      draw_fill(step_panel_x + step_fill_pad_x, vel_y + step_vel_h - step_fill_pad_b - vel_fill_h, step_inner_w - step_fill_pad_x * 2, vel_fill_h, 0.84, 0.58, 0.26);
       sprintf(#vel_draw_txt, "Vel %d", pat_step_vel[idx_i]);
-      draw_text(x_i + 8 * ui_scale, vel_y + 2 * ui_scale, 0.90, 0.84, 0.72, #vel_draw_txt);
+      draw_text(step_panel_x + step_text_pad_x, vel_y + step_badge_pad_y, 0.90, 0.84, 0.72, #vel_draw_txt);
     );
 
     vis_i += 1;
   );
 );
 
-function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, mode_y, note_y, gate_y, vel_y)
+function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, mode_y, note_y, gate_y, vel_y, step_panel_x)
 (
   pat_i = current_ui_pattern();
   pat_len_i = safe_pattern_length(ui_lane, pat_i);
@@ -1122,19 +1158,20 @@ function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, s
     vis_i = 0;
     while (vis_i < PAGE_SIZE) (
       step_i = start_i + vis_i;
-      x_i = grid_x + vis_i * (step_w + step_gap);
-      mode_y = grid_y + 6 * ui_scale + step_num_h;
-      note_y = mode_y + step_mode_h + 6 * ui_scale;
-      gate_y = note_y + step_note_h + 6 * ui_scale;
-      vel_y = gate_y + step_gate_h + 6 * ui_scale;
+      x_i = grid_x + grid_pad_l + vis_i * (step_w + step_gap);
+      step_panel_x = x_i + step_cell_pad_l;
+      mode_y = grid_y + grid_pad_t + step_cell_pad_t + step_num_h;
+      note_y = mode_y + step_mode_h + step_section_gap;
+      gate_y = note_y + step_note_h + step_section_gap;
+      vel_y = gate_y + step_gate_h + step_section_gap;
       idx_i = idx_pat_step(ui_lane, pat_i, step_i);
 
       step_i < pat_len_i ? (
-        in_rect(mouse_x, mouse_y, x_i + 5 * ui_scale, mode_y, step_w - 10 * ui_scale, step_mode_h) ? (
+        in_rect(mouse_x, mouse_y, step_panel_x, mode_y, step_inner_w, step_mode_h) ? (
           pat_step_mode[idx_i] += 1;
           pat_step_mode[idx_i] > STEP_HOLD ? pat_step_mode[idx_i] = STEP_OFF;
         ) :
-        in_rect(mouse_x, mouse_y, x_i + 5 * ui_scale, note_y, step_w - 10 * ui_scale, step_note_h) ? (
+        in_rect(mouse_x, mouse_y, step_panel_x, note_y, step_inner_w, step_note_h) ? (
           drag_mode = DRAG_NOTE;
           drag_lane = ui_lane;
           drag_pattern = pat_i;
@@ -1143,7 +1180,7 @@ function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, s
           drag_start_y = mouse_y;
           pat_step_mode[idx_i] = STEP_NOTE;
         ) :
-        in_rect(mouse_x, mouse_y, x_i + 5 * ui_scale, gate_y, step_w - 10 * ui_scale, step_gate_h) ? (
+        in_rect(mouse_x, mouse_y, step_panel_x, gate_y, step_inner_w, step_gate_h) ? (
           pat_step_mode[idx_i] == STEP_NOTE ? (
             drag_mode = DRAG_GATE;
             drag_lane = ui_lane;
@@ -1153,7 +1190,7 @@ function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, s
             drag_start_y = mouse_y;
           );
         ) :
-        in_rect(mouse_x, mouse_y, x_i + 5 * ui_scale, vel_y, step_w - 10 * ui_scale, step_vel_h) ? (
+        in_rect(mouse_x, mouse_y, step_panel_x, vel_y, step_inner_w, step_vel_h) ? (
           pat_step_mode[idx_i] == STEP_NOTE ? (
             drag_mode = DRAG_VEL;
             drag_lane = ui_lane;
@@ -1237,9 +1274,9 @@ function handle_mouse()
     while (lane_i < NUM_LANES) (
       lx_i = lane_x + lane_i * (lane_card_w + lane_gap);
       in_rect(mouse_x, mouse_y, lx_i, lane_y, lane_card_w, lane_h) ? ui_lane = lane_i;
-      in_rect(mouse_x, mouse_y, lx_i + section_pad_l, lane_btn_y, lane_btn_w, small_btn_h) ? lane_enabled[lane_i] = 1 - lane_enabled[lane_i];
-      in_rect(mouse_x, mouse_y, lx_i + section_pad_l + (lane_btn_w + lane_btn_gap), lane_btn_y, lane_btn_w, small_btn_h) ? lane_mute[lane_i] = 1 - lane_mute[lane_i];
-      in_rect(mouse_x, mouse_y, lx_i + section_pad_l + (lane_btn_w + lane_btn_gap) * 2, lane_btn_y, lane_btn_w, small_btn_h) ? lane_solo[lane_i] = 1 - lane_solo[lane_i];
+      in_rect(mouse_x, mouse_y, lx_i + lane_card_pad_l, lane_btn_y, lane_btn_w, small_btn_h) ? lane_enabled[lane_i] = 1 - lane_enabled[lane_i];
+      in_rect(mouse_x, mouse_y, lx_i + lane_card_pad_l + (lane_btn_w + lane_btn_gap), lane_btn_y, lane_btn_w, small_btn_h) ? lane_mute[lane_i] = 1 - lane_mute[lane_i];
+      in_rect(mouse_x, mouse_y, lx_i + lane_card_pad_l + (lane_btn_w + lane_btn_gap) * 2, lane_btn_y, lane_btn_w, small_btn_h) ? lane_solo[lane_i] = 1 - lane_solo[lane_i];
 
       delta_i = rect_hit_delta(mouse_x, mouse_y, lx_i + lane_ch_x_off, lane_cycle_y, lane_ch_w, lane_cycle_h);
       delta_i ? lane_midi_chan[lane_i] = clampi(lane_midi_chan[lane_i] + delta_i, 1, 16) :
