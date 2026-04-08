@@ -1,4 +1,5 @@
-desc:ScaleLane v1 - Lean 4-Lane Scale Sequencer
+desc:Phrasor
+tags:instrument midi sequencer melodic scale phrase
 
 in_pin:none
 out_pin:none
@@ -365,6 +366,23 @@ function rebuild_scale_pool() local(note_i, rel_pc, best_i, best_dist, dist_i, i
 function scale_degree_to_midi(note_idx)
 (
   scale_pool_midi[clampi(note_idx, 0, max(scale_pool_count - 1, 0))];
+);
+
+function note_idx_with_octave_delta(note_idx, oct_delta) local(target_midi, best_i, best_dist, dist_i, i)
+(
+  target_midi = clampi(scale_degree_to_midi(note_idx) + oct_delta * 12, 0, 127);
+  best_i = clampi(note_idx, 0, max(scale_pool_count - 1, 0));
+  best_dist = 999;
+  i = 0;
+  while (i < scale_pool_count) (
+    dist_i = absf(scale_pool_midi[i] - target_midi);
+    dist_i < best_dist ? (
+      best_dist = dist_i;
+      best_i = i;
+    );
+    i += 1;
+  );
+  best_i;
 );
 
 function scan_tie_end_step(lane_i, pat_i, step_i) local(last_i, pat_len_i, scan_i)
@@ -1074,11 +1092,11 @@ function draw_top_bar()
   draw_fill(top_x, top_y, top_w, 3 * chrome_scale, 0.86, 0.66, 0.34);
   draw_frame(top_x, top_y, top_w, top_h, 0.23, 0.28, 0.35);
   gfx_setfont(1, "Verdana", floor(24 * title_scale));
-  draw_text(top_title_x, top_title_y, 0.98, 0.99, 1, "ScaleLane v1");
+  draw_text(top_title_x, top_title_y, 0.98, 0.99, 1, "Phrasor");
 
   gfx_setfont(2, "Verdana", floor(12 * chrome_scale));
   root_name(global_root);
-  draw_text(top_subtitle_x, top_subtitle_y, 0.62, 0.69, 0.78, "Lean 4-lane melodic sequencer");
+  draw_text(top_subtitle_x, top_subtitle_y, 0.62, 0.69, 0.78, "4-lane scale sequencer");
   draw_cycle_box(top_root_x, top_root_y, top_root_w, top_root_h, "ROOT", #root_txt);
   scale_name(global_scale);
   draw_cycle_box(top_scale_x, top_scale_y, top_scale_w, top_scale_h, "SCALE", #scale_txt);
@@ -1309,7 +1327,7 @@ function draw_step_grid() local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i,
   );
 );
 
-function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, mode_y, note_y, gate_y, vel_y, step_panel_x, prev_mode_i)
+function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, mode_y, note_y, gate_y, vel_y, step_panel_x, prev_mode_i, drag_delta_i, shift_down_i)
 (
   pat_i = current_ui_pattern();
   pat_len_i = safe_pattern_length(ui_lane, pat_i);
@@ -1373,7 +1391,13 @@ function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, s
   mouse_down_i ? (
     drag_mode == DRAG_NOTE ? (
       idx_i = idx_pat_step(drag_lane, drag_pattern, drag_step);
-      pat_step_note_idx[idx_i] = clampi(drag_origin + floor((drag_start_y - mouse_y) / (14 * ui_scale)), 0, max(scale_pool_count - 1, 0));
+      drag_delta_i = floor((drag_start_y - mouse_y) / (14 * ui_scale));
+      shift_down_i = mouse_cap & 8;
+      shift_down_i ? (
+        pat_step_note_idx[idx_i] = note_idx_with_octave_delta(drag_origin, drag_delta_i);
+      ) : (
+        pat_step_note_idx[idx_i] = clampi(drag_origin + drag_delta_i, 0, max(scale_pool_count - 1, 0));
+      );
     ) :
     drag_mode == DRAG_GATE ? (
       idx_i = idx_pat_step(drag_lane, drag_pattern, drag_step);
@@ -1717,7 +1741,7 @@ last_transport_playing = transport_playing;
 last_beat_position = block_start_beats;
 abs_sample_clock = block_abs_end;
 
-@gfx 1400 900
+@gfx 1024 640
 
 gfx_clear = 0x101418;
 (layout_dirty || gfx_w != last_layout_w || gfx_h != last_layout_h) ? (
