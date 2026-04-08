@@ -76,6 +76,9 @@ block_abs_start = 0;
 block_abs_end = 0;
 step_samples = 0;
 note_len_samples = 0;
+cycle_origin_step_abs = 0;
+reset_cycle_request = 0;
+reset_cycle_pending = 0;
 layer_row_drag_active = 0;
 layer_row_drag_layer = 0;
 layer_row_drag_row = 0;
@@ -371,6 +374,26 @@ function set_master_note_length(value_i)
   value_i = clampi(value_i, 10, 100);
   master_note_length = value_i;
   slider2 = value_i;
+);
+
+function absolute_step_index_for_beats(beat_val)
+(
+  floor((beat_val / STEP_BEATS) + 0.000001);
+);
+
+function relative_step_index_for_beats(beat_val)
+(
+  absolute_step_index_for_beats(beat_val) - cycle_origin_step_abs;
+);
+
+function reset_cycle_origin_to_cursor()
+(
+  !transport_is_playing ? (
+    current_cycle_step = 0;
+    current_bar = 0;
+    current_step_in_bar = 0;
+    reset_cycle_request = 1;
+  );
 );
 
 function set_seed_value(value_i)
@@ -1220,6 +1243,9 @@ function reset_runtime_state() local(layer_i, pad_i, i)
   block_abs_end = 0;
   step_samples = 0;
   note_len_samples = 0;
+  cycle_origin_step_abs = 0;
+  reset_cycle_request = 0;
+  reset_cycle_pending = 0;
 );
 
 init_persistent_state();
@@ -1232,6 +1258,7 @@ file_var(0, selected_pad);
 file_var(0, edit_layer);
 file_var(0, preview_mode);
 file_var(0, host_sliders_visible);
+file_var(0, cycle_origin_step_abs);
 
 layer_i = 0;
 while (layer_i < NUM_LAYERS) (
@@ -1257,10 +1284,21 @@ step_samples = srate * 60 / max(tempo, 1) / 4;
 note_len_samples = floor(step_samples * master_note_length * 0.01 + 0.5);
 note_len_samples < 1 ? note_len_samples = 1;
 
+reset_cycle_request && !transport_is_playing ? (
+  cycle_origin_step_abs = absolute_step_index_for_beats(beat_position);
+  current_cycle_step = 0;
+  current_bar = 0;
+  current_step_in_bar = 0;
+  last_beat_position = beat_position;
+  last_block_beats = 0;
+  reset_cycle_pending = 1;
+  reset_cycle_request = 0;
+);
+
 block_abs_start = abs_sample_clock;
 block_abs_end = block_abs_start + samplesblock;
 
-transport_step_abs = floor((beat_position / STEP_BEATS) + 0.000001);
+transport_step_abs = relative_step_index_for_beats(beat_position);
 current_cycle_step = transport_step_abs % cycle_steps;
 current_cycle_step < 0 ? current_cycle_step += cycle_steps;
 current_bar = floor(current_cycle_step / 16);
@@ -1275,6 +1313,10 @@ transport_is_playing && last_transport_is_playing ? (
 );
 
 transport_jump ? flush_all_note_offs();
+reset_cycle_pending ? (
+  flush_all_note_offs();
+  reset_cycle_pending = 0;
+);
 flush_due_note_offs();
 
 ui_audition_pending ? (
@@ -1297,7 +1339,7 @@ transport_is_playing ? (
 
   step_guard = 0;
   while ((step_time < (block_end_beats - 0.000001)) && (step_guard < 512)) (
-    cycle_step = step_index % cycle_steps;
+    cycle_step = relative_step_index_for_beats(step_time) % cycle_steps;
     cycle_step < 0 ? cycle_step += cycle_steps;
 
     cycle_bar_i = floor(cycle_step / 16);
@@ -1341,7 +1383,7 @@ mouse_shift = mouse_cap & 8;
 host_sliders_visible = floor(host_sliders_visible + 0.5);
 host_sliders_visible = clampi(host_sliders_visible, 0, 1);
 host_sliders_visible != last_host_sliders_visible ? (
-  slider_show(16777215, host_sliders_visible);
+  slider_show(33554431, host_sliders_visible);
   last_host_sliders_visible = host_sliders_visible;
 );
 
@@ -1410,7 +1452,12 @@ click ? (
   slider_toggle_h = 26 * ui_scale;
   slider_toggle_x = gfx_w - margin - slider_toggle_w;
   slider_toggle_y = header_y + 11 * ui_scale;
+  reset_btn_w = 114 * ui_scale;
+  reset_btn_h = 26 * ui_scale;
+  reset_btn_x = slider_toggle_x - gap - reset_btn_w;
+  reset_btn_y = slider_toggle_y;
   in_rect(mouse_x, mouse_y, slider_toggle_x, slider_toggle_y, slider_toggle_w, slider_toggle_h) ? host_sliders_visible = 1 - host_sliders_visible;
+  !transport_is_playing && in_rect(mouse_x, mouse_y, reset_btn_x, reset_btn_y, reset_btn_w, reset_btn_h) ? reset_cycle_origin_to_cursor();
 
   panel_w = (gfx_w - margin * 2 - gap * 2) / 3;
   panel_h = strip_h;
@@ -1710,6 +1757,10 @@ slider_toggle_w = 122 * ui_scale;
 slider_toggle_h = 26 * ui_scale;
 slider_toggle_x = gfx_w - margin - slider_toggle_w;
 slider_toggle_y = header_y + 11 * ui_scale;
+reset_btn_w = 114 * ui_scale;
+reset_btn_h = 26 * ui_scale;
+reset_btn_x = slider_toggle_x - gap - reset_btn_w;
+reset_btn_y = slider_toggle_y;
 host_sliders_visible ? gfx_set(0.54, 0.38, 0.15, 1) : gfx_set(0.19, 0.22, 0.28, 1);
 gfx_rect(slider_toggle_x, slider_toggle_y, slider_toggle_w, slider_toggle_h, 1);
 gfx_setfont(3, "Verdana", floor(12 * ui_scale));
@@ -1717,6 +1768,14 @@ gfx_set(1, 1, 1, 1);
 gfx_x = slider_toggle_x + 10 * ui_scale;
 gfx_y = slider_toggle_y + 7 * ui_scale;
 host_sliders_visible ? gfx_drawstr("Hide Sliders") : gfx_drawstr("Show Sliders");
+
+transport_is_playing ? gfx_set(0.15, 0.17, 0.20, 1) : gfx_set(0.20, 0.46, 0.31, 1);
+gfx_rect(reset_btn_x, reset_btn_y, reset_btn_w, reset_btn_h, 1);
+gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+gfx_set(1, 1, 1, 1);
+gfx_x = reset_btn_x + 10 * ui_scale;
+gfx_y = reset_btn_y + 7 * ui_scale;
+transport_is_playing ? gfx_drawstr("Stop To Reset") : gfx_drawstr("Reset Count");
 
 panel_w = (gfx_w - margin * 2 - gap * 2) / 3;
 layer_i = 0;
