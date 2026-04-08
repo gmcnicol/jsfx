@@ -4,7 +4,7 @@ in_pin:none
 out_pin:none
 
 slider1:total_bars=16<4,256,1>Total Bars
-slider2:poi_length=8<4,64,1>Point Of Interest Length
+slider2:poi_length=1<1,64,1>Point Of Interest Length
 slider3:ui_scale_pct=118<75,200,1>UI Scale
 
 slider4:seed=1207<0,999999,1>Seed
@@ -452,23 +452,23 @@ function next_total_bars(value_i, delta_i)
 
 function max_poi_length_for_total(total_i)
 (
-  total_i >= 128 ? 64 :
-  total_i >= 32 ? 32 :
-  total_i >= 16 ? 8 :
-  total_i >= 8 ? 4 :
+  total_i >= 32 ? 2 :
+  total_i >= 8 ? 1 :
   0;
 );
 
 function snap_poi_length(value_i, total_i)
 (
   total_i = snap_total_bars(total_i);
-  value_i = value_i <= 6 ? 4 :
-    value_i <= 12 ? 8 :
-    value_i <= 24 ? 16 :
-    value_i <= 48 ? 32 :
+  value_i = value_i <= 1 ? 1 :
+    value_i <= 2 ? 2 :
+    value_i <= 4 ? 4 :
+    value_i <= 8 ? 8 :
+    value_i <= 16 ? 16 :
+    value_i <= 32 ? 32 :
     64;
   value_i > max_poi_length_for_total(total_i) ? value_i = max_poi_length_for_total(total_i);
-  value_i < 4 ? value_i = 4;
+  value_i < 1 ? value_i = 1;
   value_i;
 );
 
@@ -476,7 +476,9 @@ function next_poi_length(value_i, total_i, delta_i)
 (
   value_i = snap_poi_length(value_i, total_i);
   delta_i < 0 ? (
-    value_i <= 4 ? 4 :
+    value_i <= 1 ? 1 :
+    value_i <= 2 ? 1 :
+    value_i <= 4 ? 2 :
     value_i <= 8 ? 4 :
     value_i <= 16 ? 8 :
     value_i <= 32 ? 16 :
@@ -486,7 +488,10 @@ function next_poi_length(value_i, total_i, delta_i)
     value_i >= 32 ? 64 :
     value_i >= 16 ? 32 :
     value_i >= 8 ? 16 :
-    8;
+    value_i >= 4 ? 8 :
+    value_i >= 2 ? 4 :
+    value_i >= 1 ? 2 :
+    1;
   );
 );
 
@@ -1139,7 +1144,7 @@ function macro_section_for_bar(bar_i) local(sec_i)
   sec_i;
 );
 
-function plan_form() local(bar_i, macro_i, phrase_i, class_i, is_long_form, poi_default_start)
+function plan_form() local(bar_i, macro_i, phrase_i, class_i, is_long_form, poi_default_start, variation_chance_i, fill_chance_i)
 (
   planned_total_bars = snap_total_bars(total_bars);
   planned_effective_tempo = tempo_reference > 0 ? tempo_reference : max(tempo, 1);
@@ -1164,11 +1169,11 @@ function plan_form() local(bar_i, macro_i, phrase_i, class_i, is_long_form, poi_
 
   poi_default_start =
     planned_total_bars == 8 ? 4 :
-    planned_total_bars == 16 ? 8 :
-    planned_total_bars == 32 ? 16 :
-    planned_total_bars == 64 ? 32 :
-    planned_total_bars == 128 ? 96 :
-    planned_total_bars == 256 ? 192 :
+    planned_total_bars == 16 ? 11 :
+    planned_total_bars == 32 ? 21 :
+    planned_total_bars == 64 ? 45 :
+    planned_total_bars == 128 ? 93 :
+    planned_total_bars == 256 ? 189 :
     0;
   planned_poi_start = poi_default_start;
   planned_poi_bars > 0 && (planned_poi_start + planned_poi_bars) > planned_turnaround_bar ? planned_poi_start = max(0, planned_turnaround_bar - planned_poi_bars);
@@ -1196,11 +1201,15 @@ function plan_form() local(bar_i, macro_i, phrase_i, class_i, is_long_form, poi_
     bar_macro_section[bar_i] = macro_i;
     phrase_i = bar_i % 4;
     class_i = CLASS_MAIN;
+    variation_chance_i = planned_total_bars <= 16 ? min(5, max(1, floor((100 - repetition_bias) * 0.08))) :
+      min(16, max(4, floor((100 - repetition_bias) * 0.20)));
+    fill_chance_i = planned_total_bars <= 16 ? fill_frequency * 0.08 :
+      fill_frequency * 0.22;
 
     is_long_form && bar_i == planned_landing_bar ? class_i = CLASS_LANDING :
     bar_i == planned_turnaround_bar ? class_i = CLASS_TURNAROUND :
     planned_poi_bars > 0 && bar_i >= planned_poi_start && bar_i < (planned_poi_start + planned_poi_bars) ? (
-      class_i = ((bar_i - planned_poi_start) % 4) == 0 ? CLASS_POI_MAIN : CLASS_POI_VARIATION;
+      class_i = (bar_i - planned_poi_start) == 0 ? CLASS_POI_MAIN : CLASS_POI_VARIATION;
     ) :
     is_long_form && bar_i >= (planned_turnaround_bar - planned_turnaround_zone_bars + 1) && bar_i < planned_turnaround_bar ? (
       class_i = (planned_turnaround_bar - bar_i) <= 1 ? CLASS_PRE_FILL : CLASS_VARIATION;
@@ -1213,11 +1222,15 @@ function plan_form() local(bar_i, macro_i, phrase_i, class_i, is_long_form, poi_
       bar_i == 1 || bar_i == 3 ? class_i = CLASS_VARIATION;
       bar_i == 6 ? class_i = CLASS_FILL;
     ) :
+    planned_total_bars == 16 ? (
+      bar_i == 3 || bar_i == 13 ? class_i = CLASS_VARIATION;
+      bar_i == (planned_poi_start - 1) && bar_i > 0 ? class_i = CLASS_PRE_FILL;
+    ) :
     (
       phrase_i == 3 ? class_i = CLASS_VARIATION;
-      hash_hit((100 - repetition_bias) * 0.55, bar_i, planned_total_bars, 96, 0, 0) && phrase_i != 0 ? class_i = CLASS_VARIATION;
+      hash_hit(variation_chance_i, bar_i, planned_total_bars, 96, 0, 0) && phrase_i != 0 ? class_i = CLASS_VARIATION;
       bar_i == (planned_poi_start - 1) && bar_i > 0 ? class_i = CLASS_PRE_FILL;
-      class_i == CLASS_VARIATION && hash_hit(fill_frequency * 0.30, bar_i, 97, 0, 0, 0) && phrase_i == 3 ? class_i = CLASS_FILL;
+      class_i == CLASS_VARIATION && hash_hit(fill_chance_i, bar_i, 97, 0, 0, 0) && phrase_i == 3 ? class_i = CLASS_FILL;
     );
 
     bar_class[bar_i] = class_i;
