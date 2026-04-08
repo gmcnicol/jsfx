@@ -680,6 +680,27 @@ function clear_chain(lane_i) local(pos_i)
   );
 );
 
+function append_pattern_to_chain_builder(lane_i, pat_i, reset_i) local(slot_i, base_len_i)
+(
+  reset_i ? (
+    clear_chain(lane_i);
+    shift_chain_next_slot = 0;
+  );
+
+  slot_i = shift_chain_next_slot;
+  slot_i < MAX_CHAIN_LEN ? (
+    lane_chain_pat[idx_chain(lane_i, slot_i)] = clampi(pat_i, 0, NUM_PATTERNS - 1);
+    base_len_i = reset_i ? 0 : current_chain_length(lane_i);
+    lane_chain_len[lane_i] = clampi(max(base_len_i, slot_i + 1), 1, MAX_CHAIN_LEN);
+    lane_mode[lane_i] = MODE_CHAIN;
+    ui_chain_slot = slot_i;
+    ui_chain_page = clampi(floor(slot_i / PAGE_SIZE), 0, MAX_PAGES - 1);
+    shift_chain_next_slot = clampi(slot_i + 1, 0, MAX_CHAIN_LEN);
+  );
+  shift_chain_build_active = 1;
+  shift_chain_build_lane = lane_i;
+);
+
 function init_defaults()
 (
   persistent_magic = PERSIST_MAGIC;
@@ -1562,7 +1583,10 @@ function handle_mouse()
 (
   sync_transport_focus();
   mouse_down = mouse_cap & 1;
+  shift_down_i = mouse_cap & 8;
   click_i = mouse_down && !last_mouse_down;
+
+  !shift_down_i ? shift_chain_build_active = 0;
 
   click_i ? (
     delta_i = rect_hit_delta(mouse_x, mouse_y, top_root_x, top_root_y, top_root_w, top_root_h);
@@ -1672,7 +1696,12 @@ function handle_mouse()
       col_i = pat_i % 8;
       px_i = pat_x + section_pad_l + col_i * (btn_w + pattern_btn_gap_x);
       py_i = pat_btn_y0 + row_i * (pat_slot_cell_h + pattern_btn_gap_y);
-      in_rect(mouse_x, mouse_y, px_i, py_i, main_w, pat_btn_h) ? set_ui_pattern_selection(pat_i);
+      in_rect(mouse_x, mouse_y, px_i, py_i, main_w, pat_btn_h) ? (
+        set_ui_pattern_selection(pat_i);
+        shift_down_i ? (
+          append_pattern_to_chain_builder(ui_lane, pat_i, !shift_chain_build_active || shift_chain_build_lane != ui_lane);
+        );
+      );
       in_rect(mouse_x, mouse_y, px_i + main_w + slot_dup_gap, py_i, copy_w, pat_btn_h) && pat_i < (NUM_PATTERNS - 1) ? (
         copy_pattern_to_pattern(ui_lane, pat_i, pat_i + 1);
       );
@@ -1827,6 +1856,9 @@ display_transport_anchor_beats = 0;
 transport_anchor_beats = 0;
 stopped_cursor_beat = 0;
 reset_one_shot_armed = 0;
+shift_chain_build_active = 0;
+shift_chain_build_lane = 0;
+shift_chain_next_slot = 0;
 last_transport_playing = 0;
 last_beat_position = 0;
 last_block_beats = 0;
