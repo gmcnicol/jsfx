@@ -1040,6 +1040,16 @@ function false_peak_release_level(bar_i)
   bar_false_peak_release_value(bar_i);
 );
 
+function has_false_peak_cooldown(bar_i)
+(
+  false_peak_release_level(bar_i) > 0;
+);
+
+function allow_clock_roles(class_i, release_i)
+(
+  class_i != CLASS_AFTERGLOW && release_i == 0;
+);
+
 function choose_poi_lead(tempo_band_i) local(score_nerve, score_surge)
 (
   score_nerve = riff_amount + poi_intensity * 0.22 + (tempo_band_i <= BAND_B1 ? 12 : 4);
@@ -1049,7 +1059,7 @@ function choose_poi_lead(tempo_band_i) local(score_nerve, score_surge)
 
 function choose_primary_lead(class_i, macro_i, tempo_band_i, bar_i)
 (
-  false_peak_release_level(bar_i) > 0 ? (
+  has_false_peak_cooldown(bar_i) ? (
     LAYER_PATIENT;
   ) :
   class_i == CLASS_LANDING ? (
@@ -1095,7 +1105,7 @@ function choose_support_layer(lead_layer_i, tempo_band_i, macro_i) local(best_la
 
 function choose_fill_owner(class_i, tempo_band_i, bar_i)
 (
-  false_peak_release_level(bar_i) > 0 ? (
+  has_false_peak_cooldown(bar_i) ? (
     -1;
   ) :
   class_i == CLASS_TURNAROUND ? (
@@ -1117,7 +1127,7 @@ function choose_cymbal_mode(class_i, lead_layer_i, tempo_band_i, bar_i) local(re
   force_cymbal_mode == 2 ? mode_i = CLOCK_OPEN :
   force_cymbal_mode == 3 ? mode_i = CLOCK_RIDE :
   force_cymbal_mode == 4 ? mode_i = CLOCK_TOM :
-  false_peak_release_level(bar_i) > 0 ? (
+  has_false_peak_cooldown(bar_i) ? (
     mode_i = restraint_i > 52 ? CLOCK_HAT : CLOCK_SPARSE;
   ) :
   (
@@ -1150,7 +1160,7 @@ function choose_cymbal_mode(class_i, lead_layer_i, tempo_band_i, bar_i) local(re
 function choose_halftime(class_i, lead_layer_i, tempo_band_i, bar_i) local(prob_i)
 (
   class_i == CLASS_AFTERGLOW ? 1 : (
-    false_peak_release_level(bar_i) > 0 ? 1 : (
+    has_false_peak_cooldown(bar_i) ? 1 : (
     prob_i = halftime_bias;
     class_i == CLASS_MAIN ? prob_i += 8;
     class_i == CLASS_FALSE_PEAK ? prob_i += 10;
@@ -1682,7 +1692,7 @@ function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(
   release_i > 0 ? (
     prob_i -= release_i * 10;
   );
-  clock_active_i = class_i != CLASS_AFTERGLOW && release_i == 0;
+  clock_active_i = allow_clock_roles(class_i, release_i);
   vel_i = 0;
 
   role_i == 0 ? (
@@ -1817,7 +1827,7 @@ function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) loc
     backbeat_vel_i -= release_i * 10;
     release_i > 1 ? simplify_i = 1;
   );
-  clock_active_i = class_i != CLASS_AFTERGLOW && release_i == 0;
+  clock_active_i = allow_clock_roles(class_i, release_i);
   vel_i = 0;
 
   role_i == 0 ? (
@@ -1918,7 +1928,7 @@ function weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(d
     prob_i -= release_i * 30;
     release_i > 1 ? simplify_i = 1;
   );
-  clock_active_i = class_i != CLASS_AFTERGLOW && release_i == 0;
+  clock_active_i = allow_clock_roles(class_i, release_i);
   vel_i = 0;
 
   role_i == 0 ? (
