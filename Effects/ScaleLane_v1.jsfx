@@ -91,10 +91,6 @@ rt_active_note = rt_next_step_beat + NUM_LANES;
 rt_active_chan = rt_active_note + NUM_LANES;
 rt_note_on = rt_active_chan + NUM_LANES;
 rt_note_gen = rt_note_on + NUM_LANES;
-page_clip_mode = rt_note_gen + NUM_LANES;
-page_clip_note = page_clip_mode + PAGE_SIZE;
-page_clip_vel = page_clip_note + PAGE_SIZE;
-page_clip_gate = page_clip_vel + PAGE_SIZE;
 
 function clamp_value(v, lo, hi)
 (
@@ -384,28 +380,20 @@ function set_step_defaults(step_idx_i)
   pat_step_gate[step_idx_i] = 50;
 );
 
-function copy_step_to_clip(step_idx_i, clip_i)
+function step_is_default(step_idx_i)
 (
-  page_clip_mode[clip_i] = pat_step_mode[step_idx_i];
-  page_clip_note[clip_i] = pat_step_note_idx[step_idx_i];
-  page_clip_vel[clip_i] = pat_step_vel[step_idx_i];
-  page_clip_gate[clip_i] = pat_step_gate[step_idx_i];
+  pat_step_mode[step_idx_i] == STEP_OFF &&
+  pat_step_note_idx[step_idx_i] == scale_default_note_idx &&
+  pat_step_vel[step_idx_i] == 100 &&
+  pat_step_gate[step_idx_i] == 50;
 );
 
-function set_clip_defaults(clip_i)
+function copy_step_data(src_idx_i, dst_idx_i)
 (
-  page_clip_mode[clip_i] = STEP_OFF;
-  page_clip_note[clip_i] = scale_default_note_idx;
-  page_clip_vel[clip_i] = 100;
-  page_clip_gate[clip_i] = 50;
-);
-
-function paste_clip_to_step(clip_i, step_idx_i)
-(
-  pat_step_mode[step_idx_i] = page_clip_mode[clip_i];
-  pat_step_note_idx[step_idx_i] = page_clip_note[clip_i];
-  pat_step_vel[step_idx_i] = page_clip_vel[clip_i];
-  pat_step_gate[step_idx_i] = page_clip_gate[clip_i];
+  pat_step_mode[dst_idx_i] = pat_step_mode[src_idx_i];
+  pat_step_note_idx[dst_idx_i] = pat_step_note_idx[src_idx_i];
+  pat_step_vel[dst_idx_i] = pat_step_vel[src_idx_i];
+  pat_step_gate[dst_idx_i] = pat_step_gate[src_idx_i];
 );
 
 function clear_pattern(lane_i, pat_i) local(step_i, step_idx_i)
@@ -431,39 +419,97 @@ function clear_page_slice(lane_i, pat_i, page_i) local(start_i, end_i, step_i, s
   );
 );
 
-function copy_page_slice(lane_i, pat_i, page_i) local(start_i, pat_len_i, step_i, clip_i, step_idx_i)
+function page_slice_is_empty(lane_i, pat_i, page_i) local(start_i, end_i, step_i, empty_i, step_idx_i)
 (
   start_i = page_start_step(page_i);
-  pat_len_i = safe_pattern_length(lane_i, pat_i);
-  page_clip_len = clampi(pat_len_i - start_i, 0, PAGE_SIZE);
-  clip_i = 0;
-  while (clip_i < PAGE_SIZE) (
-    step_i = start_i + clip_i;
+  end_i = min(start_i + PAGE_SIZE, MAX_STEPS);
+  empty_i = 1;
+  step_i = start_i;
+  while ((step_i < end_i) && empty_i) (
     step_idx_i = idx_pat_step(lane_i, pat_i, step_i);
-    clip_i < page_clip_len ? (
-      copy_step_to_clip(step_idx_i, clip_i);
-    ) : (
-      set_clip_defaults(clip_i);
-    );
-    clip_i += 1;
+    !step_is_default(step_idx_i) ? empty_i = 0;
+    step_i += 1;
   );
-  page_clip_valid = page_clip_len > 0;
+  empty_i;
 );
 
-function paste_page_slice(lane_i, pat_i, page_i) local(start_i, paste_len_i, clip_i, step_idx_i, new_len_i)
+function copy_page_slice_to_page(lane_i, pat_i, src_page_i, dst_page_i) local(src_start_i, dst_start_i, src_len_i, copy_len_i, step_i, src_idx_i, dst_idx_i, new_len_i)
 (
-  page_clip_valid ? (
-    start_i = page_start_step(page_i);
-    paste_len_i = clampi(page_clip_len, 0, PAGE_SIZE);
-    clip_i = 0;
-    while (clip_i < paste_len_i) (
-      step_idx_i = idx_pat_step(lane_i, pat_i, start_i + clip_i);
-      paste_clip_to_step(clip_i, step_idx_i);
-      clip_i += 1;
+  src_start_i = page_start_step(src_page_i);
+  dst_start_i = page_start_step(dst_page_i);
+  src_len_i = safe_pattern_length(lane_i, pat_i);
+  copy_len_i = clampi(src_len_i - src_start_i, 0, PAGE_SIZE);
+  step_i = 0;
+  while (step_i < PAGE_SIZE) (
+    dst_idx_i = idx_pat_step(lane_i, pat_i, dst_start_i + step_i);
+    step_i < copy_len_i ? (
+      src_idx_i = idx_pat_step(lane_i, pat_i, src_start_i + step_i);
+      copy_step_data(src_idx_i, dst_idx_i);
+    ) : (
+      set_step_defaults(dst_idx_i);
     );
-    new_len_i = max(safe_pattern_length(lane_i, pat_i), start_i + paste_len_i);
-    pat_length[idx_pat_meta(lane_i, pat_i)] = clampi(new_len_i, 1, MAX_STEPS);
+    step_i += 1;
   );
+  new_len_i = max(safe_pattern_length(lane_i, pat_i), dst_start_i + copy_len_i);
+  pat_length[idx_pat_meta(lane_i, pat_i)] = clampi(new_len_i, 1, MAX_STEPS);
+);
+
+function find_first_empty_page(lane_i, pat_i, skip_page_i) local(page_i, found_i)
+(
+  found_i = -1;
+  page_i = 0;
+  while ((page_i < MAX_PAGES) && (found_i < 0)) (
+    (page_i != skip_page_i) && page_slice_is_empty(lane_i, pat_i, page_i) ? found_i = page_i;
+    page_i += 1;
+  );
+  found_i;
+);
+
+function copy_pattern_to_pattern(lane_i, src_pat_i, dst_pat_i) local(step_i, src_idx_i, dst_idx_i)
+(
+  pat_length[idx_pat_meta(lane_i, dst_pat_i)] = safe_pattern_length(lane_i, src_pat_i);
+  step_i = 0;
+  while (step_i < MAX_STEPS) (
+    src_idx_i = idx_pat_step(lane_i, src_pat_i, step_i);
+    dst_idx_i = idx_pat_step(lane_i, dst_pat_i, step_i);
+    copy_step_data(src_idx_i, dst_idx_i);
+    step_i += 1;
+  );
+);
+
+function pattern_is_empty(lane_i, pat_i) local(step_i, empty_i, step_idx_i)
+(
+  empty_i = safe_pattern_length(lane_i, pat_i) == 16;
+  step_i = 0;
+  while ((step_i < MAX_STEPS) && empty_i) (
+    step_idx_i = idx_pat_step(lane_i, pat_i, step_i);
+    !step_is_default(step_idx_i) ? empty_i = 0;
+    step_i += 1;
+  );
+  empty_i;
+);
+
+function find_first_empty_pattern(lane_i, skip_pat_i) local(pat_i, found_i)
+(
+  found_i = -1;
+  pat_i = 0;
+  while ((pat_i < NUM_PATTERNS) && (found_i < 0)) (
+    (pat_i != skip_pat_i) && pattern_is_empty(lane_i, pat_i) ? found_i = pat_i;
+    pat_i += 1;
+  );
+  found_i;
+);
+
+function copy_chain_slot_to_slot(lane_i, src_pos_i, dst_pos_i) local(new_len_i)
+(
+  lane_chain_pat[idx_chain(lane_i, dst_pos_i)] = lane_chain_pat[idx_chain(lane_i, src_pos_i)];
+  new_len_i = max(current_chain_length(lane_i), dst_pos_i + 1);
+  lane_chain_len[lane_i] = clampi(new_len_i, 1, MAX_CHAIN_LEN);
+);
+
+function chain_slot_is_occupied(lane_i, pos_i)
+(
+  pos_i >= 0 && pos_i < current_chain_length(lane_i);
 );
 
 function clear_chain(lane_i) local(pos_i)
@@ -894,8 +940,14 @@ function compute_layout()
   pat_len_w = measure_cycle_box_w("LEN", "64", 82);
   pat_len_x = pat_x + section_pad_l + pat_page_row_w + 20 * ui_scale;
   pat_len_y = pat_page_y;
-  pat_copy_w = measure_button_w("COPY", 58);
-  pat_paste_w = measure_button_w("PASTE", 62);
+  pat_slot_next_w = measure_button_w(">>", 36);
+  pat_slot_empty_w = measure_button_w(">|", 36);
+  pat_slot_ops_h = small_btn_h;
+  pat_slot_ops_y = pat_title_y;
+  pat_slot_empty_x = pat_x + pat_w - section_pad_r - pat_slot_empty_w;
+  pat_slot_next_x = pat_slot_empty_x - page_btn_gap - pat_slot_next_w;
+  pat_page_next_w = measure_button_w(">>", 36);
+  pat_page_empty_w = measure_button_w(">|", 36);
   pat_clear_w = measure_button_w("CLEAR", 62);
   pat_page_ops_x = pat_len_x + pat_len_w + 14 * ui_scale;
   pat_page_ops_y = pat_page_y;
@@ -907,6 +959,10 @@ function compute_layout()
   chain_len_w = measure_cycle_box_w("LEN", "64", 82);
   chain_len_x = chain_x + section_pad_l + chain_page_row_w + 20 * ui_scale;
   chain_len_y = chain_page_y;
+  chain_next_w = measure_button_w(">>", 36);
+  chain_empty_w = measure_button_w(">|", 36);
+  chain_ops_x = chain_len_x + chain_len_w + 14 * ui_scale;
+  chain_ops_y = chain_page_y;
   chain_control_h = band_btn_h;
   chain_slot_y = chain_page_y + chain_control_h + control_row_gap;
 
@@ -974,6 +1030,8 @@ function draw_pattern_bar() local(pat_i, pat_i_selected, x_i, y_i, row_i, col_i,
   draw_fill(pat_x, pat_y, pat_w, pat_h, 0.07, 0.09, 0.12);
   draw_fill(pat_x, pat_y, pat_w, 2 * ui_scale, 0.32, 0.48, 0.64);
   draw_section_title(pat_x + section_pad_l, pat_title_y, "Pattern Slots", 0.32, 0.48, 0.64);
+  draw_button(pat_slot_next_x, pat_slot_ops_y, pat_slot_next_w, pat_slot_ops_h, ">>", 0);
+  draw_button(pat_slot_empty_x, pat_slot_ops_y, pat_slot_empty_w, pat_slot_ops_h, ">|", 0);
 
   btn_w = pat_btn_w;
   pat_i_selected = current_ui_pattern();
@@ -997,9 +1055,9 @@ function draw_pattern_bar() local(pat_i, pat_i_selected, x_i, y_i, row_i, col_i,
 
   sprintf(#plen_txt, "%d", safe_pattern_length(ui_lane, pat_i_selected));
   draw_cycle_box(pat_len_x, pat_len_y, pat_len_w, pat_control_h, "LEN", #plen_txt);
-  draw_button(pat_page_ops_x, pat_page_ops_y, pat_copy_w, pat_control_h, "COPY", 0);
-  draw_button(pat_page_ops_x + pat_copy_w + page_btn_gap, pat_page_ops_y, pat_paste_w, pat_control_h, "PASTE", page_clip_valid);
-  draw_button(pat_page_ops_x + pat_copy_w + pat_paste_w + page_btn_gap * 2, pat_page_ops_y, pat_clear_w, pat_control_h, "CLEAR", 0);
+  draw_button(pat_page_ops_x, pat_page_ops_y, pat_page_next_w, pat_control_h, ">>", 0);
+  draw_button(pat_page_ops_x + pat_page_next_w + page_btn_gap, pat_page_ops_y, pat_page_empty_w, pat_control_h, ">|", 0);
+  draw_button(pat_page_ops_x + pat_page_next_w + pat_page_empty_w + page_btn_gap * 2, pat_page_ops_y, pat_clear_w, pat_control_h, "CLEAR", 0);
 );
 
 function draw_chain_bar() local(slot_i, slot_x, slot_w, start_i, page_i)
@@ -1017,6 +1075,8 @@ function draw_chain_bar() local(slot_i, slot_x, slot_w, start_i, page_i)
 
   sprintf(#clen_txt, "%d", current_chain_length(ui_lane));
   draw_cycle_box(chain_len_x, chain_len_y, chain_len_w, chain_control_h, "LEN", #clen_txt);
+  draw_button(chain_ops_x, chain_ops_y, chain_next_w, chain_control_h, ">>", 0);
+  draw_button(chain_ops_x + chain_next_w + page_btn_gap, chain_ops_y, chain_empty_w, chain_control_h, ">|", 0);
 
   start_i = ui_chain_page * PAGE_SIZE;
   slot_w = (chain_w - section_pad_l - section_pad_r - step_gap * 15) / 16;
@@ -1332,17 +1392,25 @@ function handle_mouse()
       page_i += 1;
     );
 
-    in_rect(mouse_x, mouse_y, pat_page_ops_x, pat_page_ops_y, pat_copy_w, pat_control_h) ? (
-      copy_page_slice(ui_lane, current_ui_pattern(), ui_page);
+    pat_i = current_ui_pattern();
+    in_rect(mouse_x, mouse_y, pat_slot_next_x, pat_slot_ops_y, pat_slot_next_w, pat_slot_ops_h) && pat_i < (NUM_PATTERNS - 1) ? (
+      copy_pattern_to_pattern(ui_lane, pat_i, pat_i + 1);
     );
-    in_rect(mouse_x, mouse_y, pat_page_ops_x + pat_copy_w + page_btn_gap, pat_page_ops_y, pat_paste_w, pat_control_h) ? (
-      paste_page_slice(ui_lane, current_ui_pattern(), ui_page);
+    in_rect(mouse_x, mouse_y, pat_slot_empty_x, pat_slot_ops_y, pat_slot_empty_w, pat_slot_ops_h) ? (
+      dst_i = find_first_empty_pattern(ui_lane, pat_i);
+      dst_i >= 0 ? copy_pattern_to_pattern(ui_lane, pat_i, dst_i);
     );
-    in_rect(mouse_x, mouse_y, pat_page_ops_x + pat_copy_w + pat_paste_w + page_btn_gap * 2, pat_page_ops_y, pat_clear_w, pat_control_h) ? (
-      clear_page_slice(ui_lane, current_ui_pattern(), ui_page);
+    in_rect(mouse_x, mouse_y, pat_page_ops_x, pat_page_ops_y, pat_page_next_w, pat_control_h) && ui_page < (MAX_PAGES - 1) ? (
+      copy_page_slice_to_page(ui_lane, pat_i, ui_page, ui_page + 1);
+    );
+    in_rect(mouse_x, mouse_y, pat_page_ops_x + pat_page_next_w + page_btn_gap, pat_page_ops_y, pat_page_empty_w, pat_control_h) ? (
+      dst_i = find_first_empty_page(ui_lane, pat_i, ui_page);
+      dst_i >= 0 ? copy_page_slice_to_page(ui_lane, pat_i, ui_page, dst_i);
+    );
+    in_rect(mouse_x, mouse_y, pat_page_ops_x + pat_page_next_w + pat_page_empty_w + page_btn_gap * 2, pat_page_ops_y, pat_clear_w, pat_control_h) ? (
+      clear_page_slice(ui_lane, pat_i, ui_page);
     );
 
-    pat_i = current_ui_pattern();
     delta_i = rect_hit_delta(mouse_x, mouse_y, pat_len_x, pat_len_y, pat_len_w, pat_control_h);
     delta_i ? pat_length[idx_pat_meta(ui_lane, pat_i)] = clampi(pat_length[idx_pat_meta(ui_lane, pat_i)] + delta_i, 1, MAX_STEPS) :
     in_rect(mouse_x, mouse_y, pat_len_x, pat_len_y, pat_len_w, pat_control_h) ? (
@@ -1366,6 +1434,13 @@ function handle_mouse()
       drag_lane = ui_lane;
       drag_origin = lane_chain_len[ui_lane];
       drag_start_y = mouse_y;
+    );
+    in_rect(mouse_x, mouse_y, chain_ops_x, chain_ops_y, chain_next_w, chain_control_h) && chain_slot_is_occupied(ui_lane, ui_chain_slot) && ui_chain_slot < (MAX_CHAIN_LEN - 1) ? (
+      copy_chain_slot_to_slot(ui_lane, ui_chain_slot, ui_chain_slot + 1);
+    );
+    in_rect(mouse_x, mouse_y, chain_ops_x + chain_next_w + page_btn_gap, chain_ops_y, chain_empty_w, chain_control_h) ? (
+      dst_i = current_chain_length(ui_lane);
+      chain_slot_is_occupied(ui_lane, ui_chain_slot) && dst_i < MAX_CHAIN_LEN ? copy_chain_slot_to_slot(ui_lane, ui_chain_slot, dst_i);
     );
 
     start_i = ui_chain_page * PAGE_SIZE;
@@ -1424,8 +1499,6 @@ drag_pattern = 0;
 drag_step = 0;
 drag_origin = 0;
 drag_start_y = 0;
-page_clip_valid = 0;
-page_clip_len = 0;
 last_mouse_down = 0;
 last_transport_playing = 0;
 last_beat_position = 0;
