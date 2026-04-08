@@ -1,0 +1,274 @@
+@init
+
+function ui_draw_fill(x, y, w, h, r, g, b) local(x0, y0, x1, y1)
+(
+  x0 = floor(x + 0.5);
+  y0 = floor(y + 0.5);
+  x1 = floor(x + w + 0.5);
+  y1 = floor(y + h + 0.5);
+  gfx_set(r, g, b, 1);
+  gfx_rect(x0, y0, max(x1 - x0, 1), max(y1 - y0, 1), 1);
+);
+
+function ui_draw_frame(x, y, w, h, r, g, b) local(x0, y0, x1, y1)
+(
+  x0 = floor(x + 0.5);
+  y0 = floor(y + 0.5);
+  x1 = floor(x + w + 0.5);
+  y1 = floor(y + h + 0.5);
+  gfx_set(r, g, b, 1);
+  gfx_rect(x0, y0, max(x1 - x0, 1), max(y1 - y0, 1), 0);
+);
+
+function ui_draw_text(x, y, r, g, b, txt)
+(
+  gfx_set(r, g, b, 1);
+  gfx_x = x;
+  gfx_y = y;
+  gfx_drawstr(txt);
+);
+
+function ui_approx_text_w(txt, char_w)
+(
+  max(strlen(txt), 1) * char_w * ui_scale;
+);
+
+function ui_draw_text_centered(x, y, w, r, g, b, txt, char_w)
+(
+  ui_draw_text(x + max((w - ui_approx_text_w(txt, char_w)) * 0.5, 0), y, r, g, b, txt);
+);
+
+function ui_font_title()
+(
+  gfx_setfont(1, "Verdana", floor(24 * title_scale));
+);
+
+function ui_font_heading()
+(
+  gfx_setfont(1, "Verdana", floor(18 * ui_scale));
+);
+
+function ui_font_body()
+(
+  gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+);
+
+function ui_font_body_sm()
+(
+  gfx_setfont(2, "Verdana", floor(14 * ui_scale));
+);
+
+function ui_font_label()
+(
+  gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+);
+
+function ui_font_caption()
+(
+  gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+);
+
+function ui_font_micro()
+(
+  gfx_setfont(3, "Verdana", floor(10 * ui_scale));
+);
+
+function ui_init_chrome_tokens(base_scale_i)
+(
+  ui_scale = base_scale_i;
+  chrome_scale = min(ui_scale, 1);
+  title_scale = min(ui_scale, 1.15);
+
+  ui_margin = 20 * chrome_scale;
+  ui_gap = 14 * chrome_scale;
+  ui_panel_pad = 10 * chrome_scale;
+  ui_section_pad_t = 10 * chrome_scale;
+  ui_section_pad_r = 10 * chrome_scale;
+  ui_section_pad_b = 10 * chrome_scale;
+  ui_section_pad_l = 10 * chrome_scale;
+  ui_section_title_h = 16 * chrome_scale;
+  ui_section_title_inner_x = 8 * chrome_scale;
+  ui_section_title_text_y = 2 * chrome_scale;
+  ui_small_btn_h = 18 * chrome_scale;
+  ui_btn_h = 30 * chrome_scale;
+  ui_toggle_h = 26 * chrome_scale;
+  ui_badge_h = 16 * chrome_scale;
+  ui_cycle_box_h = 34 * chrome_scale;
+  ui_feedback_min_h = 132 * ui_scale;
+  ui_edit_split_ratio = 0.52;
+
+  section_title_h = ui_section_title_h;
+  section_title_inner_x = ui_section_title_inner_x;
+  section_title_text_y = ui_section_title_text_y;
+);
+
+function ui_set_surface(level_i)
+(
+  level_i <= 0 ? gfx_set(0.07, 0.09, 0.12, 1) :
+  level_i == 1 ? gfx_set(0.11, 0.14, 0.18, 1) :
+  level_i == 2 ? gfx_set(0.14, 0.18, 0.24, 1) :
+  gfx_set(0.18, 0.22, 0.28, 1);
+);
+
+function ui_set_text(level_i)
+(
+  level_i <= 0 ? gfx_set(0.95, 0.97, 1.00, 1) :
+  level_i == 1 ? gfx_set(0.88, 0.90, 0.94, 1) :
+  level_i == 2 ? gfx_set(0.74, 0.79, 0.86, 1) :
+  gfx_set(0.62, 0.67, 0.74, 1);
+);
+
+function ui_set_accent(kind_i)
+(
+  kind_i == 0 ? gfx_set(0.16, 0.43, 0.60, 1) :
+  kind_i == 1 ? gfx_set(0.60, 0.34, 0.13, 1) :
+  kind_i == 2 ? gfx_set(0.20, 0.56, 0.26, 1) :
+  kind_i == 3 ? gfx_set(0.62, 0.24, 0.21, 1) :
+  gfx_set(0.68, 0.50, 0.16, 1);
+);
+
+function ui_measure_button_w(txt, min_w)
+(
+  max(min_w * chrome_scale, max(strlen(txt), 1) * 7.0 * chrome_scale + 14 * chrome_scale);
+);
+
+function ui_measure_value_badge_w(label_txt, value_txt, min_w) local(label_w, value_w)
+(
+  label_w = max(strlen(label_txt), 1) * 5.2 * chrome_scale;
+  value_w = max(strlen(value_txt), 1) * 7.0 * chrome_scale;
+  strlen(label_txt) > 0 ? (
+    max(min_w * chrome_scale, label_w + value_w + 18 * chrome_scale);
+  ) : (
+    max(min_w * chrome_scale, value_w + 14 * chrome_scale);
+  );
+);
+
+function ui_measure_cycle_box_w(label_txt, value_txt, min_w) local(side_w, label_w, value_w, body_w)
+(
+  side_w = 18 * chrome_scale;
+  label_w = max(strlen(label_txt), 1) * 5.4 * chrome_scale;
+  value_w = max(strlen(value_txt), 1) * 7.1 * chrome_scale;
+  body_w = max(label_w, value_w) + 18 * chrome_scale;
+  max(min_w * chrome_scale, body_w + side_w * 2);
+);
+
+function ui_measure_section_title_w(txt)
+(
+  max(strlen(txt), 1) * 6.6 * chrome_scale + section_title_inner_x * 2;
+);
+
+function ui_draw_button(x, y, w, h, txt, selected_i)
+(
+  selected_i ? (
+    ui_draw_fill(x, y, w, h, 0.20, 0.28, 0.38);
+    ui_draw_fill(x, y, w, 2 * chrome_scale, 0.86, 0.66, 0.34);
+    ui_draw_frame(x, y, w, h, 0.44, 0.52, 0.62);
+    ui_font_caption();
+    ui_draw_text_centered(x, y + h * 0.5 - 7 * chrome_scale, w, 0.98, 0.99, 1, txt, 7.0);
+  ) : (
+    ui_draw_fill(x, y, w, h, 0.11, 0.14, 0.19);
+    ui_draw_frame(x, y, w, h, 0.24, 0.28, 0.34);
+    ui_font_caption();
+    ui_draw_text_centered(x, y + h * 0.5 - 7 * chrome_scale, w, 0.82, 0.87, 0.93, txt, 7.0);
+  );
+);
+
+function ui_draw_button_state(x, y, w, h, txt, selected_i, active_i)
+(
+  ui_draw_button(x, y, w, h, txt, selected_i);
+  active_i ? (
+    ui_draw_frame(x + 2 * chrome_scale, y + 2 * chrome_scale, w - 4 * chrome_scale, h - 4 * chrome_scale, 0.24, 0.78, 0.70);
+  );
+);
+
+function ui_draw_value_badge(x, y, w, h, label_txt, value_txt) local(label_y, value_y, value_w)
+(
+  ui_draw_fill(x, y, w, h, 0.09, 0.12, 0.17);
+  ui_draw_frame(x, y, w, h, 0.24, 0.29, 0.35);
+  ui_font_body();
+  value_w = max(strlen(value_txt), 1) * 7.0 * chrome_scale;
+  value_y = y + max((h - 12 * chrome_scale) * 0.5 - 1 * chrome_scale, 0);
+  strlen(label_txt) > 0 ? (
+    gfx_setfont(2, "Verdana", floor(9 * chrome_scale));
+    label_y = y + max((h - 9 * chrome_scale) * 0.5 - 1 * chrome_scale, 0);
+    ui_draw_text(x + 6 * chrome_scale, label_y, 0.62, 0.69, 0.78, label_txt);
+    ui_font_body();
+    ui_draw_text(x + w - value_w - 7 * chrome_scale, value_y, 0.95, 0.97, 1, value_txt);
+  ) : (
+    ui_draw_text(x + max((w - value_w) * 0.5, 0), value_y, 0.95, 0.97, 1, value_txt);
+  );
+);
+
+function ui_draw_section_title(x, y, txt) local(title_w, title_h)
+(
+  title_w = ui_measure_section_title_w(txt);
+  title_h = section_title_h;
+  ui_draw_fill(x, y, title_w, title_h, 0.10, 0.13, 0.18);
+  ui_font_caption();
+  ui_draw_text(x + section_title_inner_x, y + max((title_h - 11 * chrome_scale) * 0.5 - 1 * chrome_scale, section_title_text_y), 0.86, 0.90, 0.96, txt);
+);
+
+function ui_draw_cycle_box(x, y, w, h, label_txt, value_txt) local(side_w, body_y, body_h, label_w, label_h, label_x, value_y, side_mark_y, main_x, main_w)
+(
+  side_w = max(12 * chrome_scale, min(18 * chrome_scale, w * 0.16));
+  label_h = 12 * chrome_scale;
+  body_y = y + 12 * chrome_scale;
+  body_h = h - 12 * chrome_scale;
+  ui_draw_fill(x, body_y, w, body_h, 0.09, 0.12, 0.17);
+  ui_draw_fill(x, body_y, side_w, body_h, 0.12, 0.16, 0.21);
+  ui_draw_fill(x + w - side_w, body_y, side_w, body_h, 0.12, 0.16, 0.21);
+  ui_draw_frame(x, body_y, w, body_h, 0.24, 0.29, 0.35);
+  main_x = x + side_w;
+  main_w = w - side_w * 2;
+  label_w = min(main_w - 10 * chrome_scale, max(strlen(label_txt), 1) * 5.5 * chrome_scale + 12 * chrome_scale);
+  label_x = main_x + 6 * chrome_scale;
+  ui_draw_fill(label_x, y, label_w, label_h, 0.12, 0.16, 0.21);
+  ui_draw_frame(label_x, y, label_w, label_h, 0.24, 0.29, 0.35);
+  gfx_setfont(2, "Verdana", floor(9 * chrome_scale));
+  ui_draw_text_centered(label_x, y + 1 * chrome_scale, label_w, 0.62, 0.69, 0.78, label_txt, 5.5);
+  value_y = body_y + body_h * 0.5 - 7 * chrome_scale;
+  side_mark_y = body_y + body_h * 0.5 - 7 * chrome_scale;
+  gfx_setfont(2, "Verdana", floor(13 * chrome_scale));
+  ui_draw_text_centered(main_x, value_y, main_w, 0.95, 0.97, 1, value_txt, 7.1);
+  ui_font_label();
+  ui_draw_text_centered(x, side_mark_y, side_w, 0.88, 0.91, 0.96, "-", 6.2);
+  ui_draw_text_centered(x + w - side_w, side_mark_y, side_w, 0.88, 0.91, 0.96, "+", 6.2);
+);
+
+function ui_draw_panel(x, y, w, h, accent_i)
+(
+  ui_set_surface(1);
+  gfx_rect(x, y, w, h, 1);
+  accent_i >= 0 ? (
+    ui_set_accent(accent_i);
+    gfx_rect(x, y, w, max(2 * chrome_scale, 1), 1);
+  );
+  ui_draw_frame(x, y, w, h, 0.23, 0.28, 0.35);
+);
+
+function ui_draw_tab(x, y, w, h, txt, active_i, accent_i)
+(
+  active_i ? ui_set_accent(accent_i) : ui_set_surface(2);
+  gfx_rect(x, y, w, h, 1);
+  ui_draw_frame(x, y, w, h, 0.24, 0.29, 0.35);
+  ui_font_body_sm();
+  active_i ? ui_set_text(0) : ui_set_text(1);
+  ui_draw_text(x + 10 * ui_scale, y + max((h - 14 * ui_scale) * 0.5 - 1 * ui_scale, 0), gfx_r, gfx_g, gfx_b, txt);
+);
+
+function ui_draw_toggle_chip(x, y, w, h, txt, active_i, accent_i)
+(
+  active_i ? ui_set_accent(accent_i) : ui_set_surface(2);
+  gfx_rect(x, y, w, h, 1);
+  ui_draw_frame(x, y, w, h, 0.24, 0.29, 0.35);
+  ui_font_label();
+  active_i ? ui_set_text(0) : ui_set_text(1);
+  ui_draw_text_centered(x, y + max((h - 12 * ui_scale) * 0.5 - 1 * ui_scale, 0), w, gfx_r, gfx_g, gfx_b, txt, 6.2);
+);
+
+function ui_draw_stepper_cluster(minus_x, y, ctrl_w, value_x, value_w, plus_x, h, value_txt)
+(
+  ui_draw_button(minus_x, y, ctrl_w, h, "-", 0);
+  ui_draw_value_badge(value_x, y, value_w, h, "", value_txt);
+  ui_draw_button(plus_x, y, ctrl_w, h, "+", 0);
+);
