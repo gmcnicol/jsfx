@@ -137,7 +137,9 @@ bar_halftime = bar_cymbal_mode + MAX_BARS;
 bar_fill_owner = bar_halftime + MAX_BARS;
 bar_turn_pickup = bar_fill_owner + MAX_BARS;
 bar_macro_section = bar_turn_pickup + MAX_BARS;
-layer_envelope_shape = bar_macro_section + MAX_BARS;
+bar_false_peak_release = bar_macro_section + MAX_BARS;
+bar_afterglow_entry = bar_false_peak_release + MAX_BARS;
+layer_envelope_shape = bar_afterglow_entry + MAX_BARS;
 false_peak_start = layer_envelope_shape + NUM_LAYERS;
 false_peak_span = false_peak_start + MAX_FALSE_PEAKS;
 
@@ -974,6 +976,16 @@ function macro_section_value(bar_i)
   bar_macro_section[clampi(bar_i, 0, MAX_BARS - 1)];
 );
 
+function bar_false_peak_release_value(bar_i)
+(
+  bar_false_peak_release[clampi(bar_i, 0, MAX_BARS - 1)];
+);
+
+function bar_afterglow_entry_value(bar_i)
+(
+  bar_afterglow_entry[clampi(bar_i, 0, MAX_BARS - 1)];
+);
+
 function recurrence_window_for_bars(total_bars_i)
 (
   total_bars_i <= 8 ? 4 :
@@ -1009,6 +1021,15 @@ function is_afterglow_entry_bar(bar_i)
   bar_i >= 0 && bar_class_value(bar_i) == CLASS_AFTERGLOW && (bar_i == 0 || bar_class_value(bar_i - 1) != CLASS_AFTERGLOW);
 );
 
+function false_peak_release_level(bar_i)
+(
+  bar_i >= 0 && !is_false_peak_bar(bar_i) ? (
+    is_false_peak_bar(bar_i - 1) ? 2 :
+    is_false_peak_bar(bar_i - 2) ? 1 :
+    0;
+  ) : 0;
+);
+
 function choose_poi_lead(tempo_band_i) local(score_nerve, score_surge)
 (
   score_nerve = riff_amount + poi_intensity * 0.22 + (tempo_band_i <= BAND_B1 ? 12 : 4);
@@ -1018,6 +1039,9 @@ function choose_poi_lead(tempo_band_i) local(score_nerve, score_surge)
 
 function choose_primary_lead(class_i, macro_i, tempo_band_i, bar_i)
 (
+  false_peak_release_level(bar_i) > 0 ? (
+    LAYER_PATIENT;
+  ) :
   class_i == CLASS_LANDING ? (
     planned_landing_mode == LANDING_LOW_TOM ? LAYER_WEIGHT : LAYER_PATIENT;
   ) :
@@ -1061,6 +1085,9 @@ function choose_support_layer(lead_layer_i, tempo_band_i, macro_i) local(best_la
 
 function choose_fill_owner(class_i, tempo_band_i, bar_i)
 (
+  false_peak_release_level(bar_i) > 0 ? (
+    -1;
+  ) :
   class_i == CLASS_TURNAROUND ? (
     tom_motion + weight_amount > riff_amount + 6 ? LAYER_WEIGHT : LAYER_PROCESSION;
   ) :
@@ -1080,6 +1107,9 @@ function choose_cymbal_mode(class_i, lead_layer_i, tempo_band_i, bar_i) local(re
   force_cymbal_mode == 2 ? mode_i = CLOCK_OPEN :
   force_cymbal_mode == 3 ? mode_i = CLOCK_RIDE :
   force_cymbal_mode == 4 ? mode_i = CLOCK_TOM :
+  false_peak_release_level(bar_i) > 0 ? (
+    mode_i = restraint_i > 52 ? CLOCK_HAT : CLOCK_SPARSE;
+  ) :
   (
     class_i == CLASS_LANDING ? (
       mode_i = planned_landing_mode == LANDING_LOW_TOM ? CLOCK_TOM : CLOCK_RIDE;
@@ -1110,6 +1140,7 @@ function choose_cymbal_mode(class_i, lead_layer_i, tempo_band_i, bar_i) local(re
 function choose_halftime(class_i, lead_layer_i, tempo_band_i, bar_i) local(prob_i)
 (
   class_i == CLASS_AFTERGLOW ? 1 : (
+    false_peak_release_level(bar_i) > 0 ? 1 : (
     prob_i = halftime_bias;
     class_i == CLASS_MAIN ? prob_i += 8;
     class_i == CLASS_FALSE_PEAK ? prob_i += 10;
@@ -1120,6 +1151,7 @@ function choose_halftime(class_i, lead_layer_i, tempo_band_i, bar_i) local(prob_
     tempo_band_i >= BAND_D ? prob_i -= 16;
     doubletime_bias > 55 ? prob_i -= 10;
     hash_hit(clampi(prob_i, 0, 100), bar_i, 73, lead_layer_i, tempo_band_i, 0);
+    )
   );
 );
 
@@ -1256,6 +1288,8 @@ function plan_form() local(bar_i, macro_i, class_i, is_long_form, quarter_i, aft
     bar_fill_owner[bar_i] = -1;
     bar_turn_pickup[bar_i] = 0;
     bar_macro_section[bar_i] = MACRO_QUIET_A;
+    bar_false_peak_release[bar_i] = 0;
+    bar_afterglow_entry[bar_i] = 0;
     bar_i += 1;
   );
 
@@ -1300,6 +1334,13 @@ function plan_form() local(bar_i, macro_i, class_i, is_long_form, quarter_i, aft
     class_i == CLASS_IMPACT_VARIATION && hash_hit(poi_intensity * 0.44, bar_i, 451, planned_poi_lead, 0, 0) ? bar_fill_owner[bar_i] = planned_poi_lead;
 
     (class_i == CLASS_TURNAROUND || class_i == CLASS_LANDING) ? bar_turn_pickup[bar_i] = choose_loop_pickup();
+    bar_i += 1;
+  );
+
+  bar_i = 0;
+  while (bar_i < planned_total_bars) (
+    bar_false_peak_release[bar_i] = false_peak_release_level(bar_i);
+    bar_afterglow_entry[bar_i] = is_afterglow_entry_bar(bar_i);
     bar_i += 1;
   );
 
@@ -1499,7 +1540,7 @@ function envelope_value(shape_i, x) local(y)
   (0.54 + sin(x * 6.28318) * 0.14 + x * 0.10);
 );
 
-function layer_macro_energy(layer_i, bar_i) local(x, base_i, macro_amt)
+function layer_macro_energy(layer_i, bar_i) local(x, base_i, macro_amt, release_i)
 (
   x = shifted_progress(layer_i, bar_i);
   base_i = envelope_value(layer_envelope_shape[layer_i], x);
@@ -1507,6 +1548,12 @@ function layer_macro_energy(layer_i, bar_i) local(x, base_i, macro_amt)
   macro_amt = planned_total_bars <= 32 ? (0.30 + macro_dynamics * 0.004) : (0.58 + macro_dynamics * 0.003);
   base_i = 0.60 + (base_i - 0.60) * macro_amt;
   base_i += (dynamic_lift - 50) * 0.0016;
+  release_i = false_peak_release_level(bar_i);
+  release_i > 0 ? (
+    layer_i == LAYER_PATIENT ? base_i -= release_i * 0.05 :
+    layer_i == LAYER_PROCESSION ? base_i -= release_i * 0.14 :
+    base_i -= release_i * 0.18;
+  );
   clamp01(base_i);
 );
 
@@ -1597,7 +1644,7 @@ function patient_rim_backbeat_velocity(macro_i, class_i, energy_i) local(base_i)
   clampi(floor(base_i + energy_i * 8 + 0.5), 1, 127);
 );
 
-function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, energy_i, motif_i, prob_i, vel_i, accent_i, anchor_vel_i, rim_anchor_vel_i, afterglow_entry_i)
+function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, energy_i, motif_i, prob_i, vel_i, accent_i, anchor_vel_i, rim_anchor_vel_i, afterglow_entry_i, release_i)
 (
   density_i = layer_density(LAYER_PATIENT);
   variation_i = layer_variation(LAYER_PATIENT);
@@ -1616,6 +1663,10 @@ function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(
   anchor_vel_i = patient_backbeat_velocity(macro_i, class_i, energy_i);
   rim_anchor_vel_i = patient_rim_backbeat_velocity(macro_i, class_i, energy_i);
   afterglow_entry_i = is_afterglow_entry_bar(cycle_bar_i);
+  release_i = false_peak_release_level(cycle_bar_i);
+  release_i > 0 ? (
+    prob_i -= release_i * 10;
+  );
   vel_i = 0;
 
   role_i == 0 ? (
@@ -1713,7 +1764,7 @@ function patient_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(
   vel_i;
 );
 
-function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, patient_missing_i, compact_form_i, energy_i, motif_i, prob_i, backbeat_prob_i, backbeat_vel_i, vel_i, afterglow_entry_i)
+function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, halftime_i, fill_owner_i, major_fill_i, simplify_i, patient_missing_i, compact_form_i, energy_i, motif_i, prob_i, backbeat_prob_i, backbeat_vel_i, vel_i, afterglow_entry_i, release_i)
 (
   density_i = layer_density(LAYER_PROCESSION);
   variation_i = layer_variation(LAYER_PROCESSION);
@@ -1743,6 +1794,13 @@ function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) loc
   backbeat_vel_i = tension_backbeat_velocity(macro_i, class_i, energy_i);
   compact_form_i ? backbeat_vel_i = max(1, backbeat_vel_i - 10);
   afterglow_entry_i = is_afterglow_entry_bar(cycle_bar_i);
+  release_i = false_peak_release_level(cycle_bar_i);
+  release_i > 0 ? (
+    prob_i -= release_i * 26;
+    backbeat_prob_i -= release_i * 20;
+    backbeat_vel_i -= release_i * 10;
+    release_i > 1 ? simplify_i = 1;
+  );
   vel_i = 0;
 
   role_i == 0 ? (
@@ -1817,7 +1875,7 @@ function procession_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) loc
   vel_i;
 );
 
-function weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, fill_owner_i, major_fill_i, simplify_i, energy_i, motif_i, prob_i, vel_i, afterglow_entry_i)
+function weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(density_i, variation_i, class_i, macro_i, lead_i, support_i, clock_i, fill_owner_i, major_fill_i, simplify_i, energy_i, motif_i, prob_i, vel_i, afterglow_entry_i, release_i)
 (
   density_i = layer_density(LAYER_WEIGHT);
   variation_i = layer_variation(LAYER_WEIGHT);
@@ -1837,6 +1895,11 @@ function weight_role_velocity(role_i, bar_i, step_i, cycle_bar_i, sub_i) local(d
   class_i == CLASS_AFTERGLOW ? prob_i -= 18;
   planned_tempo_band <= BAND_A2 ? prob_i -= 20;
   afterglow_entry_i = is_afterglow_entry_bar(cycle_bar_i);
+  release_i = false_peak_release_level(cycle_bar_i);
+  release_i > 0 ? (
+    prob_i -= release_i * 30;
+    release_i > 1 ? simplify_i = 1;
+  );
   vel_i = 0;
 
   role_i == 0 ? (
