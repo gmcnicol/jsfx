@@ -1,0 +1,119 @@
+# VowelPad PRESETS
+
+All values refer to sliders in `VowelPadMojo.jsfx`.
+
+## Warm Choir
+- Drone: Off
+- Base Note: 48
+- Glide: 40 ms
+- Unison Count: 5
+- Detune: 10.0 cents
+- Stereo Width: 0.82
+- Source Shape: 0.52
+- Breath: 12.0%
+- Vowel Pos: 0.85
+- Formant Q: 11.0
+- Throat: 1.00
+- Brightness Tilt: -1.5 dB
+- Vibrato Rate: 5.0 Hz
+- Vibrato Depth: 4.0 cents
+- Drift Amount: 3.5 cents
+- Chorus Mix: 0.35
+- Attack: 350 ms
+- Decay: 800 ms
+- Sustain: 0.70
+- Release: 1200 ms
+- Vel -> Amp: 0.45
+- Drive: 8.0 dB
+- Bias: 0.15
+- Tone: 0.62
+- Oversampling: 4x
+- Mojo Wet: 0.90
+- Output: -6.0 dB
+
+## Breathy Air Pad
+- Drone: Off
+- Base Note: 50
+- Glide: 20 ms
+- Unison Count: 6
+- Detune: 14.0 cents
+- Stereo Width: 0.95
+- Source Shape: 0.45
+- Breath: 24.0%
+- Vowel Pos: 1.15
+- Formant Q: 8.5
+- Throat: 1.08
+- Brightness Tilt: 3.0 dB
+- Vibrato Rate: 5.6 Hz
+- Vibrato Depth: 6.0 cents
+- Drift Amount: 5.2 cents
+- Chorus Mix: 0.52
+- Attack: 600 ms
+- Decay: 1400 ms
+- Sustain: 0.76
+- Release: 1900 ms
+- Vel -> Amp: 0.30
+- Drive: 6.0 dB
+- Bias: 0.08
+- Tone: 0.74
+- Oversampling: 4x
+- Mojo Wet: 0.80
+- Output: -7.0 dB
+
+## Dark Vowel Drone
+- Drone: On
+- Base Note: 41
+- Glide: 90 ms
+- Unison Count: 4
+- Detune: 8.0 cents
+- Stereo Width: 0.65
+- Source Shape: 0.40
+- Breath: 8.0%
+- Vowel Pos: 3.55
+- Formant Q: 13.0
+- Throat: 0.90
+- Brightness Tilt: -5.5 dB
+- Vibrato Rate: 3.1 Hz
+- Vibrato Depth: 2.0 cents
+- Drift Amount: 2.4 cents
+- Chorus Mix: 0.24
+- Attack: 900 ms
+- Decay: 1800 ms
+- Sustain: 0.66
+- Release: 2600 ms
+- Vel -> Amp: 0.10
+- Drive: 10.0 dB
+- Bias: 0.20
+- Tone: 0.36
+- Oversampling: 8x
+- Mojo Wet: 0.95
+- Output: -9.0 dB
+
+## Bright Ooo Stack
+- Drone: Off
+- Base Note: 52
+- Glide: 12 ms
+- Unison Count: 7
+- Detune: 18.0 cents
+- Stereo Width: 0.92
+- Source Shape: 0.67
+- Breath: 10.0%
+- Vowel Pos: 3.10
+- Formant Q: 9.0
+- Throat: 1.10
+- Brightness Tilt: 5.5 dB
+- Vibrato Rate: 5.8 Hz
+- Vibrato Depth: 7.5 cents
+- Drift Amount: 4.8 cents
+- Chorus Mix: 0.44
+- Attack: 230 ms
+- Decay: 700 ms
+- Sustain: 0.72
+- Release: 1050 ms
+- Vel -> Amp: 0.52
+- Drive: 9.5 dB
+- Bias: 0.18
+- Tone: 0.78
+- Oversampling: 8x
+- Mojo Wet: 0.88
+- Output: -6.5 dB

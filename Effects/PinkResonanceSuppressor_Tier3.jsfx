@@ -1,0 +1,452 @@
+desc:Pink-Referenced Spectral Resonance Suppressor (Tier 3 / FFT)
+
+in_pin:Input Left
+in_pin:Input Right
+out_pin:Output Left
+out_pin:Output Right
+
+slider1:50<0,100,0.1>Amount (%)
+slider2:100<0,100,0.1>Mix (%)
+slider3:250<20,20000,1>Min Frequency (Hz)
+slider4:12000<20,20000,1>Max Frequency (Hz)
+slider5:1.5<0,18,0.1>Threshold (dB)
+slider6:18<0,24,0.1>Max Reduction (dB)
+slider7:60<0,100,1>Sharpness
+slider8:50<0,100,1>Speed
+slider9:1<0,2,1{1024,2048,4096}>FFT Size
+slider10:1<0,1,1{2x,4x}>Overlap
+
+@init
+ext_noinit = 1;
+
+function clamp_value(value_in, minimum_value, maximum_value)
+(
+  value_in < minimum_value ? minimum_value : value_in > maximum_value ? maximum_value : value_in;
+);
+
+function map_fft_size(fft_size_selector)
+(
+  fft_size_selector < 0.5 ? 1024 : fft_size_selector < 1.5 ? 2048 : 4096;
+);
+
+function map_overlap_factor(overlap_selector)
+(
+  overlap_selector < 0.5 ? 2 : 4;
+);
+
+function clear_memory_region(region_base, region_length)
+local(memory_index)
+(
+  memory_index = 0;
+  loop(region_length,
+    region_base[memory_index] = 0;
+    memory_index += 1;
+  );
+);
+
+function rebuild_processing_engine()
+local(sample_index, bin_index, phase, raw_window, frequency_hz, clamped_frequency_hz)
+(
+  current_fft_size = requested_fft_size;
+  current_overlap_factor = requested_overlap_factor;
+  current_hop_size = requested_hop_size;
+
+  current_bin_count = (current_fft_size * 0.5) | 0;
+  current_bin_count += 1;
+
+  inverse_fft_size = 1 / current_fft_size;
+  overlap_gain_compensation = 2 / current_overlap_factor;
+
+  latency_samples = current_fft_size;
+  pdc_delay = latency_samples;
+  pdc_bot_ch = 0;
+  pdc_top_ch = 2;
+
+  input_write_index = 0;
+  ola_read_index = 0;
+  dry_write_index = 0;
+  hop_sample_counter = 0;
+
+  clear_memory_region(input_left_ring_base, input_ring_size);
+  clear_memory_region(input_right_ring_base, input_ring_size);
+  clear_memory_region(ola_left_ring_base, output_ring_size);
+  clear_memory_region(ola_right_ring_base, output_ring_size);
+  clear_memory_region(dry_left_ring_base, dry_ring_size);
+  clear_memory_region(dry_right_ring_base, dry_ring_size);
+
+  sample_index = 0;
+  loop(current_fft_size,
+    phase = ($pi * 2) * sample_index / max(current_fft_size - 1, 1);
+    raw_window = 0.5 - 0.5 * cos(phase);
+    raw_window < 0 ? raw_window = 0;
+    window_base[sample_index] = sqrt(raw_window);
+    sample_index += 1;
+  );
+
+  bin_index = 0;
+  loop(current_bin_count,
+    frequency_hz = (bin_index * srate) / current_fft_size;
+    clamped_frequency_hz = max(frequency_hz, 20);
+
+    bin_frequency_hz_base[bin_index] = frequency_hz;
+    pink_compensation_base[bin_index] = sqrt(clamped_frequency_hz / 1000);
+
+    whitened_magnitude_base[bin_index] = 0;
+    baseline_magnitude_base[bin_index] = 0;
+    baseline_temp_base[bin_index] = 0;
+    target_gain_base[bin_index] = 1;
+    smoothed_gain_base[bin_index] = 1;
+    final_gain_base[bin_index] = 1;
+
+    bin_index += 1;
+  );
+
+  wet_rebuild_fade_gain = 0;
+  wet_rebuild_fade_step = 1 / max(srate * 0.100, 1);
+);
+
+function process_stft_frame()
+local(sample_index, source_index, output_index, fft_complex_index,
+      left_real, left_imaginary, right_real, right_imaginary,
+      combined_magnitude, whitened_magnitude, previous_bin, next_bin,
+      smoothing_pass_index, bin_index, local_baseline, excess_ratio,
+      excess_db, over_threshold_db, target_reduction_db, target_gain_value,
+      previous_smoothed_gain, selected_time_coefficient,
+      smoothed_gain_value, smoothed_neighbor_gain,
+      final_gain_value, mirrored_bin_index, mirrored_fft_index)
+(
+  sample_index = 0;
+  loop(current_fft_size,
+    source_index = input_write_index - current_fft_size + sample_index;
+    source_index < 0 ? source_index += input_ring_size;
+
+    fft_complex_index = sample_index * 2;
+
+    left_real = input_left_ring_base[source_index] * window_base[sample_index];
+    right_real = input_right_ring_base[source_index] * window_base[sample_index];
+
+    fft_left_base[fft_complex_index] = left_real;
+    fft_left_base[fft_complex_index + 1] = 0;
+
+    fft_right_base[fft_complex_index] = right_real;
+    fft_right_base[fft_complex_index + 1] = 0;
+
+    sample_index += 1;
+  );
+
+  fft(fft_left_base, current_fft_size);
+  fft(fft_right_base, current_fft_size);
+
+  bin_index = 0;
+  loop(current_bin_count,
+    fft_complex_index = bin_index * 2;
+
+    left_real = fft_left_base[fft_complex_index];
+    left_imaginary = fft_left_base[fft_complex_index + 1];
+    right_real = fft_right_base[fft_complex_index];
+    right_imaginary = fft_right_base[fft_complex_index + 1];
+
+    combined_magnitude = sqrt(
+      max(
+        0,
+        left_real * left_real + left_imaginary * left_imaginary + right_real * right_real + right_imaginary * right_imaginary
+      )
+    );
+
+    whitened_magnitude = combined_magnitude * pink_compensation_base[bin_index];
+
+    whitened_magnitude_base[bin_index] = whitened_magnitude;
+    baseline_magnitude_base[bin_index] = whitened_magnitude;
+
+    bin_index += 1;
+  );
+
+  smoothing_pass_index = 0;
+  loop(baseline_smoothing_passes,
+    bin_index = 0;
+    loop(current_bin_count,
+      previous_bin = max(bin_index - 1, 0);
+      next_bin = min(bin_index + 1, current_bin_count - 1);
+
+      baseline_temp_base[bin_index] =
+        (baseline_magnitude_base[previous_bin] + baseline_magnitude_base[bin_index] + baseline_magnitude_base[next_bin]) / 3;
+
+      bin_index += 1;
+    );
+
+    bin_index = 0;
+    loop(current_bin_count,
+      baseline_magnitude_base[bin_index] = baseline_temp_base[bin_index];
+      bin_index += 1;
+    );
+
+    smoothing_pass_index += 1;
+  );
+
+  reduction_slope = (smoothed_amount_percent * 0.01) * 2.6;
+
+  bin_index = 0;
+  loop(current_bin_count,
+    target_gain_value = 1;
+
+    (bin_index > 0) &&
+    (bin_frequency_hz_base[bin_index] >= minimum_frequency_hz) &&
+    (bin_frequency_hz_base[bin_index] <= maximum_frequency_hz) ? (
+      local_baseline = max(baseline_magnitude_base[bin_index], 0.000001);
+      excess_ratio = whitened_magnitude_base[bin_index] / max(local_baseline + 0.000001, 0.000001);
+      excess_ratio = max(excess_ratio, 0.000001);
+      excess_db = 8.685889638 * log(excess_ratio);
+
+      over_threshold_db = excess_db - threshold_db;
+      over_threshold_db > 0 ? (
+        target_reduction_db = over_threshold_db * reduction_slope;
+        target_reduction_db = min(target_reduction_db, maximum_reduction_db);
+        target_gain_value = exp(-target_reduction_db / 8.685889638);
+      );
+    );
+
+    previous_smoothed_gain = smoothed_gain_base[bin_index];
+    selected_time_coefficient = target_gain_value < previous_smoothed_gain ? attack_coefficient_per_hop : release_coefficient_per_hop;
+    smoothed_gain_value = previous_smoothed_gain * selected_time_coefficient + target_gain_value * (1 - selected_time_coefficient);
+
+    smoothed_gain_base[bin_index] = smoothed_gain_value;
+    target_gain_base[bin_index] = smoothed_gain_value;
+
+    bin_index += 1;
+  );
+
+  bin_index = 0;
+  loop(current_bin_count,
+    previous_bin = max(bin_index - 1, 0);
+    next_bin = min(bin_index + 1, current_bin_count - 1);
+
+    smoothed_neighbor_gain =
+      (target_gain_base[previous_bin] + target_gain_base[bin_index] + target_gain_base[next_bin]) / 3;
+
+    final_gain_base[bin_index] =
+      target_gain_base[bin_index] * (1 - gain_frequency_smoothing_amount) + smoothed_neighbor_gain * gain_frequency_smoothing_amount;
+
+    bin_index += 1;
+  );
+
+  bin_index = 0;
+  loop(current_bin_count,
+    final_gain_value = final_gain_base[bin_index];
+    fft_complex_index = bin_index * 2;
+
+    fft_left_base[fft_complex_index] *= final_gain_value;
+    fft_left_base[fft_complex_index + 1] *= final_gain_value;
+
+    fft_right_base[fft_complex_index] *= final_gain_value;
+    fft_right_base[fft_complex_index + 1] *= final_gain_value;
+
+    (bin_index > 0) && (bin_index < current_bin_count - 1) ? (
+      mirrored_bin_index = current_fft_size - bin_index;
+      mirrored_fft_index = mirrored_bin_index * 2;
+
+      fft_left_base[mirrored_fft_index] *= final_gain_value;
+      fft_left_base[mirrored_fft_index + 1] *= final_gain_value;
+
+      fft_right_base[mirrored_fft_index] *= final_gain_value;
+      fft_right_base[mirrored_fft_index + 1] *= final_gain_value;
+    );
+
+    bin_index += 1;
+  );
+
+  ifft(fft_left_base, current_fft_size);
+  ifft(fft_right_base, current_fft_size);
+
+  sample_index = 0;
+  loop(current_fft_size,
+    fft_complex_index = sample_index * 2;
+
+    output_index = ola_read_index + sample_index;
+    output_index >= output_ring_size ? output_index -= output_ring_size;
+
+    ola_left_ring_base[output_index] +=
+      fft_left_base[fft_complex_index] * inverse_fft_size * window_base[sample_index] * overlap_gain_compensation;
+
+    ola_right_ring_base[output_index] +=
+      fft_right_base[fft_complex_index] * inverse_fft_size * window_base[sample_index] * overlap_gain_compensation;
+
+    sample_index += 1;
+  );
+);
+
+fft_left_base = 0;
+fft_right_base = 70000;
+
+window_base = 140000;
+bin_frequency_hz_base = 150000;
+pink_compensation_base = 160000;
+whitened_magnitude_base = 170000;
+baseline_magnitude_base = 180000;
+baseline_temp_base = 190000;
+target_gain_base = 200000;
+smoothed_gain_base = 210000;
+final_gain_base = 220000;
+
+input_left_ring_base = 230000;
+input_right_ring_base = 240000;
+ola_left_ring_base = 250000;
+ola_right_ring_base = 270000;
+dry_left_ring_base = 290000;
+dry_right_ring_base = 310000;
+
+input_ring_size = 8192;
+output_ring_size = 16384;
+dry_ring_size = 16384;
+
+requested_fft_size = 2048;
+requested_overlap_factor = 4;
+requested_hop_size = 512;
+
+current_fft_size = 2048;
+current_overlap_factor = 4;
+current_hop_size = 512;
+current_bin_count = 1025;
+
+inverse_fft_size = 1 / current_fft_size;
+overlap_gain_compensation = 2 / current_overlap_factor;
+
+latency_samples = current_fft_size;
+pdc_delay = latency_samples;
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+
+minimum_frequency_hz = slider3;
+maximum_frequency_hz = slider4;
+threshold_db = clamp_value(slider5, 0, 18);
+maximum_reduction_db = slider6;
+
+baseline_smoothing_passes = 4;
+gain_frequency_smoothing_amount = 0.3;
+
+attack_coefficient_per_hop = 0.4;
+release_coefficient_per_hop = 0.8;
+
+target_mix_linear = slider2 * 0.01;
+smoothed_mix_linear = target_mix_linear;
+
+target_amount_percent = slider1;
+smoothed_amount_percent = target_amount_percent;
+
+mix_smoothing_coefficient = 0.01;
+amount_smoothing_coefficient = 0.01;
+
+wet_rebuild_fade_gain = 1;
+wet_rebuild_fade_step = 1 / max(srate * 0.100, 1);
+
+input_write_index = 0;
+ola_read_index = 0;
+dry_write_index = 0;
+hop_sample_counter = 0;
+
+rebuild_processing_engine();
+
+@slider
+requested_fft_size = map_fft_size(slider9);
+requested_overlap_factor = map_overlap_factor(slider10);
+requested_hop_size = (requested_fft_size / requested_overlap_factor) | 0;
+
+(requested_fft_size != current_fft_size) || (requested_overlap_factor != current_overlap_factor) ? (
+  rebuild_processing_engine();
+);
+
+target_mix_linear = clamp_value(slider2 * 0.01, 0, 1);
+target_amount_percent = clamp_value(slider1, 0, 100);
+
+minimum_frequency_hz = clamp_value(slider3, 20, 20000);
+maximum_frequency_hz = clamp_value(slider4, 20, 20000);
+
+minimum_frequency_hz > maximum_frequency_hz ? (
+  slider4 = minimum_frequency_hz;
+  maximum_frequency_hz = minimum_frequency_hz;
+);
+
+slider3 = minimum_frequency_hz;
+
+threshold_db = clamp_value(slider5, 0, 18);
+slider5 = threshold_db;
+maximum_reduction_db = slider6;
+
+baseline_smoothing_passes = 2 + ((100 - slider7) * 0.08) | 0;
+baseline_smoothing_passes = clamp_value(baseline_smoothing_passes, 2, 10);
+
+gain_frequency_smoothing_amount = (100 - slider7) * 0.007;
+gain_frequency_smoothing_amount = clamp_value(gain_frequency_smoothing_amount, 0, 0.7);
+
+speed_normalized = slider8 * 0.01;
+attack_time_ms = 40 - 35 * speed_normalized;
+release_time_ms = 250 - 190 * speed_normalized;
+
+attack_time_samples = max(attack_time_ms * 0.001 * srate, 1);
+release_time_samples = max(release_time_ms * 0.001 * srate, 1);
+
+attack_coefficient_per_hop = exp(-current_hop_size / attack_time_samples);
+release_coefficient_per_hop = exp(-current_hop_size / release_time_samples);
+
+mix_smoothing_time_samples = max(srate * 0.015, 1);
+amount_smoothing_time_samples = max(srate * 0.030, 1);
+
+mix_smoothing_coefficient = 1 - exp(-1 / mix_smoothing_time_samples);
+amount_smoothing_coefficient = 1 - exp(-1 / amount_smoothing_time_samples);
+
+pdc_delay = latency_samples;
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+
+@sample
+input_left_sample = spl0;
+input_right_sample = spl1;
+
+smoothed_mix_linear += (target_mix_linear - smoothed_mix_linear) * mix_smoothing_coefficient;
+smoothed_amount_percent += (target_amount_percent - smoothed_amount_percent) * amount_smoothing_coefficient;
+
+smoothed_mix_linear = clamp_value(smoothed_mix_linear, 0, 1);
+smoothed_amount_percent = clamp_value(smoothed_amount_percent, 0, 100);
+
+dry_read_index = dry_write_index - latency_samples;
+dry_read_index < 0 ? dry_read_index += dry_ring_size;
+
+delayed_dry_left = dry_left_ring_base[dry_read_index];
+delayed_dry_right = dry_right_ring_base[dry_read_index];
+
+dry_left_ring_base[dry_write_index] = input_left_sample;
+dry_right_ring_base[dry_write_index] = input_right_sample;
+
+dry_write_index += 1;
+dry_write_index >= dry_ring_size ? dry_write_index = 0;
+
+wet_left_sample = ola_left_ring_base[ola_read_index];
+wet_right_sample = ola_right_ring_base[ola_read_index];
+
+ola_left_ring_base[ola_read_index] = 0;
+ola_right_ring_base[ola_read_index] = 0;
+
+ola_read_index += 1;
+ola_read_index >= output_ring_size ? ola_read_index = 0;
+
+wet_rebuild_fade_gain < 1 ? (
+  wet_rebuild_fade_gain += wet_rebuild_fade_step;
+  wet_rebuild_fade_gain > 1 ? wet_rebuild_fade_gain = 1;
+);
+
+effective_wet_mix = smoothed_mix_linear * wet_rebuild_fade_gain;
+effective_dry_mix = 1 - smoothed_mix_linear;
+
+spl0 = delayed_dry_left * effective_dry_mix + wet_left_sample * effective_wet_mix;
+spl1 = delayed_dry_right * effective_dry_mix + wet_right_sample * effective_wet_mix;
+
+input_left_ring_base[input_write_index] = input_left_sample;
+input_right_ring_base[input_write_index] = input_right_sample;
+
+input_write_index += 1;
+input_write_index >= input_ring_size ? input_write_index = 0;
+
+hop_sample_counter += 1;
+hop_sample_counter >= current_hop_size ? (
+  hop_sample_counter -= current_hop_size;
+  process_stft_frame();
+);

@@ -1,0 +1,1797 @@
+desc:PulseWerk v2 - MIDI Rhythm Workstation
+
+in_pin:none
+out_pin:none
+
+slider1:cycle_bars=8<1,32,1>Cycle Bars
+slider2:master_note_length=90<10,100,1>Master Note Length
+slider3:ui_scale_pct=115<75,200,1>UI Scale
+
+slider4:mot_enable=1<0,1,1{Off,On}>Motorik Enable
+slider5:mot_mute=0<0,1,1{Off,On}>Motorik Mute
+slider6:mot_solo=0<0,1,1{Off,On}>Motorik Solo
+slider7:mot_channel=1<1,16,1>Motorik Channel
+slider8:mot_density=65<0,100,1>Motorik Density
+slider9:mot_variation=60<0,100,1>Motorik Variation
+slider10:mot_velocity_scale=100<10,150,1>Motorik Velocity Scale
+
+slider11:bb_enable=1<0,1,1{Off,On}>BB Enable
+slider12:bb_mute=0<0,1,1{Off,On}>BB Mute
+slider13:bb_solo=0<0,1,1{Off,On}>BB Solo
+slider14:bb_channel=2<1,16,1>BB Channel
+slider15:bb_density=65<0,100,1>BB Density
+slider16:bb_variation=60<0,100,1>BB Variation
+slider17:bb_velocity_scale=100<10,150,1>BB Velocity Scale
+
+slider18:perc_enable=1<0,1,1{Off,On}>Perc Enable
+slider19:perc_mute=0<0,1,1{Off,On}>Perc Mute
+slider20:perc_solo=0<0,1,1{Off,On}>Perc Solo
+slider21:perc_channel=3<1,16,1>Perc Channel
+slider22:perc_density=60<0,100,1>Perc Density
+slider23:perc_variation=55<0,100,1>Perc Variation
+slider24:perc_velocity_scale=100<10,150,1>Perc Velocity Scale
+
+@init
+
+NUM_LAYERS = 3;
+NUM_PADS = 12;
+QUEUE_SIZE = 1024;
+STEP_BEATS = 0.25;
+
+LAYER_MOTORIK = 0;
+LAYER_BREAKBEAT = 1;
+LAYER_PERC = 2;
+
+pad_note = 0;
+role_to_pad = 64;
+layer_activity = 128;
+slot_activity = 192;
+active_note_count = 256;
+off_time = 2304;
+off_chan = off_time + QUEUE_SIZE;
+off_note = off_chan + QUEUE_SIZE;
+
+queue_head = 0;
+queue_tail = 0;
+
+ui_audition_pending = 0;
+ui_audition_layer = 0;
+ui_audition_pad = 0;
+
+last_mouse_down = 0;
+
+transport_is_playing = 0;
+current_cycle_step = 0;
+current_bar = 0;
+current_step_in_bar = 0;
+cycle_steps = 128;
+
+last_transport_is_playing = 0;
+last_beat_position = 0;
+last_block_beats = 0;
+
+abs_sample_clock = 0;
+block_abs_start = 0;
+block_abs_end = 0;
+step_samples = 0;
+note_len_samples = 0;
+
+function clampi(v, lo, hi)
+(
+  v < lo ? lo : v > hi ? hi : v;
+);
+
+function layer_pad_index(layer_i, pad_i)
+(
+  layer_i * NUM_PADS + pad_i;
+);
+
+function active_note_index(chan_i, note_i)
+(
+  chan_i * 128 + note_i;
+);
+
+function layer_name(layer_i)
+(
+  layer_i == LAYER_MOTORIK ? sprintf(#layer_txt, "Motorik");
+  layer_i == LAYER_BREAKBEAT ? sprintf(#layer_txt, "BB");
+  layer_i == LAYER_PERC ? sprintf(#layer_txt, "Perc");
+);
+
+function layer_full_name(layer_i)
+(
+  layer_i == LAYER_MOTORIK ? sprintf(#layer_full_txt, "Motorik");
+  layer_i == LAYER_BREAKBEAT ? sprintf(#layer_full_txt, "Breakbeat");
+  layer_i == LAYER_PERC ? sprintf(#layer_full_txt, "Percussion");
+);
+
+function role_name(layer_i, role_i)
+(
+  layer_i == LAYER_MOTORIK ? (
+    role_i == 0 ? sprintf(#role_txt, "Kick");
+    role_i == 1 ? sprintf(#role_txt, "Snare");
+    role_i == 2 ? sprintf(#role_txt, "ClosedHat");
+    role_i == 3 ? sprintf(#role_txt, "OpenHat");
+    role_i == 4 ? sprintf(#role_txt, "GhostSnare");
+    role_i == 5 ? sprintf(#role_txt, "Tambourine");
+    role_i == 6 ? sprintf(#role_txt, "Crash");
+    role_i == 7 ? sprintf(#role_txt, "Perc1");
+    role_i == 8 ? sprintf(#role_txt, "Perc2");
+    role_i == 9 ? sprintf(#role_txt, "Clap");
+    role_i == 10 ? sprintf(#role_txt, "TomLow");
+    role_i == 11 ? sprintf(#role_txt, "TomHigh");
+  ) :
+  layer_i == LAYER_BREAKBEAT ? (
+    role_i == 0 ? sprintf(#role_txt, "Kick");
+    role_i == 1 ? sprintf(#role_txt, "Snare");
+    role_i == 2 ? sprintf(#role_txt, "ClosedHat");
+    role_i == 3 ? sprintf(#role_txt, "OpenHat");
+    role_i == 4 ? sprintf(#role_txt, "GhostSnare");
+    role_i == 5 ? sprintf(#role_txt, "Clap");
+    role_i == 6 ? sprintf(#role_txt, "Ride");
+    role_i == 7 ? sprintf(#role_txt, "TomLow");
+    role_i == 8 ? sprintf(#role_txt, "TomHigh");
+    role_i == 9 ? sprintf(#role_txt, "Rim");
+    role_i == 10 ? sprintf(#role_txt, "Shaker");
+    role_i == 11 ? sprintf(#role_txt, "FX");
+  ) :
+  (
+    role_i == 0 ? sprintf(#role_txt, "Shaker");
+    role_i == 1 ? sprintf(#role_txt, "Tambourine");
+    role_i == 2 ? sprintf(#role_txt, "Clap");
+    role_i == 3 ? sprintf(#role_txt, "Rim");
+    role_i == 4 ? sprintf(#role_txt, "Cowbell");
+    role_i == 5 ? sprintf(#role_txt, "CongaLow");
+    role_i == 6 ? sprintf(#role_txt, "CongaHigh");
+    role_i == 7 ? sprintf(#role_txt, "BongoLow");
+    role_i == 8 ? sprintf(#role_txt, "BongoHigh");
+    role_i == 9 ? sprintf(#role_txt, "Woodblock");
+    role_i == 10 ? sprintf(#role_txt, "ClosedHat");
+    role_i == 11 ? sprintf(#role_txt, "OpenHat");
+  );
+);
+
+function default_note(layer_i, pad_i)
+(
+  layer_i == LAYER_MOTORIK ? (
+    pad_i == 0 ? 36 :
+    pad_i == 1 ? 38 :
+    pad_i == 2 ? 42 :
+    pad_i == 3 ? 46 :
+    pad_i == 4 ? 37 :
+    pad_i == 5 ? 54 :
+    pad_i == 6 ? 49 :
+    pad_i == 7 ? 50 :
+    pad_i == 8 ? 51 :
+    pad_i == 9 ? 39 :
+    pad_i == 10 ? 45 :
+    47
+  ) :
+  layer_i == LAYER_BREAKBEAT ? (
+    pad_i == 0 ? 36 :
+    pad_i == 1 ? 38 :
+    pad_i == 2 ? 42 :
+    pad_i == 3 ? 46 :
+    pad_i == 4 ? 37 :
+    pad_i == 5 ? 39 :
+    pad_i == 6 ? 51 :
+    pad_i == 7 ? 45 :
+    pad_i == 8 ? 47 :
+    pad_i == 9 ? 37 :
+    pad_i == 10 ? 82 :
+    83
+  ) :
+  (
+    pad_i == 0 ? 82 :
+    pad_i == 1 ? 54 :
+    pad_i == 2 ? 39 :
+    pad_i == 3 ? 37 :
+    pad_i == 4 ? 56 :
+    pad_i == 5 ? 64 :
+    pad_i == 6 ? 63 :
+    pad_i == 7 ? 60 :
+    pad_i == 8 ? 61 :
+    pad_i == 9 ? 76 :
+    pad_i == 10 ? 42 :
+    46
+  );
+);
+
+function layer_enabled(layer_i)
+(
+  layer_i == LAYER_MOTORIK ? floor(mot_enable + 0.5) :
+  layer_i == LAYER_BREAKBEAT ? floor(bb_enable + 0.5) :
+  floor(perc_enable + 0.5);
+);
+
+function layer_muted(layer_i)
+(
+  layer_i == LAYER_MOTORIK ? floor(mot_mute + 0.5) :
+  layer_i == LAYER_BREAKBEAT ? floor(bb_mute + 0.5) :
+  floor(perc_mute + 0.5);
+);
+
+function layer_soloed(layer_i)
+(
+  layer_i == LAYER_MOTORIK ? floor(mot_solo + 0.5) :
+  layer_i == LAYER_BREAKBEAT ? floor(bb_solo + 0.5) :
+  floor(perc_solo + 0.5);
+);
+
+function layer_channel_display(layer_i)
+(
+  layer_i == LAYER_MOTORIK ? floor(mot_channel + 0.5) :
+  layer_i == LAYER_BREAKBEAT ? floor(bb_channel + 0.5) :
+  floor(perc_channel + 0.5);
+);
+
+function layer_channel_zero(layer_i)
+(
+  clampi(layer_channel_display(layer_i), 1, 16) - 1;
+);
+
+function layer_density(layer_i)
+(
+  layer_i == LAYER_MOTORIK ? floor(mot_density + 0.5) :
+  layer_i == LAYER_BREAKBEAT ? floor(bb_density + 0.5) :
+  floor(perc_density + 0.5);
+);
+
+function layer_variation(layer_i)
+(
+  layer_i == LAYER_MOTORIK ? floor(mot_variation + 0.5) :
+  layer_i == LAYER_BREAKBEAT ? floor(bb_variation + 0.5) :
+  floor(perc_variation + 0.5);
+);
+
+function layer_velocity_scale(layer_i)
+(
+  layer_i == LAYER_MOTORIK ? floor(mot_velocity_scale + 0.5) :
+  layer_i == LAYER_BREAKBEAT ? floor(bb_velocity_scale + 0.5) :
+  floor(perc_velocity_scale + 0.5);
+);
+
+function any_layer_soloed()
+(
+  layer_soloed(LAYER_MOTORIK) || layer_soloed(LAYER_BREAKBEAT) || layer_soloed(LAYER_PERC);
+);
+
+function layer_can_emit(layer_i) local(any_solo)
+(
+  any_solo = any_layer_soloed();
+  layer_enabled(layer_i) && !layer_muted(layer_i) && (!any_solo || layer_soloed(layer_i));
+);
+
+function get_pad_note(layer_i, pad_i)
+(
+  pad_note[layer_pad_index(layer_i, pad_i)];
+);
+
+function set_pad_note(layer_i, pad_i, note_val)
+(
+  pad_note[layer_pad_index(layer_i, pad_i)] = clampi(note_val, 0, 127);
+);
+
+function get_pad_for_role(layer_i, role_i)
+(
+  role_to_pad[layer_pad_index(layer_i, role_i)];
+);
+
+function role_for_pad(layer_i, pad_i) local(role_i, found_role)
+(
+  found_role = 0;
+  role_i = 0;
+  while ((role_i < NUM_PADS) && (get_pad_for_role(layer_i, role_i) != pad_i)) (
+    role_i += 1;
+  );
+  role_i < NUM_PADS ? found_role = role_i;
+  found_role;
+);
+
+function set_layer_enabled(layer_i, value_i)
+(
+  value_i = clampi(value_i, 0, 1);
+  layer_i == LAYER_MOTORIK ? (mot_enable = value_i; slider4 = value_i;) :
+  layer_i == LAYER_BREAKBEAT ? (bb_enable = value_i; slider11 = value_i;) :
+  (perc_enable = value_i; slider18 = value_i;);
+);
+
+function set_layer_muted(layer_i, value_i)
+(
+  value_i = clampi(value_i, 0, 1);
+  layer_i == LAYER_MOTORIK ? (mot_mute = value_i; slider5 = value_i;) :
+  layer_i == LAYER_BREAKBEAT ? (bb_mute = value_i; slider12 = value_i;) :
+  (perc_mute = value_i; slider19 = value_i;);
+);
+
+function set_layer_soloed(layer_i, value_i)
+(
+  value_i = clampi(value_i, 0, 1);
+  layer_i == LAYER_MOTORIK ? (mot_solo = value_i; slider6 = value_i;) :
+  layer_i == LAYER_BREAKBEAT ? (bb_solo = value_i; slider13 = value_i;) :
+  (perc_solo = value_i; slider20 = value_i;);
+);
+
+function set_layer_channel(layer_i, value_i)
+(
+  value_i = clampi(value_i, 1, 16);
+  layer_i == LAYER_MOTORIK ? (mot_channel = value_i; slider7 = value_i;) :
+  layer_i == LAYER_BREAKBEAT ? (bb_channel = value_i; slider14 = value_i;) :
+  (perc_channel = value_i; slider21 = value_i;);
+);
+
+function set_layer_density(layer_i, value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  layer_i == LAYER_MOTORIK ? (mot_density = value_i; slider8 = value_i;) :
+  layer_i == LAYER_BREAKBEAT ? (bb_density = value_i; slider15 = value_i;) :
+  (perc_density = value_i; slider22 = value_i;);
+);
+
+function set_layer_variation(layer_i, value_i)
+(
+  value_i = clampi(value_i, 0, 100);
+  layer_i == LAYER_MOTORIK ? (mot_variation = value_i; slider9 = value_i;) :
+  layer_i == LAYER_BREAKBEAT ? (bb_variation = value_i; slider16 = value_i;) :
+  (perc_variation = value_i; slider23 = value_i;);
+);
+
+function set_layer_velocity_scale(layer_i, value_i)
+(
+  value_i = clampi(value_i, 10, 150);
+  layer_i == LAYER_MOTORIK ? (mot_velocity_scale = value_i; slider10 = value_i;) :
+  layer_i == LAYER_BREAKBEAT ? (bb_velocity_scale = value_i; slider17 = value_i;) :
+  (perc_velocity_scale = value_i; slider24 = value_i;);
+);
+
+function set_cycle_bars(value_i)
+(
+  value_i = clampi(value_i, 1, 32);
+  cycle_bars = value_i;
+  slider1 = value_i;
+);
+
+function set_master_note_length(value_i)
+(
+  value_i = clampi(value_i, 10, 100);
+  master_note_length = value_i;
+  slider2 = value_i;
+);
+
+function scaled_velocity(layer_i, base_vel)
+(
+  clampi(floor(base_vel * layer_velocity_scale(layer_i) * 0.01 + 0.5), 1, 127);
+);
+
+function queue_note_off(chan_i, note_i, abs_time_i) local(next_tail)
+(
+  queue_note_off = 0;
+  next_tail = queue_tail + 1;
+  next_tail >= QUEUE_SIZE ? next_tail = 0;
+  next_tail != queue_head ? (
+    off_time[queue_tail] = abs_time_i;
+    off_chan[queue_tail] = chan_i;
+    off_note[queue_tail] = note_i;
+    queue_tail = next_tail;
+    queue_note_off = 1;
+  );
+);
+
+function flush_all_note_offs() local(i, repeat_count, note_i, chan_i, guard, repeat_guard)
+(
+  guard = 0;
+  while ((queue_head != queue_tail) && (guard < QUEUE_SIZE)) (
+    queue_head += 1;
+    queue_head >= QUEUE_SIZE ? queue_head = 0;
+    guard += 1;
+  );
+  queue_head = 0;
+  queue_tail = 0;
+
+  i = 0;
+  while (i < (16 * 128)) (
+    repeat_count = active_note_count[i];
+    note_i = i % 128;
+    chan_i = floor(i / 128);
+    repeat_guard = 0;
+    while ((repeat_count > 0) && (repeat_guard < 64)) (
+      midisend(0, 128 | chan_i, note_i);
+      repeat_count -= 1;
+      repeat_guard += 1;
+    );
+    active_note_count[i] = 0;
+    i += 1;
+  );
+);
+
+function flush_due_note_offs() local(rel_spl, chan_i, note_i, active_idx, guard)
+(
+  guard = 0;
+  while (
+    (queue_head != queue_tail) &&
+    (off_time[queue_head] < block_abs_end) &&
+    (guard < QUEUE_SIZE)
+  ) (
+    rel_spl = off_time[queue_head] - block_abs_start;
+    rel_spl < 0 ? rel_spl = 0;
+    rel_spl >= samplesblock ? rel_spl = samplesblock - 1;
+
+    chan_i = off_chan[queue_head];
+    note_i = off_note[queue_head];
+    midisend(rel_spl, 128 | chan_i, note_i);
+
+    active_idx = active_note_index(chan_i, note_i);
+    active_note_count[active_idx] > 0 ? active_note_count[active_idx] -= 1;
+
+    queue_head += 1;
+    queue_head >= QUEUE_SIZE ? queue_head = 0;
+    guard += 1;
+  );
+);
+
+function trigger_role(layer_i, role_i, base_vel, rel_offset) local(pad_i, note_i, chan_i, vel_i, note_off_at, active_idx)
+(
+  base_vel > 0 ? (
+    pad_i = get_pad_for_role(layer_i, role_i);
+    note_i = get_pad_note(layer_i, pad_i);
+    chan_i = layer_channel_zero(layer_i);
+    vel_i = scaled_velocity(layer_i, base_vel);
+    note_off_at = block_abs_start + rel_offset + note_len_samples;
+
+    queue_note_off(chan_i, note_i, note_off_at) ? (
+      midisend(rel_offset, 144 | chan_i, note_i | (vel_i * 256));
+      layer_activity[layer_pad_index(layer_i, pad_i)] = min(1.4, layer_activity[layer_pad_index(layer_i, pad_i)] + 0.65);
+      slot_activity[pad_i] = min(1.6, slot_activity[pad_i] + 0.55);
+      active_idx = active_note_index(chan_i, note_i);
+      active_note_count[active_idx] += 1;
+    );
+  );
+);
+
+function queue_ui_audition(layer_i, pad_i)
+(
+  ui_audition_pending = 1;
+  ui_audition_layer = layer_i;
+  ui_audition_pad = pad_i;
+);
+
+function motorik_hat_velocity(step_i)
+(
+  (step_i % 8) == 0 ? 85 :
+  (step_i % 8) == 2 ? 70 :
+  (step_i % 8) == 4 ? 80 :
+  72;
+);
+
+function breakbeat_hat_velocity(step_i)
+(
+  (step_i % 4) == 0 ? 82 :
+  (step_i % 2) == 0 ? 74 :
+  66;
+);
+
+function perc_shaker_velocity(step_i)
+(
+  (step_i % 2) == 0 ? 72 : 58;
+);
+
+function motorik_family(bar_i, variation_i)
+(
+  variation_i < 34 ? 0 :
+  variation_i < 67 ? ((bar_i + 1) % 3) :
+  (bar_i % 4);
+);
+
+function breakbeat_family(bar_i, variation_i)
+(
+  variation_i < 34 ? 0 :
+  variation_i < 67 ? ((bar_i + 2) % 3) :
+  (bar_i % 4);
+);
+
+function perc_family(bar_i, variation_i)
+(
+  variation_i < 34 ? 0 :
+  variation_i < 67 ? ((bar_i + 1) % 3) :
+  (bar_i % 4);
+);
+
+function breakbeat_kick_hit(fam_i, bar_i, step_i)
+(
+  fam_i == 1 ? (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 3) || (step_i == 8) || (step_i == 10)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 6) || (step_i == 11)) :
+    bar_i == 2 ? ((step_i == 0) || (step_i == 5) || (step_i == 9) || (step_i == 13)) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 3) || (step_i == 10)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 7) || (step_i == 10) || (step_i == 14)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 5) || (step_i == 8) || (step_i == 11)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 6) || (step_i == 9) || (step_i == 13)) :
+    ((step_i == 0) || (step_i == 3) || (step_i == 10) || (step_i == 15))
+  ) :
+  fam_i == 2 ? (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 6) || (step_i == 9)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 5) || (step_i == 10)) :
+    bar_i == 2 ? ((step_i == 0) || (step_i == 7) || (step_i == 10) || (step_i == 12)) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 6) || (step_i == 11)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 4) || (step_i == 10) || (step_i == 15)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 7) || (step_i == 9)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 5) || (step_i == 8) || (step_i == 11)) :
+    ((step_i == 0) || (step_i == 6) || (step_i == 10) || (step_i == 14))
+  ) :
+  fam_i == 3 ? (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 6) || (step_i == 10)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 7) || (step_i == 10) || (step_i == 13)) :
+    bar_i == 2 ? ((step_i == 0) || (step_i == 5) || (step_i == 8) || (step_i == 10)) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 6) || (step_i == 9) || (step_i == 14)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 6) || (step_i == 10) || (step_i == 15)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 7) || (step_i == 10) || (step_i == 12)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 5) || (step_i == 11) || (step_i == 14)) :
+    ((step_i == 0) || (step_i == 6) || (step_i == 10) || (step_i == 15))
+  ) :
+  (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 6) || (step_i == 10)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 7) || (step_i == 10)) :
+    bar_i == 2 ? ((step_i == 0) || (step_i == 5) || (step_i == 8) || (step_i == 10)) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 6) || (step_i == 9)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 6) || (step_i == 10) || (step_i == 15)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 7) || (step_i == 10)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 5) || (step_i == 11)) :
+    ((step_i == 0) || (step_i == 6) || (step_i == 10))
+  );
+);
+
+function breakbeat_hat_hit(fam_i, bar_i, step_i, density_i)
+(
+  density_i < 34 ? (
+    fam_i == 1 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 10) || (step_i == 14)) :
+    fam_i == 2 ? ((step_i == 0) || (step_i == 2) || (step_i == 4) || (step_i == 8) || (step_i == 10) || (step_i == 12) || (step_i == 14)) :
+    fam_i == 3 ? ((step_i == 0) || (step_i == 2) || (step_i == 6) || (step_i == 8) || (step_i == 11) || (step_i == 14)) :
+    ((step_i == 0) || (step_i == 2) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14))
+  ) :
+  fam_i == 1 ? (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14)) :
+    bar_i == 2 ? ((step_i == 0) || (step_i == 2) || (step_i == 6) || (step_i == 8) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 8) || (step_i == 10) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14)) :
+    ((step_i == 0) || (step_i == 2) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14) || (step_i == 15))
+  ) :
+  fam_i == 2 ? (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 2) || (step_i == 3) || (step_i == 4) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 2 ? ((step_i % 2) == 0) || (step_i == 15) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 2) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 12) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 2) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 12) || (step_i == 13) || (step_i == 14)) :
+    ((step_i % 2) == 0)
+  ) :
+  fam_i == 3 ? (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 2) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 11) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 2 ? ((step_i % 2) == 0) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 2) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 2) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 11) || (step_i == 13) || (step_i == 14)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14) || (step_i == 15)) :
+    ((step_i % 2) == 0)
+  ) :
+  (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 2) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 2 ? ((step_i % 2) == 0) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 2) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 2) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14)) :
+    ((step_i % 2) == 0)
+  );
+);
+
+function motorik_role_velocity(role_i, bar_i, step_i, cycle_bar_i) local(density_i, variation_i, dens_mid, dens_high, var_mid, var_high, fam_i, cycle_bar_count, phrase_turn_bar, cycle_turn_bar, vel_i)
+(
+  density_i = layer_density(LAYER_MOTORIK);
+  variation_i = layer_variation(LAYER_MOTORIK);
+  dens_mid = density_i >= 34;
+  dens_high = density_i >= 67;
+  var_mid = variation_i >= 34;
+  var_high = variation_i >= 67;
+  cycle_bar_count = clampi(floor(cycle_bars + 0.5), 1, 32);
+  phrase_turn_bar = (((cycle_bar_i + 1) % 4) == 0) && (cycle_bar_i != (cycle_bar_count - 1));
+  cycle_turn_bar = cycle_bar_i == (cycle_bar_count - 1);
+  fam_i = motorik_family(bar_i, variation_i);
+  vel_i = 0;
+
+  role_i == 0 ? (
+    ((step_i == 0) || (step_i == 4) || (step_i == 8) || (step_i == 12)) ? vel_i = 110;
+    ((fam_i == 1) && ((step_i == 7) || ((bar_i == 5) && (step_i == 15)))) ? vel_i = max(vel_i, 84);
+    ((fam_i == 2) && (((bar_i == 3) && (step_i == 10)) || ((bar_i == 6) && (step_i == 11)))) ? vel_i = max(vel_i, 92);
+    ((fam_i == 3) && (((bar_i == 3) && (step_i == 11)) || ((bar_i == 7) && (step_i == 14)))) ? vel_i = max(vel_i, 98);
+    phrase_turn_bar && ((step_i == 10) || (step_i == 14)) ? vel_i = max(vel_i, step_i == 10 ? 88 : 96);
+    cycle_turn_bar && ((step_i == 10) || (step_i == 14)) ? vel_i = max(vel_i, step_i == 10 ? 96 : 108);
+    (var_high && (bar_i == 7) && (step_i == 14)) ? vel_i = max(vel_i, 98);
+  );
+
+  role_i == 1 ? (
+    ((step_i == 4) || (step_i == 12)) ? vel_i = 100;
+    phrase_turn_bar && (step_i == 15) ? vel_i = max(vel_i, 90);
+    cycle_turn_bar && (step_i == 15) ? vel_i = max(vel_i, 102);
+    (var_high && (bar_i == 7) && (step_i == 15)) ? vel_i = max(vel_i, 95);
+  );
+
+  role_i == 2 ? (
+    density_i < 34 ? (
+      ((step_i == 0) || (step_i == 4) || (step_i == 8) || (step_i == 12)) ? vel_i = 76;
+    ) : (
+      ((step_i % 2) == 0) ? vel_i = motorik_hat_velocity(step_i);
+    );
+    (dens_mid && (fam_i == 1) && (((bar_i == 1) && (step_i == 10)) || ((bar_i == 5) && (step_i == 14)))) ? vel_i = max(vel_i, 68);
+    (dens_mid && (fam_i == 2) && (((bar_i == 2) && (step_i == 15)) || ((bar_i == 4) && (step_i == 6)) || ((bar_i == 7) && (step_i == 6)))) ? vel_i = max(vel_i, 74);
+    (dens_mid && (fam_i == 3) && (((bar_i == 3) && (step_i == 15)) || ((bar_i == 7) && (step_i == 2)))) ? vel_i = max(vel_i, 76);
+    phrase_turn_bar && dens_mid && ((step_i == 9) || (step_i == 11) || (step_i == 13)) ? vel_i = max(vel_i, 70);
+    cycle_turn_bar && dens_mid && ((step_i == 9) || (step_i == 11) || (step_i == 13) || (step_i == 15)) ? vel_i = max(vel_i, 74);
+    (var_high && (bar_i == 6) && (step_i == 14)) ? vel_i = 0;
+  );
+
+  role_i == 3 ? (
+    ((fam_i == 2) && (((bar_i == 2) && (step_i == 6)) || ((bar_i == 6) && (step_i == 14)))) ? vel_i = 90;
+    ((fam_i == 3) && ((bar_i == 7) && (step_i == 10))) ? vel_i = max(vel_i, 92);
+    phrase_turn_bar && (step_i == 14) ? vel_i = max(vel_i, 88);
+    cycle_turn_bar && (step_i == 14) ? vel_i = max(vel_i, 96);
+  );
+
+  role_i == 4 ? (
+    (((fam_i == 1) || (fam_i == 2)) && (((bar_i == 1) && (step_i == 3)) || ((bar_i == 5) && (step_i == 11)))) ? vel_i = 50;
+    ((fam_i == 3) && (((bar_i == 3) && (step_i == 11)) || ((bar_i == 7) && (step_i == 13)))) ? vel_i = max(vel_i, 54);
+    phrase_turn_bar && (step_i == 11) ? vel_i = max(vel_i, 52);
+    cycle_turn_bar && ((step_i == 11) || (step_i == 13)) ? vel_i = max(vel_i, 56);
+  );
+
+  role_i == 5 ? (
+    (dens_high && (((bar_i == 1) || (bar_i == 3) || (bar_i == 5) || (bar_i == 7)) && ((step_i % 4) == 0))) ? vel_i = 76;
+    (dens_high && (fam_i >= 2) && (((bar_i == 2) || (bar_i == 6)) && ((step_i == 6) || (step_i == 14)))) ? vel_i = max(vel_i, 72);
+    phrase_turn_bar && dens_high && ((step_i == 8) || (step_i == 12)) ? vel_i = max(vel_i, 74);
+    cycle_turn_bar && dens_high && ((step_i == 8) || (step_i == 12)) ? vel_i = max(vel_i, 78);
+  );
+
+  role_i == 6 ? (
+    ((fam_i >= 2) && (((bar_i == 0) || (bar_i == 4)) && (step_i == 0))) ? vel_i = 112;
+    ((fam_i == 3) && (bar_i == 7) && (step_i == 15)) ? vel_i = max(vel_i, 118);
+  );
+
+  role_i == 7 ? (
+    (dens_high && var_mid && (((bar_i == 2) || (bar_i == 6)) && ((step_i == 6) || (step_i == 10)))) ? vel_i = 70;
+  );
+
+  role_i == 8 ? (
+    (dens_high && var_high && (((bar_i == 3) && (step_i == 14)) || ((bar_i == 7) && (step_i == 12)))) ? vel_i = 72;
+  );
+
+  role_i == 9 ? (
+    (var_high && (((bar_i == 3) && (step_i == 12)) || ((bar_i == 7) && (step_i == 12)))) ? vel_i = 78;
+    cycle_turn_bar && (step_i == 12) ? vel_i = max(vel_i, 82);
+  );
+
+  role_i == 10 ? (
+    (var_high && (((bar_i == 6) && (step_i == 15)) || ((bar_i == 7) && (step_i == 13)))) ? vel_i = 82;
+    phrase_turn_bar && (step_i == 13) ? vel_i = max(vel_i, 78);
+    cycle_turn_bar && (step_i == 13) ? vel_i = max(vel_i, 86);
+  );
+
+  role_i == 11 ? (
+    (var_high && (((bar_i == 3) && (step_i == 15)) || ((bar_i == 7) && (step_i == 14)))) ? vel_i = 84;
+    cycle_turn_bar && (step_i == 15) ? vel_i = max(vel_i, 88);
+  );
+
+  vel_i;
+);
+
+function breakbeat_role_velocity(role_i, bar_i, step_i) local(density_i, variation_i, dens_mid, dens_high, var_mid, var_high, fam_i, vel_i)
+(
+  density_i = layer_density(LAYER_BREAKBEAT);
+  variation_i = layer_variation(LAYER_BREAKBEAT);
+  dens_mid = density_i >= 34;
+  dens_high = density_i >= 67;
+  var_mid = variation_i >= 34;
+  var_high = variation_i >= 67;
+  fam_i = breakbeat_family(bar_i, variation_i);
+  vel_i = 0;
+
+  role_i == 0 ? (
+    breakbeat_kick_hit(fam_i, bar_i, step_i) ? vel_i = 110;
+    ((fam_i >= 2) && (((bar_i == 4) && (step_i == 13)) || ((bar_i == 7) && (step_i == 14)))) ? vel_i = max(vel_i, 92);
+  );
+
+  role_i == 1 ? (
+    ((step_i == 4) || (step_i == 12)) ? vel_i = 102;
+    (var_high && (bar_i == 7) && (step_i == 15)) ? vel_i = max(vel_i, 96);
+  );
+
+  role_i == 2 ? (
+    breakbeat_hat_hit(fam_i, bar_i, step_i, density_i) ? vel_i = breakbeat_hat_velocity(step_i);
+    (dens_high && (((bar_i == 1) || (bar_i == 5)) && (step_i == 15))) ? vel_i = max(vel_i, 68);
+    (dens_high && (((bar_i == 3) || (bar_i == 7)) && (step_i == 11))) ? vel_i = max(vel_i, 70);
+    (dens_high && var_high && (bar_i == 6) && (step_i == 5)) ? vel_i = max(vel_i, 66);
+  );
+
+  role_i == 3 ? (
+    (var_high && (((bar_i == 2) && (step_i == 14)) || ((bar_i == 4) && (step_i == 15)) || ((bar_i == 6) && (step_i == 14)) || ((bar_i == 7) && (step_i == 14)))) ? vel_i = 88;
+  );
+
+  role_i == 4 ? (
+    (var_mid && (((bar_i == 0) && (step_i == 15)) || ((bar_i == 1) && (step_i == 3)) || ((bar_i == 2) && (step_i == 11)) || ((bar_i == 5) && (step_i == 11)) || ((bar_i == 6) && (step_i == 15)))) ? vel_i = 48;
+  );
+
+  role_i == 5 ? (
+    (var_mid && (((bar_i == 1) || (bar_i == 5)) && (step_i == 12))) ? vel_i = 90;
+    (var_high && (((bar_i == 3) && (step_i == 4)) || ((bar_i == 7) && (step_i == 4)))) ? vel_i = max(vel_i, 82);
+    (var_high && (bar_i == 7) && (step_i == 15)) ? vel_i = max(vel_i, 96);
+  );
+
+  role_i == 6 ? (
+    (dens_high && (((bar_i == 4) || (bar_i == 6)) && ((step_i == 2) || (step_i == 6) || (step_i == 10) || (step_i == 14)))) ? vel_i = 74;
+  );
+
+  role_i == 7 ? (
+    (var_high && (((bar_i == 3) && (step_i == 13)) || ((bar_i == 6) && (step_i == 12)) || ((bar_i == 7) && (step_i == 13)))) ? vel_i = 82;
+  );
+
+  role_i == 8 ? (
+    (var_high && (((bar_i == 3) && (step_i == 15)) || ((bar_i == 6) && (step_i == 14)) || ((bar_i == 7) && (step_i == 14)))) ? vel_i = 84;
+  );
+
+  role_i == 9 ? (
+    (var_mid && ((((bar_i == 0) || (bar_i == 4)) && (step_i == 7)) || (((bar_i == 1) || (bar_i == 5)) && (step_i == 7)) || (((bar_i == 2) || (bar_i == 6)) && (step_i == 3)))) ? vel_i = 70;
+  );
+
+  role_i == 10 ? (
+    (dens_high && (((bar_i >= 4) && ((step_i % 2) == 0)) || (var_high && (bar_i == 2) && ((step_i == 6) || (step_i == 14))))) ? vel_i = 58;
+  );
+
+  role_i == 11 ? (
+    (var_high && (bar_i == 4) && (step_i == 15)) ? vel_i = 72;
+    (var_high && (bar_i == 7) && (step_i == 15)) ? vel_i = 76;
+  );
+
+  vel_i;
+);
+
+function perc_shaker_hit(fam_i, bar_i, step_i, density_i)
+(
+  density_i < 34 ? (
+    ((step_i == 0) || (step_i == 4) || (step_i == 8) || (step_i == 12))
+  ) :
+  fam_i == 1 ? (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14)) :
+    bar_i == 2 ? ((step_i % 2) == 0) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 2) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 2) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14)) :
+    ((step_i % 2) == 0)
+  ) :
+  fam_i == 2 ? (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 2) || (step_i == 4) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 12) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 2 ? ((step_i % 2) == 0) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 2) || (step_i == 4) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 12) || (step_i == 14)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14) || (step_i == 15)) :
+    ((step_i % 2) == 0)
+  ) :
+  fam_i == 3 ? (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 2) || (step_i == 4) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 12) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 2 ? ((step_i % 2) == 0) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 2) || (step_i == 4) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 12) || (step_i == 14)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14) || (step_i == 15)) :
+    ((step_i % 2) == 0)
+  ) :
+  density_i >= 67 ? (
+    bar_i == 0 ? ((step_i == 0) || (step_i == 2) || (step_i == 4) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 12) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14)) :
+    bar_i == 2 ? ((step_i % 2) == 0) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14)) :
+    bar_i == 4 ? ((step_i == 0) || (step_i == 2) || (step_i == 4) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 12) || (step_i == 14)) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 2) || (step_i == 5) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 11) || (step_i == 14) || (step_i == 15)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 13) || (step_i == 14) || (step_i == 15)) :
+    ((step_i % 2) == 0)
+  ) :
+  (
+    bar_i == 0 ? ((step_i % 2) == 0) :
+    bar_i == 1 ? ((step_i == 0) || (step_i == 2) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14)) :
+    bar_i == 2 ? ((step_i % 2) == 0) :
+    bar_i == 3 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14)) :
+    bar_i == 4 ? ((step_i % 2) == 0) :
+    bar_i == 5 ? ((step_i == 0) || (step_i == 2) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14)) :
+    bar_i == 6 ? ((step_i == 0) || (step_i == 3) || (step_i == 6) || (step_i == 8) || (step_i == 10) || (step_i == 14)) :
+    ((step_i % 2) == 0)
+  );
+);
+
+function perc_role_velocity(role_i, bar_i, step_i) local(density_i, variation_i, dens_mid, dens_high, var_mid, var_high, fam_i, vel_i)
+(
+  density_i = layer_density(LAYER_PERC);
+  variation_i = layer_variation(LAYER_PERC);
+  dens_mid = density_i >= 34;
+  dens_high = density_i >= 67;
+  var_mid = variation_i >= 34;
+  var_high = variation_i >= 67;
+  fam_i = perc_family(bar_i, variation_i);
+  vel_i = 0;
+
+  role_i == 0 ? (
+    perc_shaker_hit(fam_i, bar_i, step_i, density_i) ? (
+      dens_high ? vel_i = perc_shaker_velocity(step_i) : vel_i = 68;
+    );
+  );
+
+  role_i == 1 ? (
+    (((bar_i % 2) == 0) && ((step_i % 4) == 0) && dens_mid) ? vel_i = 78;
+    (var_mid && (((bar_i == 1) || (bar_i == 5)) && ((step_i == 6) || (step_i == 14)))) ? vel_i = max(vel_i, 74);
+    (var_high && (((bar_i == 3) || (bar_i == 7)) && ((step_i == 6) || (step_i == 14)))) ? vel_i = max(vel_i, 72);
+  );
+
+  role_i == 2 ? (
+    (var_mid && (((bar_i == 1) || (bar_i == 5)) && ((step_i == 4) || (step_i == 12)))) ? vel_i = 92;
+    (var_high && (((bar_i == 3) || (bar_i == 7)) && (step_i == 12))) ? vel_i = max(vel_i, 88);
+  );
+
+  role_i == 3 ? (
+    (var_mid && (((bar_i == 0) || (bar_i == 2) || (bar_i == 4) || (bar_i == 6)) && ((step_i == 6) || (step_i == 14)))) ? vel_i = 76;
+    (var_mid && (((bar_i == 1) || (bar_i == 5)) && ((step_i == 3) || (step_i == 11)))) ? vel_i = max(vel_i, 70);
+  );
+
+  role_i == 4 ? (
+    (var_high && (((bar_i == 3) || (bar_i == 7)) && ((step_i == 2) || (step_i == 10)))) ? vel_i = 82;
+    (var_high && (bar_i == 6) && (step_i == 11)) ? vel_i = max(vel_i, 78);
+  );
+
+  role_i == 5 ? (
+    dens_mid && ((((bar_i == 0) || (bar_i == 4)) && ((step_i == 3) || (step_i == 11))) || (((bar_i == 2) || (bar_i == 6)) && ((step_i == 7) || (dens_high && (step_i == 11))))) ? vel_i = 78;
+    (dens_high && var_high && (bar_i == 4) && (step_i == 7)) ? vel_i = max(vel_i, 74);
+  );
+
+  role_i == 6 ? (
+    dens_mid && ((((bar_i == 1) || (bar_i == 5)) && ((step_i == 7) || (step_i == 15))) || (((bar_i == 3) || (bar_i == 7)) && ((step_i == 10) || (dens_high && (step_i == 14))))) ? vel_i = 82;
+    (dens_high && var_high && (bar_i == 5) && (step_i == 11)) ? vel_i = max(vel_i, 80);
+  );
+
+  role_i == 7 ? (
+    dens_high && ((((bar_i == 2) || (bar_i == 6)) && ((step_i == 5) || (step_i == 13))) || ((bar_i == 3) && (step_i == 6))) ? vel_i = 74;
+  );
+
+  role_i == 8 ? (
+    (var_high && (((bar_i == 3) || (bar_i == 7)) && ((step_i == 1) || (step_i == 9)))) ? vel_i = 72;
+    (var_high && (bar_i == 5) && (step_i == 15)) ? vel_i = max(vel_i, 76);
+  );
+
+  role_i == 9 ? (
+    (((bar_i % 4) == 3) && ((step_i == 15) || (var_high && (step_i == 11)))) ? vel_i = 70;
+    (var_mid && (((bar_i == 1) || (bar_i == 5)) && (step_i == 15))) ? vel_i = max(vel_i, 68);
+  );
+
+  role_i == 10 ? (
+    (!dens_high && dens_mid && ((step_i % 2) == 0)) ? vel_i = 64;
+    (var_mid && (((bar_i == 2) || (bar_i == 6)) && ((step_i == 6) || (step_i == 14)))) ? vel_i = max(vel_i, 60);
+  );
+
+  role_i == 11 ? (
+    (var_high && (((bar_i == 3) && (step_i == 14)) || ((bar_i == 6) && (step_i == 15)) || ((bar_i == 7) && (step_i == 14)))) ? vel_i = 86;
+  );
+
+  vel_i;
+);
+
+function layer_role_velocity(layer_i, role_i, bar_i, step_i, cycle_bar_i)
+(
+  layer_i == LAYER_MOTORIK ? motorik_role_velocity(role_i, bar_i, step_i, cycle_bar_i) :
+  layer_i == LAYER_BREAKBEAT ? breakbeat_role_velocity(role_i, bar_i, step_i) :
+  perc_role_velocity(role_i, bar_i, step_i);
+);
+
+function fire_step_for_layer(layer_i, bar_i, step_i, cycle_bar_i, rel_offset) local(role_i, vel_i)
+(
+  layer_can_emit(layer_i) ? (
+    role_i = 0;
+    while (role_i < NUM_PADS) (
+      vel_i = layer_role_velocity(layer_i, role_i, bar_i, step_i, cycle_bar_i);
+      vel_i > 0 ? trigger_role(layer_i, role_i, vel_i, rel_offset);
+      role_i += 1;
+    );
+  );
+);
+
+function in_rect(mx, my, x, y, w, h)
+(
+  (mx >= x) && (mx < (x + w)) && (my >= y) && (my < (y + h));
+);
+
+function init_persistent_state() local(layer_i, pad_i)
+(
+  layer_i = 0;
+  while (layer_i < NUM_LAYERS) (
+    pad_i = 0;
+    while (pad_i < NUM_PADS) (
+      role_to_pad[layer_pad_index(layer_i, pad_i)] = pad_i;
+      pad_i += 1;
+    );
+    layer_i += 1;
+  );
+
+  persistent_magic != 778812 ? (
+    selected_pad = 0;
+    edit_layer = 0;
+    preview_mode = 0;
+    host_sliders_visible = 0;
+    last_host_sliders_visible = -1;
+    layer_i = 0;
+    while (layer_i < NUM_LAYERS) (
+      pad_i = 0;
+      while (pad_i < NUM_PADS) (
+        set_pad_note(layer_i, pad_i, default_note(layer_i, pad_i));
+        pad_i += 1;
+      );
+      layer_i += 1;
+    );
+
+    persistent_magic = 778812;
+  );
+);
+
+function reset_runtime_state() local(layer_i, pad_i, i)
+(
+  i = 0;
+  while (i < NUM_PADS) (
+    slot_activity[i] = 0;
+    i += 1;
+  );
+
+  i = 0;
+  while (i < (16 * 128)) (
+    active_note_count[i] = 0;
+    i += 1;
+  );
+
+  layer_i = 0;
+  while (layer_i < NUM_LAYERS) (
+    pad_i = 0;
+    while (pad_i < NUM_PADS) (
+      layer_activity[layer_pad_index(layer_i, pad_i)] = 0;
+      pad_i += 1;
+    );
+    layer_i += 1;
+  );
+
+  queue_head = 0;
+  queue_tail = 0;
+  ui_audition_pending = 0;
+  ui_audition_layer = 0;
+  ui_audition_pad = 0;
+  last_mouse_down = 0;
+  note_drag_active = 0;
+  note_drag_layer = 0;
+  note_drag_pad = 0;
+  note_drag_start_y = 0;
+  note_drag_origin = 0;
+  last_host_sliders_visible = -1;
+  transport_is_playing = 0;
+  current_cycle_step = 0;
+  current_bar = 0;
+  current_step_in_bar = 0;
+  cycle_steps = 128;
+  last_transport_is_playing = 0;
+  last_beat_position = 0;
+  last_block_beats = 0;
+  abs_sample_clock = 0;
+  block_abs_start = 0;
+  block_abs_end = 0;
+  step_samples = 0;
+  note_len_samples = 0;
+);
+
+init_persistent_state();
+reset_runtime_state();
+
+@serialize
+
+file_var(0, persistent_magic);
+file_var(0, selected_pad);
+file_var(0, edit_layer);
+file_var(0, preview_mode);
+file_var(0, host_sliders_visible);
+
+layer_i = 0;
+while (layer_i < NUM_LAYERS) (
+  pad_i = 0;
+  while (pad_i < NUM_PADS) (
+    note_tmp = pad_note[layer_pad_index(layer_i, pad_i)];
+    file_var(0, note_tmp);
+    pad_note[layer_pad_index(layer_i, pad_i)] = note_tmp;
+    pad_i += 1;
+  );
+  layer_i += 1;
+);
+
+@block
+
+while (midirecv(offset, msg1, msg23)) (
+  midisend(offset, msg1, msg23);
+);
+
+transport_is_playing = play_state & 1;
+  cycle_steps = clampi(floor(cycle_bars + 0.5), 1, 32) * 16;
+step_samples = srate * 60 / max(tempo, 1) / 4;
+note_len_samples = floor(step_samples * master_note_length * 0.01 + 0.5);
+note_len_samples < 1 ? note_len_samples = 1;
+
+block_abs_start = abs_sample_clock;
+block_abs_end = block_abs_start + samplesblock;
+
+transport_step_abs = floor((beat_position / STEP_BEATS) + 0.000001);
+current_cycle_step = transport_step_abs % cycle_steps;
+current_cycle_step < 0 ? current_cycle_step += cycle_steps;
+current_bar = floor(current_cycle_step / 16);
+current_step_in_bar = current_cycle_step % 16;
+
+transport_jump = 0;
+!transport_is_playing && last_transport_is_playing ? transport_jump = 1;
+transport_is_playing && last_transport_is_playing ? (
+  expected_beat_position = last_beat_position + last_block_beats;
+  abs(beat_position - expected_beat_position) > (STEP_BEATS * 0.5) ? transport_jump = 1;
+  beat_position + 0.000001 < last_beat_position ? transport_jump = 1;
+);
+
+transport_jump ? flush_all_note_offs();
+flush_due_note_offs();
+
+ui_audition_pending ? (
+  audition_role = role_for_pad(ui_audition_layer, ui_audition_pad);
+  trigger_role(ui_audition_layer, audition_role, 100, 0);
+  ui_audition_pending = 0;
+);
+
+transport_is_playing ? (
+  block_beats = samplesblock * tempo / 60 / srate;
+  block_start_beats = beat_position;
+  block_end_beats = beat_position + block_beats;
+
+  step_index = floor((block_start_beats / STEP_BEATS) + 0.000001);
+  step_time = step_index * STEP_BEATS;
+  step_time < (block_start_beats - 0.000001) ? (
+    step_index += 1;
+    step_time += STEP_BEATS;
+  );
+
+  step_guard = 0;
+  while ((step_time < (block_end_beats - 0.000001)) && (step_guard < 512)) (
+    cycle_step = step_index % cycle_steps;
+    cycle_step < 0 ? cycle_step += cycle_steps;
+
+    cycle_bar_i = floor(cycle_step / 16);
+    bar_i = cycle_bar_i % 8;
+    step_i = cycle_step % 16;
+
+    rel_offset = floor(((step_time - block_start_beats) * 60 / max(tempo, 1) * srate) + 0.5);
+    rel_offset < 0 ? rel_offset = 0;
+    rel_offset >= samplesblock ? rel_offset = samplesblock - 1;
+
+    fire_step_for_layer(LAYER_MOTORIK, bar_i, step_i, cycle_bar_i, rel_offset);
+    fire_step_for_layer(LAYER_BREAKBEAT, bar_i, step_i, cycle_bar_i, rel_offset);
+    fire_step_for_layer(LAYER_PERC, bar_i, step_i, cycle_bar_i, rel_offset);
+
+    step_index += 1;
+    step_time += STEP_BEATS;
+    step_guard += 1;
+  );
+  last_block_beats = block_beats;
+) : (
+  last_block_beats = 0;
+);
+
+last_transport_is_playing = transport_is_playing;
+last_beat_position = beat_position;
+abs_sample_clock = block_abs_end;
+
+@gfx
+
+ui_scale = ui_scale_pct * 0.01;
+
+gfx_clear = 0x101418;
+gfx_setfont(1, "Verdana", floor(21 * ui_scale));
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+
+mouse_down = mouse_cap & 1;
+click = mouse_down && !last_mouse_down;
+mouse_shift = mouse_cap & 8;
+
+host_sliders_visible = floor(host_sliders_visible + 0.5);
+host_sliders_visible = clampi(host_sliders_visible, 0, 1);
+host_sliders_visible != last_host_sliders_visible ? (
+  slider_show(16777215, host_sliders_visible);
+  last_host_sliders_visible = host_sliders_visible;
+);
+
+margin = 16 * ui_scale;
+gap = 12 * ui_scale;
+header_h = 48 * ui_scale;
+strip_h = 188 * ui_scale;
+tabs_h = 38 * ui_scale;
+
+top_y = margin;
+header_y = top_y;
+strip_y = header_y + header_h + gap;
+tabs_y = strip_y + strip_h + gap;
+content_y = tabs_y + tabs_h + gap;
+content_h = gfx_h - content_y - margin;
+content_h < (260 * ui_scale) ? content_h = 260 * ui_scale;
+
+right_col_w = max(300 * ui_scale, (gfx_w - margin * 2) * 0.34);
+right_col_w > (gfx_w * 0.48) ? right_col_w = gfx_w * 0.48;
+grid_w = gfx_w - margin * 2 - gap - right_col_w;
+grid_w < (380 * ui_scale) ? (
+  right_col_w = max(280 * ui_scale, gfx_w * 0.30);
+  grid_w = gfx_w - margin * 2 - gap - right_col_w;
+);
+
+grid_x = margin;
+grid_y = content_y;
+grid_h = content_h;
+
+side_x = grid_x + grid_w + gap;
+side_y = content_y;
+editor_h = 188 * ui_scale;
+editor_h > (content_h * 0.52) ? editor_h = content_h * 0.52;
+preview_h = content_h - editor_h - gap;
+preview_h < (132 * ui_scale) ? (
+  preview_h = 132 * ui_scale;
+  editor_h = content_h - preview_h - gap;
+);
+
+click ? (
+  header_ctrl_w = 20 * ui_scale;
+  header_val_w = 42 * ui_scale;
+  header_ctrl_gap = 6 * ui_scale;
+  header_group_y = header_y + 11 * ui_scale;
+  transport_box_w = 240 * ui_scale;
+  transport_box_x = margin + 300 * ui_scale;
+  bars_label_w = 30 * ui_scale;
+  length_label_w = 42 * ui_scale;
+
+  cycle_minus_x = transport_box_x + transport_box_w + 38 * ui_scale;
+  cycle_value_x = cycle_minus_x + header_ctrl_w + header_ctrl_gap;
+  cycle_plus_x = cycle_value_x + header_val_w + header_ctrl_gap;
+
+  length_minus_x = cycle_plus_x + 74 * ui_scale;
+  length_value_x = length_minus_x + header_ctrl_w + header_ctrl_gap;
+  length_plus_x = length_value_x + header_val_w + header_ctrl_gap;
+
+  in_rect(mouse_x, mouse_y, cycle_minus_x, header_group_y, header_ctrl_w, 24 * ui_scale) ? set_cycle_bars(cycle_bars - 1);
+  in_rect(mouse_x, mouse_y, cycle_plus_x, header_group_y, header_ctrl_w, 24 * ui_scale) ? set_cycle_bars(cycle_bars + 1);
+  in_rect(mouse_x, mouse_y, length_minus_x, header_group_y, header_ctrl_w, 24 * ui_scale) ? set_master_note_length(master_note_length - 5);
+  in_rect(mouse_x, mouse_y, length_plus_x, header_group_y, header_ctrl_w, 24 * ui_scale) ? set_master_note_length(master_note_length + 5);
+
+  slider_toggle_w = 122 * ui_scale;
+  slider_toggle_h = 26 * ui_scale;
+  slider_toggle_x = gfx_w - margin - slider_toggle_w;
+  slider_toggle_y = header_y + 11 * ui_scale;
+  in_rect(mouse_x, mouse_y, slider_toggle_x, slider_toggle_y, slider_toggle_w, slider_toggle_h) ? host_sliders_visible = 1 - host_sliders_visible;
+
+  panel_w = (gfx_w - margin * 2 - gap * 2) / 3;
+  panel_h = strip_h;
+  layer_i = 0;
+  while (layer_i < NUM_LAYERS) (
+    panel_x = margin + layer_i * (panel_w + gap);
+    panel_y = strip_y;
+    panel_pad = 10 * ui_scale;
+
+    bool_y = panel_y + 34 * ui_scale;
+    bool_h = 26 * ui_scale;
+    bool_w = (panel_w - panel_pad * 2 - gap * 2) / 3;
+
+    in_rect(mouse_x, mouse_y, panel_x + panel_pad, bool_y, bool_w, bool_h) ? set_layer_enabled(layer_i, 1 - layer_enabled(layer_i));
+    in_rect(mouse_x, mouse_y, panel_x + panel_pad + bool_w + gap, bool_y, bool_w, bool_h) ? set_layer_muted(layer_i, 1 - layer_muted(layer_i));
+    in_rect(mouse_x, mouse_y, panel_x + panel_pad + (bool_w + gap) * 2, bool_y, bool_w, bool_h) ? set_layer_soloed(layer_i, 1 - layer_soloed(layer_i));
+
+    row_h = 22 * ui_scale;
+    ctrl_w = 22 * ui_scale;
+    value_w = 62 * ui_scale;
+    step_x_minus = panel_x + panel_w - panel_pad - ctrl_w - value_w - ctrl_w - gap * 2;
+    row_y = panel_y + 68 * ui_scale;
+
+    in_rect(mouse_x, mouse_y, step_x_minus, row_y, ctrl_w, row_h) ? set_layer_channel(layer_i, layer_channel_display(layer_i) - 1);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h) ? set_layer_channel(layer_i, layer_channel_display(layer_i) + 1);
+
+    row_y += row_h + 6 * ui_scale;
+    in_rect(mouse_x, mouse_y, step_x_minus, row_y, ctrl_w, row_h) ? set_layer_density(layer_i, layer_density(layer_i) - 5);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h) ? set_layer_density(layer_i, layer_density(layer_i) + 5);
+
+    row_y += row_h + 6 * ui_scale;
+    in_rect(mouse_x, mouse_y, step_x_minus, row_y, ctrl_w, row_h) ? set_layer_variation(layer_i, layer_variation(layer_i) - 5);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h) ? set_layer_variation(layer_i, layer_variation(layer_i) + 5);
+
+    row_y += row_h + 6 * ui_scale;
+    in_rect(mouse_x, mouse_y, step_x_minus, row_y, ctrl_w, row_h) ? set_layer_velocity_scale(layer_i, layer_velocity_scale(layer_i) - 5);
+    in_rect(mouse_x, mouse_y, step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h) ? set_layer_velocity_scale(layer_i, layer_velocity_scale(layer_i) + 5);
+
+    layer_i += 1;
+  );
+
+  tab_w = (gfx_w - margin * 2 - gap * 4) / 5;
+  in_rect(mouse_x, mouse_y, margin, tabs_y, tab_w, tabs_h) ? edit_layer = 0;
+  in_rect(mouse_x, mouse_y, margin + tab_w + gap, tabs_y, tab_w, tabs_h) ? edit_layer = 1;
+  in_rect(mouse_x, mouse_y, margin + (tab_w + gap) * 2, tabs_y, tab_w, tabs_h) ? edit_layer = 2;
+  in_rect(mouse_x, mouse_y, margin + (tab_w + gap) * 3, tabs_y, tab_w, tabs_h) ? preview_mode = 0;
+  in_rect(mouse_x, mouse_y, margin + (tab_w + gap) * 4, tabs_y, tab_w, tabs_h) ? preview_mode = 1;
+
+  cols = 4;
+  rows = 3;
+  pad_w = (grid_w - gap * (cols - 1)) / cols;
+  pad_h = (grid_h - gap * (rows - 1)) / rows;
+  pad_i = 0;
+  while (pad_i < NUM_PADS) (
+    col_i = pad_i % cols;
+    row_i = floor(pad_i / cols);
+    pad_x = grid_x + col_i * (pad_w + gap);
+    pad_y = grid_y + row_i * (pad_h + gap);
+    note_hit_x = pad_x + 8 * ui_scale;
+    note_hit_y = pad_y + 50 * ui_scale;
+    note_hit_w = pad_w - 16 * ui_scale;
+    note_hit_h = 24 * ui_scale;
+    in_rect(mouse_x, mouse_y, note_hit_x, note_hit_y, note_hit_w, note_hit_h) ? (
+      selected_pad = pad_i;
+      note_drag_active = 1;
+      note_drag_layer = edit_layer;
+      note_drag_pad = pad_i;
+      note_drag_start_y = mouse_y;
+      note_drag_origin = get_pad_note(edit_layer, pad_i);
+    ) : in_rect(mouse_x, mouse_y, pad_x, pad_y, pad_w, pad_h) ? (
+      selected_pad == pad_i ? queue_ui_audition(edit_layer, pad_i) : selected_pad = pad_i;
+    );
+    pad_i += 1;
+  );
+
+  editor_x = side_x;
+  editor_y = side_y;
+  editor_w = right_col_w;
+  editor_pad = 12 * ui_scale;
+  button_gap = 8 * ui_scale;
+  btn_w_1 = (editor_w - editor_pad * 2 - button_gap * 3) / 4;
+  big_btn_w = (editor_w - editor_pad * 2 - button_gap) / 2;
+  big_btn_h = 32 * ui_scale;
+  btn_y_2 = editor_y + editor_h - big_btn_h - 12 * ui_scale;
+  btn_y_1 = btn_y_2 - 32 * ui_scale - 8 * ui_scale;
+
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) - 12);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap), btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) - 1);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap) * 2, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) + 1);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + (btn_w_1 + button_gap) * 3, btn_y_1, btn_w_1, 32 * ui_scale) ? set_pad_note(edit_layer, selected_pad, get_pad_note(edit_layer, selected_pad) + 12);
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad, btn_y_2, big_btn_w, big_btn_h) ? set_pad_note(edit_layer, selected_pad, default_note(edit_layer, selected_pad));
+  in_rect(mouse_x, mouse_y, editor_x + editor_pad + big_btn_w + button_gap, btn_y_2, big_btn_w, big_btn_h) ? queue_ui_audition(edit_layer, selected_pad);
+);
+
+mouse_down && note_drag_active ? (
+  drag_note_step = floor((note_drag_start_y - mouse_y) / (18 * ui_scale));
+  set_pad_note(note_drag_layer, note_drag_pad, note_drag_origin + drag_note_step);
+);
+!mouse_down ? note_drag_active = 0;
+
+mouse_shift && (mouse_wheel != 0) ? (
+  wheel_steps = floor(abs(mouse_wheel) / 60);
+  wheel_steps < 1 ? wheel_steps = 1;
+  mouse_wheel < 0 ? wheel_steps = -wheel_steps;
+  wheel_handled = 0;
+  pad_i = 0;
+  while ((pad_i < NUM_PADS) && !wheel_handled) (
+    col_i = pad_i % cols;
+    row_i = floor(pad_i / cols);
+    pad_x = grid_x + col_i * (pad_w + gap);
+    pad_y = grid_y + row_i * (pad_h + gap);
+    note_hit_x = pad_x + 8 * ui_scale;
+    note_hit_y = pad_y + 50 * ui_scale;
+    note_hit_w = pad_w - 16 * ui_scale;
+    note_hit_h = 24 * ui_scale;
+    in_rect(mouse_x, mouse_y, note_hit_x, note_hit_y, note_hit_w, note_hit_h) ? (
+      selected_pad = pad_i;
+      set_pad_note(edit_layer, pad_i, get_pad_note(edit_layer, pad_i) + wheel_steps);
+      wheel_handled = 1;
+      mouse_wheel = 0;
+    );
+    pad_i += 1;
+  );
+);
+
+last_mouse_down = mouse_down;
+
+pad_i = 0;
+while (pad_i < NUM_PADS) (
+  slot_activity[pad_i] = max(0, slot_activity[pad_i] * 0.90 - 0.01);
+  pad_i += 1;
+);
+
+layer_i = 0;
+while (layer_i < NUM_LAYERS) (
+  pad_i = 0;
+  while (pad_i < NUM_PADS) (
+    layer_activity[layer_pad_index(layer_i, pad_i)] = max(0, layer_activity[layer_pad_index(layer_i, pad_i)] * 0.90 - 0.01);
+    pad_i += 1;
+  );
+  layer_i += 1;
+);
+
+gfx_set(0.07, 0.09, 0.11, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_set(0.11, 0.14, 0.18, 1);
+gfx_rect(margin, header_y, gfx_w - margin * 2, header_h, 1);
+
+gfx_setfont(1, "Verdana", floor(21 * ui_scale));
+gfx_set(0.95, 0.96, 0.98, 1);
+gfx_x = margin + 14 * ui_scale;
+gfx_y = header_y + 10 * ui_scale;
+gfx_drawstr("PulseWerk v2");
+
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_x = margin + 220 * ui_scale;
+gfx_y = header_y + 14 * ui_scale;
+transport_is_playing ? sprintf(#header_status, "Playing") : sprintf(#header_status, "Stopped");
+gfx_drawstr(#header_status);
+
+header_ctrl_w = 20 * ui_scale;
+header_val_w = 42 * ui_scale;
+header_ctrl_gap = 6 * ui_scale;
+header_group_y = header_y + 11 * ui_scale;
+transport_box_w = 240 * ui_scale;
+transport_box_x = margin + 300 * ui_scale;
+bars_label_w = 30 * ui_scale;
+length_label_w = 42 * ui_scale;
+
+gfx_set(0.18, 0.22, 0.28, 1);
+gfx_rect(transport_box_x, header_y + 9 * ui_scale, transport_box_w, 28 * ui_scale, 1);
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_set(0.95, 0.96, 0.98, 1);
+gfx_x = transport_box_x + 10 * ui_scale;
+gfx_y = header_y + 14 * ui_scale;
+sprintf(#header_pos, "Bar %02d  Step %02d  Cycle %02d", current_bar + 1, current_step_in_bar + 1, clampi(floor(cycle_bars + 0.5), 1, 32));
+gfx_drawstr(#header_pos);
+
+cycle_minus_x = transport_box_x + transport_box_w + 38 * ui_scale;
+cycle_value_x = cycle_minus_x + header_ctrl_w + header_ctrl_gap;
+cycle_plus_x = cycle_value_x + header_val_w + header_ctrl_gap;
+
+length_minus_x = cycle_plus_x + 74 * ui_scale;
+length_value_x = length_minus_x + header_ctrl_w + header_ctrl_gap;
+length_plus_x = length_value_x + header_val_w + header_ctrl_gap;
+
+gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+gfx_set(0.92, 0.94, 0.97, 1);
+gfx_x = cycle_minus_x - bars_label_w;
+gfx_y = header_y + 14 * ui_scale;
+gfx_drawstr("Bars");
+gfx_x = length_minus_x - length_label_w;
+gfx_drawstr("Length");
+
+gfx_set(0.24, 0.27, 0.33, 1);
+gfx_rect(cycle_minus_x, header_group_y, header_ctrl_w, 24 * ui_scale, 1);
+gfx_rect(cycle_value_x, header_group_y, header_val_w, 24 * ui_scale, 1);
+gfx_rect(cycle_plus_x, header_group_y, header_ctrl_w, 24 * ui_scale, 1);
+gfx_rect(length_minus_x, header_group_y, header_ctrl_w, 24 * ui_scale, 1);
+gfx_rect(length_value_x, header_group_y, header_val_w, 24 * ui_scale, 1);
+gfx_rect(length_plus_x, header_group_y, header_ctrl_w, 24 * ui_scale, 1);
+
+gfx_set(1, 1, 1, 1);
+gfx_x = cycle_minus_x + 6 * ui_scale;
+gfx_y = header_group_y + 5 * ui_scale;
+gfx_drawstr("-");
+gfx_x = cycle_value_x + 15 * ui_scale;
+sprintf(#cycle_ui_txt, "%d", clampi(floor(cycle_bars + 0.5), 1, 32));
+gfx_drawstr(#cycle_ui_txt);
+gfx_x = cycle_plus_x + 5 * ui_scale;
+gfx_drawstr("+");
+
+gfx_x = length_minus_x + 6 * ui_scale;
+gfx_y = header_group_y + 5 * ui_scale;
+gfx_drawstr("-");
+gfx_x = length_value_x + 8 * ui_scale;
+sprintf(#length_ui_txt, "%d%%", clampi(floor(master_note_length + 0.5), 10, 100));
+gfx_drawstr(#length_ui_txt);
+gfx_x = length_plus_x + 5 * ui_scale;
+gfx_drawstr("+");
+
+slider_toggle_w = 122 * ui_scale;
+slider_toggle_h = 26 * ui_scale;
+slider_toggle_x = gfx_w - margin - slider_toggle_w;
+slider_toggle_y = header_y + 11 * ui_scale;
+host_sliders_visible ? gfx_set(0.54, 0.38, 0.15, 1) : gfx_set(0.19, 0.22, 0.28, 1);
+gfx_rect(slider_toggle_x, slider_toggle_y, slider_toggle_w, slider_toggle_h, 1);
+gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+gfx_set(1, 1, 1, 1);
+gfx_x = slider_toggle_x + 10 * ui_scale;
+gfx_y = slider_toggle_y + 7 * ui_scale;
+host_sliders_visible ? gfx_drawstr("Hide Sliders") : gfx_drawstr("Show Sliders");
+
+panel_w = (gfx_w - margin * 2 - gap * 2) / 3;
+layer_i = 0;
+while (layer_i < NUM_LAYERS) (
+  panel_x = margin + layer_i * (panel_w + gap);
+  panel_y = strip_y;
+  panel_pad = 10 * ui_scale;
+  panel_armed = layer_can_emit(layer_i);
+  panel_active = transport_is_playing && panel_armed;
+  panel_muted = layer_muted(layer_i);
+  panel_enabled = layer_enabled(layer_i);
+  panel_filtered = any_layer_soloed() && panel_enabled && !panel_muted && !layer_soloed(layer_i);
+
+  panel_active ? (
+    gfx_set(0.14, 0.30, 0.27, 1);
+  ) :
+  panel_armed ? (
+    gfx_set(0.17, 0.23, 0.28, 1);
+  ) :
+  panel_muted ? (
+    gfx_set(0.23, 0.16, 0.16, 1);
+  ) :
+  panel_enabled ? (
+    gfx_set(0.17, 0.18, 0.22, 1);
+  ) : (
+    gfx_set(0.12, 0.13, 0.16, 1);
+  );
+  gfx_rect(panel_x, panel_y, panel_w, strip_h, 1);
+
+  gfx_setfont(1, "Verdana", floor(18 * ui_scale));
+  gfx_set(1, 1, 1, 1);
+  gfx_x = panel_x + panel_pad;
+  gfx_y = panel_y + 8 * ui_scale;
+  layer_full_name(layer_i);
+  gfx_drawstr(#layer_full_txt);
+
+  gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+  gfx_x = panel_x + panel_w - 118 * ui_scale;
+  gfx_y = panel_y + 12 * ui_scale;
+  panel_active ? (
+    gfx_drawstr("Generating");
+  ) :
+  panel_filtered ? (
+    gfx_drawstr("Solo-filtered");
+  ) :
+  panel_muted ? (
+    gfx_drawstr("Muted");
+  ) :
+  panel_armed ? (
+    gfx_drawstr("Armed");
+  ) :
+  panel_enabled ? (
+    gfx_drawstr("Ready");
+  ) : (
+    gfx_drawstr("Disabled");
+  );
+
+  bool_y = panel_y + 34 * ui_scale;
+  bool_h = 26 * ui_scale;
+  bool_w = (panel_w - panel_pad * 2 - gap * 2) / 3;
+
+  gfx_set(layer_enabled(layer_i) ? 0.20 : 0.14, layer_enabled(layer_i) ? 0.56 : 0.19, 0.26, 1);
+  gfx_rect(panel_x + panel_pad, bool_y, bool_w, bool_h, 1);
+  gfx_set(layer_muted(layer_i) ? 0.62 : 0.20, layer_muted(layer_i) ? 0.24 : 0.23, 0.21, 1);
+  gfx_rect(panel_x + panel_pad + bool_w + gap, bool_y, bool_w, bool_h, 1);
+  gfx_set(layer_soloed(layer_i) ? 0.68 : 0.22, layer_soloed(layer_i) ? 0.50 : 0.23, layer_soloed(layer_i) ? 0.16 : 0.27, 1);
+  gfx_rect(panel_x + panel_pad + (bool_w + gap) * 2, bool_y, bool_w, bool_h, 1);
+
+  gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+  gfx_set(1, 1, 1, 1);
+  gfx_x = panel_x + panel_pad + 10 * ui_scale;
+  gfx_y = bool_y + 6 * ui_scale;
+  gfx_drawstr("Enable");
+  gfx_x = panel_x + panel_pad + bool_w + gap + 14 * ui_scale;
+  gfx_drawstr("Mute");
+  gfx_x = panel_x + panel_pad + (bool_w + gap) * 2 + 16 * ui_scale;
+  gfx_drawstr("Solo");
+
+  row_h = 22 * ui_scale;
+  ctrl_w = 22 * ui_scale;
+  value_w = 62 * ui_scale;
+  step_x_minus = panel_x + panel_w - panel_pad - ctrl_w - value_w - ctrl_w - gap * 2;
+  row_y = panel_y + 68 * ui_scale;
+
+  gfx_setfont(2, "Verdana", floor(14 * ui_scale));
+  gfx_set(0.92, 0.94, 0.97, 1);
+  gfx_x = panel_x + panel_pad;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("Channel");
+  gfx_set(0.24, 0.27, 0.33, 1);
+  gfx_rect(step_x_minus, row_y, ctrl_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap, row_y, value_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h, 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = step_x_minus + 7 * ui_scale;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("-");
+  gfx_x = step_x_minus + ctrl_w + gap + 18 * ui_scale;
+  sprintf(#val_txt, "%d", layer_channel_display(layer_i));
+  gfx_drawstr(#val_txt);
+  gfx_x = step_x_minus + ctrl_w + gap + value_w + gap + 6 * ui_scale;
+  gfx_drawstr("+");
+
+  row_y += row_h + 6 * ui_scale;
+  gfx_x = panel_x + panel_pad;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("Density");
+  gfx_set(0.24, 0.27, 0.33, 1);
+  gfx_rect(step_x_minus, row_y, ctrl_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap, row_y, value_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h, 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = step_x_minus + 7 * ui_scale;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("-");
+  gfx_x = step_x_minus + ctrl_w + gap + 14 * ui_scale;
+  sprintf(#val_txt, "%d", layer_density(layer_i));
+  gfx_drawstr(#val_txt);
+  gfx_x = step_x_minus + ctrl_w + gap + value_w + gap + 6 * ui_scale;
+  gfx_drawstr("+");
+
+  row_y += row_h + 6 * ui_scale;
+  gfx_x = panel_x + panel_pad;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("Variation");
+  gfx_set(0.24, 0.27, 0.33, 1);
+  gfx_rect(step_x_minus, row_y, ctrl_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap, row_y, value_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h, 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = step_x_minus + 7 * ui_scale;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("-");
+  gfx_x = step_x_minus + ctrl_w + gap + 14 * ui_scale;
+  sprintf(#val_txt, "%d", layer_variation(layer_i));
+  gfx_drawstr(#val_txt);
+  gfx_x = step_x_minus + ctrl_w + gap + value_w + gap + 6 * ui_scale;
+  gfx_drawstr("+");
+
+  row_y += row_h + 6 * ui_scale;
+  gfx_x = panel_x + panel_pad;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("Velocity");
+  gfx_set(0.24, 0.27, 0.33, 1);
+  gfx_rect(step_x_minus, row_y, ctrl_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap, row_y, value_w, row_h, 1);
+  gfx_rect(step_x_minus + ctrl_w + gap + value_w + gap, row_y, ctrl_w, row_h, 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = step_x_minus + 7 * ui_scale;
+  gfx_y = row_y + 4 * ui_scale;
+  gfx_drawstr("-");
+  gfx_x = step_x_minus + ctrl_w + gap + 10 * ui_scale;
+  sprintf(#val_txt, "%d%%", layer_velocity_scale(layer_i));
+  gfx_drawstr(#val_txt);
+  gfx_x = step_x_minus + ctrl_w + gap + value_w + gap + 6 * ui_scale;
+  gfx_drawstr("+");
+
+  layer_i += 1;
+);
+
+tab_w = (gfx_w - margin * 2 - gap * 4) / 5;
+tab_i = 0;
+while (tab_i < 5) (
+  tab_x = margin + tab_i * (tab_w + gap);
+  tab_active = (tab_i == edit_layer) || ((tab_i == 3) && (preview_mode == 0)) || ((tab_i == 4) && (preview_mode == 1));
+
+  tab_i < 3 ? (
+    tab_active ? gfx_set(0.16, 0.43, 0.60, 1) : gfx_set(0.17, 0.20, 0.25, 1);
+  ) : (
+    tab_active ? gfx_set(0.60, 0.34, 0.13, 1) : gfx_set(0.17, 0.20, 0.25, 1);
+  );
+  gfx_rect(tab_x, tabs_y, tab_w, tabs_h, 1);
+
+  gfx_setfont(2, "Verdana", floor(14 * ui_scale));
+  gfx_set(1, 1, 1, 1);
+  gfx_x = tab_x + 10 * ui_scale;
+  gfx_y = tabs_y + 10 * ui_scale;
+  tab_i == 0 ? gfx_drawstr("Edit Motorik");
+  tab_i == 1 ? gfx_drawstr("Edit BB");
+  tab_i == 2 ? gfx_drawstr("Edit Perc");
+  tab_i == 3 ? gfx_drawstr("Preview Edit");
+  tab_i == 4 ? gfx_drawstr("Preview Overlay");
+  tab_i += 1;
+);
+
+cols = 4;
+rows = 3;
+pad_w = (grid_w - gap * (cols - 1)) / cols;
+pad_h = (grid_h - gap * (rows - 1)) / rows;
+
+pad_i = 0;
+while (pad_i < NUM_PADS) (
+  col_i = pad_i % cols;
+  row_i = floor(pad_i / cols);
+  pad_x = grid_x + col_i * (pad_w + gap);
+  pad_y = grid_y + row_i * (pad_h + gap);
+
+  flash_i = min(1.0, layer_activity[layer_pad_index(edit_layer, pad_i)]);
+  selected_pad == pad_i ? (
+    gfx_set(0.18 + flash_i * 0.25, 0.33 + flash_i * 0.20, 0.57 + flash_i * 0.16, 1);
+  ) : (
+    gfx_set(0.14 + flash_i * 0.22, 0.16 + flash_i * 0.18, 0.20 + flash_i * 0.14, 1);
+  );
+  gfx_rect(pad_x, pad_y, pad_w, pad_h, 1);
+
+  selected_pad == pad_i ? (
+    gfx_set(0.98, 0.83, 0.31, 1);
+    gfx_rect(pad_x, pad_y, pad_w, 4 * ui_scale, 1);
+  );
+
+  gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+  gfx_set(1, 1, 1, 1);
+  gfx_x = pad_x + 10 * ui_scale;
+  gfx_y = pad_y + 10 * ui_scale;
+  sprintf(#pad_num_txt, "Pad %d", pad_i + 1);
+  gfx_drawstr(#pad_num_txt);
+
+  gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+  gfx_x = pad_x + 10 * ui_scale;
+  gfx_y = pad_y + 34 * ui_scale;
+  role_name(edit_layer, role_for_pad(edit_layer, pad_i));
+  gfx_drawstr(#role_txt);
+
+  gfx_setfont(2, "Verdana", floor(14 * ui_scale));
+  gfx_x = pad_x + 10 * ui_scale;
+  gfx_y = pad_y + 58 * ui_scale;
+  sprintf(#pad_note_txt, "Note %d", get_pad_note(edit_layer, pad_i));
+  gfx_drawstr(#pad_note_txt);
+
+  gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+  gfx_x = pad_x + 10 * ui_scale;
+  gfx_y = pad_y + pad_h - 22 * ui_scale;
+  selected_pad == pad_i ? gfx_drawstr("Tap again to audition") : gfx_drawstr("Tap to select");
+
+  pad_i += 1;
+);
+
+gfx_set(0.11, 0.14, 0.18, 1);
+gfx_rect(side_x, side_y, right_col_w, editor_h, 1);
+
+gfx_setfont(1, "Verdana", floor(18 * ui_scale));
+gfx_set(1, 1, 1, 1);
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = side_y + 10 * ui_scale;
+layer_full_name(edit_layer);
+sprintf(#editor_title, "Pad %d  %s", selected_pad + 1, #layer_full_txt);
+gfx_drawstr(#editor_title);
+
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = side_y + 38 * ui_scale;
+role_name(edit_layer, role_for_pad(edit_layer, selected_pad));
+gfx_drawstr(#role_txt);
+
+gfx_setfont(1, "Verdana", floor(20 * ui_scale));
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = side_y + 62 * ui_scale;
+sprintf(#editor_note_txt, "Note %d  Ch %d", get_pad_note(edit_layer, selected_pad), layer_channel_display(edit_layer));
+gfx_drawstr(#editor_note_txt);
+
+editor_x = side_x;
+editor_y = side_y;
+editor_w = right_col_w;
+editor_pad = 12 * ui_scale;
+button_gap = 8 * ui_scale;
+btn_h = 32 * ui_scale;
+btn_w_1 = (editor_w - editor_pad * 2 - button_gap * 3) / 4;
+big_btn_w = (editor_w - editor_pad * 2 - button_gap) / 2;
+big_btn_h = 32 * ui_scale;
+btn_y_2 = editor_y + editor_h - big_btn_h - 12 * ui_scale;
+btn_y_1 = btn_y_2 - btn_h - 8 * ui_scale;
+hint_y = max(editor_y + 88 * ui_scale, btn_y_1 - 14 * ui_scale);
+
+gfx_set(0.24, 0.27, 0.33, 1);
+gfx_rect(editor_x + editor_pad, btn_y_1, btn_w_1, btn_h, 1);
+gfx_rect(editor_x + editor_pad + (btn_w_1 + button_gap), btn_y_1, btn_w_1, btn_h, 1);
+gfx_rect(editor_x + editor_pad + (btn_w_1 + button_gap) * 2, btn_y_1, btn_w_1, btn_h, 1);
+gfx_rect(editor_x + editor_pad + (btn_w_1 + button_gap) * 3, btn_y_1, btn_w_1, btn_h, 1);
+gfx_rect(editor_x + editor_pad, btn_y_2, big_btn_w, big_btn_h, 1);
+gfx_rect(editor_x + editor_pad + big_btn_w + button_gap, btn_y_2, big_btn_w, big_btn_h, 1);
+
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_set(1, 1, 1, 1);
+gfx_x = editor_x + editor_pad + 10 * ui_scale;
+gfx_y = btn_y_1 + 8 * ui_scale;
+gfx_drawstr("-12");
+gfx_x = editor_x + editor_pad + (btn_w_1 + button_gap) + 14 * ui_scale;
+gfx_drawstr("-1");
+gfx_x = editor_x + editor_pad + (btn_w_1 + button_gap) * 2 + 14 * ui_scale;
+gfx_drawstr("+1");
+gfx_x = editor_x + editor_pad + (btn_w_1 + button_gap) * 3 + 10 * ui_scale;
+gfx_drawstr("+12");
+gfx_x = editor_x + editor_pad + 16 * ui_scale;
+gfx_y = btn_y_2 + 8 * ui_scale;
+gfx_drawstr("Default");
+gfx_x = editor_x + editor_pad + big_btn_w + button_gap + 14 * ui_scale;
+gfx_drawstr("Audition");
+
+gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = hint_y;
+gfx_drawstr("Drag note or Shift+wheel.");
+
+preview_y = side_y + editor_h + gap;
+preview_w = right_col_w;
+
+gfx_set(0.11, 0.14, 0.18, 1);
+gfx_rect(side_x, preview_y, preview_w, preview_h, 1);
+
+gfx_setfont(2, "Verdana", floor(15 * ui_scale));
+gfx_set(1, 1, 1, 1);
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = preview_y + 10 * ui_scale;
+preview_mode == 0 ? sprintf(#preview_title, "Selected Pad Preview") : sprintf(#preview_title, "Active Layer Overlay");
+gfx_drawstr(#preview_title);
+
+gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+gfx_x = side_x + 12 * ui_scale;
+gfx_y = preview_y + 28 * ui_scale;
+preview_mode == 0 ? (
+  layer_full_name(edit_layer);
+  role_name(edit_layer, role_for_pad(edit_layer, selected_pad));
+  sprintf(#preview_sub_txt, "%s  %s  bar %d", #layer_full_txt, #role_txt, current_bar + 1);
+) : (
+  sprintf(#preview_sub_txt, "Rows show the selected pad slot across Motorik, BB, and Perc.");
+);
+gfx_drawstr(#preview_sub_txt);
+
+label_w = 64 * ui_scale;
+cell_area_x = side_x + label_w + 14 * ui_scale;
+cell_area_w = preview_w - label_w - 24 * ui_scale;
+cell_w = cell_area_w / 16;
+cell_h = 24 * ui_scale;
+row_gap = 8 * ui_scale;
+preview_rows = preview_mode == 0 ? 1 : 3;
+row_y = preview_y + 54 * ui_scale;
+row_i = 0;
+while (row_i < preview_rows) (
+  preview_layer_i = preview_mode == 0 ? edit_layer : row_i;
+  role_i = role_for_pad(preview_layer_i, selected_pad);
+
+  gfx_setfont(3, "Verdana", floor(12 * ui_scale));
+  gfx_set(0.88, 0.90, 0.94, 1);
+  gfx_x = side_x + 12 * ui_scale;
+  gfx_y = row_y + 6 * ui_scale;
+  layer_name(preview_layer_i);
+  gfx_drawstr(#layer_txt);
+
+  step_i = 0;
+  while (step_i < 16) (
+    cell_x = cell_area_x + step_i * cell_w;
+    hit_i = layer_role_velocity(preview_layer_i, role_i, current_bar % 8, step_i, current_bar);
+    hit_i > 0 ? (
+      preview_layer_i == LAYER_MOTORIK ? gfx_set(0.21, 0.53, 0.82, 1);
+      preview_layer_i == LAYER_BREAKBEAT ? gfx_set(0.69, 0.40, 0.14, 1);
+      preview_layer_i == LAYER_PERC ? gfx_set(0.23, 0.57, 0.33, 1);
+    ) : (
+      gfx_set(0.21, 0.23, 0.28, 1);
+    );
+    gfx_rect(cell_x + 2, row_y, cell_w - 4, cell_h, 1);
+
+    step_i == current_step_in_bar ? (
+      gfx_set(0.96, 0.83, 0.27, 1);
+      gfx_rect(cell_x + 2, row_y, cell_w - 4, 4 * ui_scale, 1);
+    );
+
+    gfx_setfont(3, "Verdana", floor(10 * ui_scale));
+    gfx_set(1, 1, 1, 1);
+    gfx_x = cell_x + 6 * ui_scale;
+    gfx_y = row_y + 7 * ui_scale;
+    sprintf(#step_txt, "%d", step_i + 1);
+    gfx_drawstr(#step_txt);
+
+    step_i += 1;
+  );
+
+  row_y += cell_h + row_gap;
+  row_i += 1;
+);

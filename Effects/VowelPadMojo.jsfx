@@ -1,0 +1,633 @@
+desc:VowelPadMojo - Formant Pad + Mojo Saturation
+in_pin:none
+out_pin:Out L
+out_pin:Out R
+
+slider1:drone_mode=0<0,1,1{Off,On}>Drone
+slider2:base_note=48<24,84,1>Base Note (MIDI)
+slider3:glide_ms=0<0,2000,1>Glide (ms)
+slider4:unison_count=5<1,7,1>Unison Count
+slider5:detune_cents=10<0,30,0.1>Detune (cents)
+slider6:stereo_width=0.8<0,1,0.01>Stereo Width
+slider7:source_shape=0.55<0,1,0.01>Source Shape (Tri->Saw)
+slider8:breath_pct=12<0,40,0.1>Breath (%)
+slider9:vowel_pos=0.8<0,4,0.01>Vowel Pos (A E I O U)
+slider10:formant_q=11<4,30,0.1>Formant Q
+slider11:throat_scale=1.0<0.8,1.2,0.001>Throat
+slider12:brightness_tilt=0<-12,12,0.1>Brightness Tilt (dB)
+slider13:vibrato_rate=5.0<0.10,8.00,0.01>Vibrato Rate (Hz)
+slider14:vibrato_depth=4.0<0,60,0.1>Vibrato Depth (cents)
+slider15:drift_cents=3.5<0,20,0.1>Drift Amount (cents)
+slider16:chorus_mix=0.35<0,1,0.01>Chorus Mix
+slider17:attack_ms=350<0,5000,1>Attack (ms)
+slider18:decay_ms=800<0,5000,1>Decay (ms)
+slider19:sustain_level=0.7<0,1,0.01>Sustain
+slider20:release_ms=1200<0,10000,1>Release (ms)
+slider21:vel_to_amp=0.45<0,1,0.01>Vel -> Amp
+slider22:drive_db=8<0,30,0.1>Drive (dB)
+slider23:bias=0.15<-1,1,0.01>Bias
+slider24:tone=0.62<0,1,0.01>Tone
+slider25:oversample_mode=2<0,3,1{1x,2x,4x,8x}>Oversampling
+slider26:wet=0.90<0,1,0.01>Mojo Wet
+slider27:output_db=-6<-24,12,0.1>Output (dB)
+
+@init
+MAX_UNISON = 7;
+FORMANT_COUNT = 3;
+
+phase_base = 0;
+drift_current_base = 32;
+drift_target_base = 64;
+drift_counter_base = 96;
+held_note_base = 160;
+
+vowel_table_base = 400;
+formant_gain_base = 450;
+vowel_gain_table_base = 470;
+formant_b0_base = 500;
+formant_b1_base = 520;
+formant_b2_base = 540;
+formant_a1_base = 560;
+formant_a2_base = 580;
+formant_z1_l_base = 620;
+formant_z2_l_base = 640;
+formant_z1_r_base = 660;
+formant_z2_r_base = 680;
+
+chorus_buf_l_base = 20000;
+chorus_buf_r_base = 30000;
+chorus_buf_size = 8192;
+
+held_count = 0;
+active_note = -1;
+gate_active = 0;
+last_velocity = 0.8;
+
+env_stage = 0;
+env_level = 0;
+attack_step = 0;
+decay_step = 0;
+release_step = 0;
+attack_samples = 1;
+decay_samples = 1;
+release_samples = 1;
+
+current_freq = 110;
+target_freq = 110;
+glide_coeff = 0;
+
+drive_gain = 1;
+drive_gain_target = 1;
+bias_smooth = 0;
+wet_smooth = 1;
+wet_target = 1;
+output_gain_smooth = 1;
+output_gain_target = 1;
+tone_coeff_smooth = 0.12;
+tone_coeff_target = 0.12;
+chorus_mix_smooth = 0;
+chorus_mix_target = 0;
+
+vowel_smooth = 0;
+formant_q_smooth = 10;
+throat_smooth = 1;
+brightness_smooth = 0;
+
+unison_smooth = 1;
+detune_smooth = 0;
+width_smooth = 0;
+shape_smooth = 0.5;
+breath_smooth = 0;
+vibrato_rate_smooth = 5;
+vibrato_depth_smooth = 0;
+drift_amount_smooth = 0;
+vel_to_amp_smooth = 0;
+velocity_gain = 1;
+
+chorus_phase_l = 0;
+chorus_phase_r = 0.31;
+chorus_write_pos = 0;
+
+breath_state_l = 0;
+breath_state_r = 0;
+
+mojo_tone_l = 0;
+mojo_tone_r = 0;
+
+dc_in_prev_l = 0;
+dc_in_prev_r = 0;
+dc_out_prev_l = 0;
+dc_out_prev_r = 0;
+
+tilt_lp_l = 0;
+tilt_lp_r = 0;
+
+vibrato_phase = 0;
+formant_norm = 0.7;
+formant_update_countdown = 0;
+os_factor = 4;
+
+function clamp(value, low, high)
+(
+  value < low ? low : (value > high ? high : value);
+);
+
+function absf(value)
+(
+  value < 0 ? -value : value;
+);
+
+function maxf(a, b)
+(
+  a > b ? a : b;
+);
+
+function db_to_gain(db)
+(
+  pow(10, db / 20);
+);
+
+function wrap01(phase)
+(
+  phase -= floor(phase);
+  phase;
+);
+
+function midi_to_freq(note_number)
+(
+  440 * pow(2, (note_number - 69) / 12);
+);
+
+function softclip(value) local(magnitude)
+(
+  magnitude = absf(value);
+  value / (1 + magnitude);
+);
+
+function asym_softclip(value)
+(
+  value >= 0 ? (value / (1 + value)) : (value / (1 - (0.65 * value)));
+);
+
+function stack_contains(note_number) local(i, found)
+(
+  found = 0;
+  i = 0;
+  loop(held_count,
+    mem[held_note_base + i] == note_number ? (
+      found = 1;
+      i = held_count;
+    );
+    i += 1;
+  );
+  found;
+);
+
+function push_note(note_number)
+(
+  stack_contains(note_number) ? 0 : (
+    held_count < 128 ? (
+      mem[held_note_base + held_count] = note_number;
+      held_count += 1;
+    );
+  );
+);
+
+function remove_note(note_number) local(i, j)
+(
+  i = 0;
+  loop(held_count,
+    mem[held_note_base + i] == note_number ? (
+      j = i;
+      loop(held_count - i - 1,
+        mem[held_note_base + j] = mem[held_note_base + j + 1];
+        j += 1;
+      );
+      held_count -= 1;
+      i = held_count;
+    );
+    i += 1;
+  );
+);
+
+function top_note()
+(
+  held_count > 0 ? mem[held_note_base + held_count - 1] : -1;
+);
+
+function trigger_attack() local(step_samples)
+(
+  step_samples = maxf(1, attack_samples);
+  env_stage = 1;
+  attack_step = (1 - env_level) / step_samples;
+  attack_step < 0 ? attack_step = 0;
+);
+
+function start_release() local(step_samples)
+(
+  step_samples = maxf(1, release_samples);
+  env_stage = 4;
+  release_step = env_level / step_samples;
+);
+
+function refresh_target_note() local(want_active, new_note)
+(
+  want_active = (held_count > 0) || (drone_mode >= 0.5);
+  new_note = held_count > 0 ? top_note() : floor(base_note + 0.5);
+
+  want_active ? (
+    new_note != active_note ? (
+      active_note = new_note;
+      target_freq = midi_to_freq(active_note);
+      gate_active ? 0 : (
+        trigger_attack();
+        gate_active = 1;
+      );
+    ) : (
+      gate_active ? 0 : (
+        trigger_attack();
+        gate_active = 1;
+      );
+    );
+  ) : (
+    gate_active ? (
+      gate_active = 0;
+      start_release();
+    );
+    active_note = -1;
+  );
+);
+
+function set_formant_coeff(formant_index, freq_hz, q_value) local(w0, cw, sw, alpha, a0)
+(
+  w0 = (2 * $pi * freq_hz) / srate;
+  cw = cos(w0);
+  sw = sin(w0);
+  alpha = sw / (2 * q_value);
+  a0 = 1 + alpha;
+
+  mem[formant_b0_base + formant_index] = alpha / a0;
+  mem[formant_b1_base + formant_index] = 0;
+  mem[formant_b2_base + formant_index] = (-alpha) / a0;
+  mem[formant_a1_base + formant_index] = (-2 * cw) / a0;
+  mem[formant_a2_base + formant_index] = (1 - alpha) / a0;
+);
+
+function update_formants(vowel_value, q_value, throat_value) local(index_a, index_b, frac, formant_idx, freq_a, freq_b, target_freq_hz, max_formant, q_comp, throat_comp, vowel_gain_a, vowel_gain_b, vowel_makeup)
+(
+  index_a = floor(vowel_value);
+  index_a = clamp(index_a, 0, 4);
+  index_b = index_a + 1;
+  index_b > 4 ? index_b = 4;
+  frac = vowel_value - index_a;
+
+  max_formant = srate * 0.45;
+
+  formant_idx = 0;
+  loop(FORMANT_COUNT,
+    freq_a = mem[vowel_table_base + (index_a * FORMANT_COUNT) + formant_idx];
+    freq_b = mem[vowel_table_base + (index_b * FORMANT_COUNT) + formant_idx];
+    target_freq_hz = (freq_a + ((freq_b - freq_a) * frac)) * throat_value;
+    target_freq_hz = clamp(target_freq_hz, 80, max_formant);
+    set_formant_coeff(formant_idx, target_freq_hz, q_value);
+    formant_idx += 1;
+  );
+
+  q_comp = 1 / (1 + ((q_value - 4) * 0.06));
+  q_comp = clamp(q_comp, 0.34, 1.0);
+
+  throat_comp = 1 - ((throat_value - 1) * 0.35);
+  throat_comp = clamp(throat_comp, 0.82, 1.12);
+
+  vowel_gain_a = mem[vowel_gain_table_base + index_a];
+  vowel_gain_b = mem[vowel_gain_table_base + index_b];
+  vowel_makeup = vowel_gain_a + ((vowel_gain_b - vowel_gain_a) * frac);
+
+  formant_norm = q_comp * throat_comp * vowel_makeup;
+  formant_norm = clamp(formant_norm, 0.30, 1.20);
+);
+
+function process_formant_channel(input_sample, z1_base, z2_base) local(formant_idx, filter_out, summed)
+(
+  summed = 0;
+  formant_idx = 0;
+  loop(FORMANT_COUNT,
+    filter_out = (mem[formant_b0_base + formant_idx] * input_sample) + mem[z1_base + formant_idx];
+    mem[z1_base + formant_idx] = (mem[formant_b1_base + formant_idx] * input_sample) - (mem[formant_a1_base + formant_idx] * filter_out) + mem[z2_base + formant_idx];
+    mem[z2_base + formant_idx] = (mem[formant_b2_base + formant_idx] * input_sample) - (mem[formant_a2_base + formant_idx] * filter_out);
+    summed += filter_out * mem[formant_gain_base + formant_idx];
+    formant_idx += 1;
+  );
+  summed * formant_norm;
+);
+
+function read_delay(base_addr, buf_size, read_pos) local(i0, i1, frac, s0, s1)
+(
+  read_pos < 0 ? (read_pos += buf_size);
+  read_pos >= buf_size ? (read_pos -= buf_size);
+
+  i0 = floor(read_pos);
+  frac = read_pos - i0;
+  i1 = i0 + 1;
+  i1 >= buf_size ? i1 = 0;
+
+  s0 = mem[base_addr + i0];
+  s1 = mem[base_addr + i1];
+  s0 + ((s1 - s0) * frac);
+);
+
+voice_index = 0;
+loop(MAX_UNISON,
+  mem[phase_base + voice_index] = rand(1);
+  mem[drift_current_base + voice_index] = 0;
+  mem[drift_target_base + voice_index] = 0;
+  mem[drift_counter_base + voice_index] = floor((0.20 + rand(1) * 0.80) * srate);
+  voice_index += 1;
+);
+
+mem[vowel_table_base + 0] = 800;
+mem[vowel_table_base + 1] = 1150;
+mem[vowel_table_base + 2] = 2900;
+mem[vowel_table_base + 3] = 400;
+mem[vowel_table_base + 4] = 1700;
+mem[vowel_table_base + 5] = 2600;
+mem[vowel_table_base + 6] = 350;
+mem[vowel_table_base + 7] = 2000;
+mem[vowel_table_base + 8] = 3000;
+mem[vowel_table_base + 9] = 450;
+mem[vowel_table_base + 10] = 800;
+mem[vowel_table_base + 11] = 2830;
+mem[vowel_table_base + 12] = 325;
+mem[vowel_table_base + 13] = 700;
+mem[vowel_table_base + 14] = 2530;
+
+mem[formant_gain_base + 0] = 1.00;
+mem[formant_gain_base + 1] = 0.82;
+mem[formant_gain_base + 2] = 0.64;
+
+// Makeup gain per vowel to reduce loudness jumps while morphing (A,E,I,O,U).
+mem[vowel_gain_table_base + 0] = 0.90;
+mem[vowel_gain_table_base + 1] = 1.00;
+mem[vowel_gain_table_base + 2] = 1.06;
+mem[vowel_gain_table_base + 3] = 0.95;
+mem[vowel_gain_table_base + 4] = 1.03;
+
+update_formants(vowel_pos, formant_q, throat_scale);
+
+@slider
+base_note = floor(base_note + 0.5);
+base_note = clamp(base_note, 24, 84);
+
+attack_samples = floor(attack_ms * 0.001 * srate);
+attack_samples < 1 ? attack_samples = 1;
+
+decay_samples = floor(decay_ms * 0.001 * srate);
+decay_samples < 1 ? decay_samples = 1;
+
+release_samples = floor(release_ms * 0.001 * srate);
+release_samples < 1 ? release_samples = 1;
+
+glide_ms <= 0 ? (
+  glide_coeff = 0;
+) : (
+  glide_coeff = exp(-1 / (glide_ms * 0.001 * srate));
+);
+
+drive_gain_target = db_to_gain(drive_db);
+output_gain_target = db_to_gain(output_db);
+
+wet_target = clamp(wet, 0, 1);
+chorus_mix_target = clamp(chorus_mix, 0, 1);
+tone_coeff_target = 0.02 + (clamp(tone, 0, 1) * 0.34);
+
+oversample_mode < 0.5 ? os_factor = 1 : (
+  oversample_mode < 1.5 ? os_factor = 2 : (
+    oversample_mode < 2.5 ? os_factor = 4 : os_factor = 8;
+  );
+);
+
+refresh_target_note();
+
+@block
+while (midirecv(offset, message1, message23)) (
+  status = message1 & 240;
+  note_number = message23 & 127;
+  velocity_value = (message23 >> 8) & 127;
+
+  (status == 144) && (velocity_value > 0) ? (
+    push_note(note_number);
+    last_velocity = clamp(velocity_value / 127, 0, 1);
+  ) : (
+    ((status == 128) || ((status == 144) && (velocity_value == 0))) ? (
+      remove_note(note_number);
+    );
+  );
+);
+
+refresh_target_note();
+
+@sample
+smooth_fast = 0.0035;
+smooth_slow = 0.0012;
+
+unison_smooth += (unison_count - unison_smooth) * smooth_fast;
+detune_smooth += (detune_cents - detune_smooth) * smooth_slow;
+width_smooth += (stereo_width - width_smooth) * smooth_fast;
+shape_smooth += (source_shape - shape_smooth) * smooth_fast;
+breath_smooth += ((breath_pct * 0.01) - breath_smooth) * smooth_slow;
+vowel_smooth += (vowel_pos - vowel_smooth) * smooth_slow;
+formant_q_smooth += (formant_q - formant_q_smooth) * smooth_slow;
+throat_smooth += (throat_scale - throat_smooth) * smooth_slow;
+brightness_smooth += (brightness_tilt - brightness_smooth) * smooth_slow;
+vibrato_rate_smooth += (vibrato_rate - vibrato_rate_smooth) * smooth_slow;
+vibrato_depth_smooth += (vibrato_depth - vibrato_depth_smooth) * smooth_slow;
+drift_amount_smooth += (drift_cents - drift_amount_smooth) * smooth_slow;
+vel_to_amp_smooth += (vel_to_amp - vel_to_amp_smooth) * smooth_slow;
+chorus_mix_smooth += (chorus_mix_target - chorus_mix_smooth) * smooth_fast;
+drive_gain += (drive_gain_target - drive_gain) * smooth_slow;
+bias_smooth += (bias - bias_smooth) * smooth_slow;
+tone_coeff_smooth += (tone_coeff_target - tone_coeff_smooth) * smooth_slow;
+wet_smooth += (wet_target - wet_smooth) * smooth_slow;
+output_gain_smooth += (output_gain_target - output_gain_smooth) * smooth_slow;
+
+formant_update_countdown -= 1;
+formant_update_countdown <= 0 ? (
+  update_formants(vowel_smooth, formant_q_smooth, throat_smooth);
+  formant_update_countdown = 16;
+);
+
+gate_active ? (
+  glide_coeff > 0 ? (
+    current_freq = target_freq + ((current_freq - target_freq) * glide_coeff);
+  ) : (
+    current_freq = target_freq;
+  );
+);
+
+env_stage == 1 ? (
+  env_level += attack_step;
+  env_level >= 1 ? (
+    env_level = 1;
+    env_stage = 2;
+    decay_step = (sustain_level - 1) / maxf(1, decay_samples);
+  );
+);
+
+env_stage == 2 ? (
+  env_level += decay_step;
+  ((decay_step <= 0) && (env_level <= sustain_level)) || ((decay_step >= 0) && (env_level >= sustain_level)) ? (
+    env_level = sustain_level;
+    env_stage = 3;
+  );
+);
+
+env_stage == 3 ? (
+  env_level = sustain_level;
+);
+
+env_stage == 4 ? (
+  env_level -= release_step;
+  env_level <= 0 ? (
+    env_level = 0;
+    env_stage = 0;
+  );
+);
+
+velocity_target = (1 - vel_to_amp_smooth) + (vel_to_amp_smooth * (0.35 + (0.65 * last_velocity)));
+velocity_gain += (velocity_target - velocity_gain) * smooth_fast;
+
+vibrato_phase = wrap01(vibrato_phase + (vibrato_rate_smooth / srate));
+vibrato_cents = sin(vibrato_phase * 2 * $pi) * vibrato_depth_smooth;
+
+voice_count = floor(unison_smooth + 0.5);
+voice_count = clamp(voice_count, 1, MAX_UNISON);
+voice_norm = 1 / sqrt(voice_count);
+
+osc_l = 0;
+osc_r = 0;
+
+voice_index = 0;
+loop(voice_count,
+  voice_spread = (voice_count > 1) ? (((voice_index / (voice_count - 1)) * 2) - 1) : 0;
+
+  drift_counter_value = mem[drift_counter_base + voice_index] - 1;
+  mem[drift_counter_base + voice_index] = drift_counter_value;
+  drift_counter_value <= 0 ? (
+    mem[drift_target_base + voice_index] = (rand(1) * 2 - 1) * drift_amount_smooth;
+    mem[drift_counter_base + voice_index] = floor((0.35 + rand(1) * 0.65) * srate);
+  );
+
+  drift_value = mem[drift_current_base + voice_index];
+  drift_target_value = mem[drift_target_base + voice_index];
+  drift_value += (drift_target_value - drift_value) * 0.0009;
+  mem[drift_current_base + voice_index] = drift_value;
+
+  voice_cents = (voice_spread * detune_smooth) + drift_value + vibrato_cents;
+  voice_freq = current_freq * pow(2, voice_cents / 1200);
+  voice_freq = clamp(voice_freq, 20, srate * 0.45);
+
+  voice_phase = mem[phase_base + voice_index] + (voice_freq / srate);
+  voice_phase = wrap01(voice_phase);
+  mem[phase_base + voice_index] = voice_phase;
+
+  saw_wave = (voice_phase * 2) - 1;
+  tri_wave = (voice_phase < 0.5) ? ((voice_phase * 4) - 1) : (3 - (voice_phase * 4));
+  source_wave = tri_wave + ((saw_wave - tri_wave) * shape_smooth);
+  source_wave -= (source_wave * source_wave * source_wave) * 0.12;
+
+  voice_pan = voice_spread * width_smooth;
+  gain_l = 0.5 * (1 - voice_pan);
+  gain_r = 0.5 * (1 + voice_pan);
+
+  osc_l += source_wave * gain_l;
+  osc_r += source_wave * gain_r;
+
+  voice_index += 1;
+);
+
+osc_l *= voice_norm;
+osc_r *= voice_norm;
+
+noise_l = rand(1) * 2 - 1;
+noise_r = rand(1) * 2 - 1;
+breath_state_l += (noise_l - breath_state_l) * 0.06;
+breath_state_r += (noise_r - breath_state_r) * 0.06;
+
+osc_l += breath_state_l * breath_smooth * 0.26;
+osc_r += breath_state_r * breath_smooth * 0.26;
+
+amp_env = env_level * velocity_gain * 0.60;
+dry_l = osc_l * amp_env;
+dry_r = osc_r * amp_env;
+
+formant_l = process_formant_channel(dry_l, formant_z1_l_base, formant_z2_l_base);
+formant_r = process_formant_channel(dry_r, formant_z1_r_base, formant_z2_r_base);
+
+tilt_gain = db_to_gain(brightness_smooth);
+tilt_lp_l += (formant_l - tilt_lp_l) * 0.06;
+tilt_lp_r += (formant_r - tilt_lp_r) * 0.06;
+tilt_hp_l = formant_l - tilt_lp_l;
+tilt_hp_r = formant_r - tilt_lp_r;
+formant_l += tilt_hp_l * (tilt_gain - 1) * 0.55;
+formant_r += tilt_hp_r * (tilt_gain - 1) * 0.55;
+
+chorus_phase_l = wrap01(chorus_phase_l + (0.19 / srate));
+chorus_phase_r = wrap01(chorus_phase_r + (0.23 / srate));
+
+delay_l = (12 + (5 * sin(chorus_phase_l * 2 * $pi))) * 0.001 * srate;
+delay_r = (15 + (6 * sin(chorus_phase_r * 2 * $pi))) * 0.001 * srate;
+
+tap_l = read_delay(chorus_buf_l_base, chorus_buf_size, chorus_write_pos - delay_l);
+tap_r = read_delay(chorus_buf_r_base, chorus_buf_size, chorus_write_pos - delay_r);
+
+feedback = 0.10;
+write_l = clamp(formant_l + (tap_l * feedback), -1.2, 1.2);
+write_r = clamp(formant_r + (tap_r * feedback), -1.2, 1.2);
+mem[chorus_buf_l_base + chorus_write_pos] = write_l;
+mem[chorus_buf_r_base + chorus_write_pos] = write_r;
+
+chorus_write_pos += 1;
+chorus_write_pos >= chorus_buf_size ? chorus_write_pos = 0;
+
+chorus_wet_l = tap_l + (tap_r * 0.15);
+chorus_wet_r = tap_r + (tap_l * 0.15);
+chorused_l = formant_l + ((chorus_wet_l - formant_l) * chorus_mix_smooth);
+chorused_r = formant_r + ((chorus_wet_r - formant_r) * chorus_mix_smooth);
+
+sat_sum_l = 0;
+sat_sum_r = 0;
+os_index = 0;
+loop(os_factor,
+  sat_in_l = (chorused_l * drive_gain) + bias_smooth;
+  sat_in_r = (chorused_r * drive_gain) + bias_smooth;
+
+  sat_nl_l = asym_softclip(sat_in_l);
+  sat_nl_r = asym_softclip(sat_in_r);
+
+  mojo_tone_l += (sat_nl_l - mojo_tone_l) * tone_coeff_smooth;
+  mojo_tone_r += (sat_nl_r - mojo_tone_r) * tone_coeff_smooth;
+
+  sat_sum_l += mojo_tone_l;
+  sat_sum_r += mojo_tone_r;
+  os_index += 1;
+);
+
+sat_l = sat_sum_l / os_factor;
+sat_r = sat_sum_r / os_factor;
+
+mojo_l = chorused_l + ((sat_l - chorused_l) * wet_smooth);
+mojo_r = chorused_r + ((sat_r - chorused_r) * wet_smooth);
+
+dc_r = 0.995;
+dc_l = mojo_l - dc_in_prev_l + (dc_r * dc_out_prev_l);
+dc_r_out = mojo_r - dc_in_prev_r + (dc_r * dc_out_prev_r);
+dc_in_prev_l = mojo_l;
+dc_in_prev_r = mojo_r;
+dc_out_prev_l = dc_l;
+dc_out_prev_r = dc_r_out;
+
+out_l = dc_l * output_gain_smooth;
+out_r = dc_r_out * output_gain_smooth;
+
+spl0 = softclip(out_l * 0.95);
+spl1 = softclip(out_r * 0.95);
