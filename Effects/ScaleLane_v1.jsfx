@@ -117,6 +117,11 @@ function absf(v)
   v < 0 ? -v : v;
 );
 
+function ceilf(v)
+(
+  -floor(-v);
+);
+
 function wrapi(v, m) local(r)
 (
   m <= 0 ? (
@@ -279,6 +284,82 @@ function current_chain_length(lane_i)
 function current_chain_pattern(lane_i, pos_i)
 (
   clampi(lane_chain_pat[idx_chain(lane_i, pos_i)], 0, NUM_PATTERNS - 1);
+);
+
+function lane_cycle_step_count(lane_i) local(total_i, slot_i, chain_len_i, pat_i)
+(
+  lane_mode[lane_i] == MODE_CHAIN ? (
+    total_i = 0;
+    chain_len_i = current_chain_length(lane_i);
+    slot_i = 0;
+    while (slot_i < chain_len_i) (
+      pat_i = current_chain_pattern(lane_i, slot_i);
+      total_i += safe_pattern_length(lane_i, pat_i);
+      slot_i += 1;
+    );
+    total_i < 1 ? total_i = 1;
+  ) : (
+    total_i = safe_pattern_length(lane_i, lane_active_pattern[lane_i]);
+  );
+  total_i;
+);
+
+function resolve_lane_step_from_abs(lane_i, step_abs_i) local(total_steps_i, cycle_step_i, pat_i, step_i, chain_pos_i, chain_len_i, slot_i, slot_pat_i, slot_len_i)
+(
+  total_steps_i = lane_cycle_step_count(lane_i);
+  cycle_step_i = wrapi(step_abs_i, total_steps_i);
+
+  lane_mode[lane_i] == MODE_CHAIN ? (
+    chain_len_i = current_chain_length(lane_i);
+    chain_pos_i = 0;
+    step_i = cycle_step_i;
+    slot_i = 0;
+    while (slot_i < chain_len_i) (
+      slot_pat_i = current_chain_pattern(lane_i, slot_i);
+      slot_len_i = safe_pattern_length(lane_i, slot_pat_i);
+      step_i < slot_len_i ? (
+        pat_i = slot_pat_i;
+        chain_pos_i = slot_i;
+        slot_i = chain_len_i;
+      ) : (
+        step_i -= slot_len_i;
+        slot_i += 1;
+      );
+    );
+  ) : (
+    pat_i = lane_active_pattern[lane_i];
+    step_i = wrapi(cycle_step_i, safe_pattern_length(lane_i, pat_i));
+    chain_pos_i = -1;
+  );
+
+  resolved_pattern = clampi(pat_i, 0, NUM_PATTERNS - 1);
+  resolved_step = clampi(step_i, 0, MAX_STEPS - 1);
+  resolved_page = clampi(floor(resolved_step / PAGE_SIZE), 0, MAX_PAGES - 1);
+  resolved_chain_pos = chain_pos_i;
+  resolved_chain_page = chain_pos_i >= 0 ? clampi(floor(chain_pos_i / PAGE_SIZE), 0, MAX_PAGES - 1) : 0;
+  resolved_cycle_step = cycle_step_i;
+  resolved_cycle_len = total_steps_i;
+  resolved_step_abs = step_abs_i;
+);
+
+function resolve_lane_transport_state(lane_i, beat_i) local(step_beats_i, rel_beats_i, step_abs_i)
+(
+  step_beats_i = lane_step_beats(lane_i);
+  rel_beats_i = beat_i - display_transport_anchor_beats;
+  step_abs_i = floor(rel_beats_i / max(step_beats_i, EPS) + EPS);
+  resolve_lane_step_from_abs(lane_i, step_abs_i);
+);
+
+function sync_transport_focus()
+(
+  resolve_lane_transport_state(ui_lane, display_transport_beat);
+  ui_focus_pattern = resolved_pattern;
+  ui_focus_step = resolved_step;
+  ui_focus_page = resolved_page;
+  ui_focus_step_abs = resolved_step_abs;
+  ui_focus_cycle_step = resolved_cycle_step;
+  ui_focus_chain_slot = resolved_chain_pos;
+  ui_focus_chain_page = resolved_chain_page;
 );
 
 function any_lane_soloed() local(i, found_i)
@@ -625,26 +706,10 @@ function init_runtime()
   queue_tail = 0;
   lane_i = 0;
   while (lane_i < NUM_LANES) (
-    rt_current_pattern[lane_i] = lane_active_pattern[lane_i];
-    rt_current_chain_pos[lane_i] = 0;
-    rt_step_in_pattern[lane_i] = 0;
-    rt_next_step_beat[lane_i] = 0;
     rt_active_note[lane_i] = -1;
     rt_active_chan[lane_i] = clampi(lane_midi_chan[lane_i], 1, 16) - 1;
     rt_note_on[lane_i] = 0;
     rt_note_gen[lane_i] = 0;
-    lane_i += 1;
-  );
-);
-
-function restart_transport_playback(start_beat_i)
-(
-  lane_i = 0;
-  while (lane_i < NUM_LANES) (
-    rt_current_chain_pos[lane_i] = 0;
-    rt_step_in_pattern[lane_i] = 0;
-    rt_current_pattern[lane_i] = lane_mode[lane_i] == MODE_CHAIN ? current_chain_pattern(lane_i, 0) : lane_active_pattern[lane_i];
-    rt_next_step_beat[lane_i] = start_beat_i;
     lane_i += 1;
   );
 );
@@ -714,27 +779,11 @@ function flush_due_note_offs() local(rel_spl_i, lane_i, chan_i, note_i, gen_i, g
   );
 );
 
-function advance_lane_position(lane_i) local(next_step_i, chain_len_i)
+function fire_lane_step(lane_i, step_abs_i, rel_spl_i) local(pat_i, step_i, step_idx_i, step_mode_i, note_idx_i, midi_note_i, vel_i, gate_i, tie_end_i, dur_beats_i, dur_spls_i, chan_i)
 (
-  next_step_i = rt_step_in_pattern[lane_i] + 1;
-  next_step_i >= safe_pattern_length(lane_i, rt_current_pattern[lane_i]) ? (
-    next_step_i = 0;
-    lane_mode[lane_i] == MODE_CHAIN ? (
-      chain_len_i = current_chain_length(lane_i);
-      rt_current_chain_pos[lane_i] = wrapi(rt_current_chain_pos[lane_i] + 1, chain_len_i);
-      rt_current_pattern[lane_i] = current_chain_pattern(lane_i, rt_current_chain_pos[lane_i]);
-    ) : (
-      rt_current_chain_pos[lane_i] = 0;
-      rt_current_pattern[lane_i] = lane_active_pattern[lane_i];
-    );
-  );
-  rt_step_in_pattern[lane_i] = next_step_i;
-);
-
-function fire_lane_step(lane_i, rel_spl_i) local(pat_i, step_i, step_idx_i, step_mode_i, note_idx_i, midi_note_i, vel_i, gate_i, tie_end_i, dur_beats_i, dur_spls_i, chan_i)
-(
-  pat_i = clampi(rt_current_pattern[lane_i], 0, NUM_PATTERNS - 1);
-  step_i = clampi(rt_step_in_pattern[lane_i], 0, MAX_STEPS - 1);
+  resolve_lane_step_from_abs(lane_i, step_abs_i);
+  pat_i = resolved_pattern;
+  step_i = resolved_step;
   step_idx_i = idx_pat_step(lane_i, pat_i, step_i);
   step_mode_i = clampi(pat_step_mode[step_idx_i], STEP_OFF, STEP_HOLD);
 
@@ -761,8 +810,6 @@ function fire_lane_step(lane_i, rel_spl_i) local(pat_i, step_i, step_idx_i, step
       queue_note_off(lane_i, chan_i, midi_note_i, block_abs_start + rel_spl_i + dur_spls_i, rt_note_gen[lane_i]);
     );
   );
-
-  advance_lane_position(lane_i);
 );
 
 function draw_fill(x, y, w, h, r, g, b) local(x0, y0, x1, y1)
@@ -841,6 +888,15 @@ function draw_button(x, y, w, h, txt, selected_i)
     draw_frame(x, y, w, h, 0.24, 0.28, 0.34);
     gfx_setfont(2, "Verdana", floor(11 * chrome_scale));
     draw_text_centered(x, y + h * 0.5 - 7 * chrome_scale, w, 0.82, 0.87, 0.93, txt, 7.0);
+  );
+);
+
+function draw_button_state(x, y, w, h, txt, selected_i, active_i)
+(
+  draw_button(x, y, w, h, txt, selected_i);
+  active_i ? (
+    draw_frame(x + 1 * chrome_scale, y + 1 * chrome_scale, w - 2 * chrome_scale, h - 2 * chrome_scale, 0.24, 0.78, 0.70);
+    draw_fill(x, y + h - 2 * chrome_scale, w, 2 * chrome_scale, 0.24, 0.78, 0.70);
   );
 );
 
@@ -967,7 +1023,7 @@ function compute_layout()
   top_x = margin;
   top_y = margin;
   top_w = gfx_w - margin * 2;
-  top_h = 68 * chrome_scale;
+  top_h = 76 * chrome_scale;
 
   lane_x = margin;
   lane_y = top_y + top_h + gap;
@@ -997,7 +1053,9 @@ function compute_layout()
   lane_card_w = (lane_w - lane_gap * 3) / 4;
 
   top_title_w = 220 * chrome_scale;
-  top_info_w = max(strlen("Edit Lane 4  Pattern 16  Page 4"), 1) * 7.0 * chrome_scale + 20 * chrome_scale;
+  top_reset_w = measure_button_w("RESET 1", 84);
+  top_reset_h = 22 * chrome_scale;
+  top_info_w = max(strlen("Lane 4  Step 64  Page 4  Pattern 16  Chain 64"), 1) * 6.2 * chrome_scale + top_reset_w + 26 * chrome_scale;
   top_root_w = measure_cycle_box_w("ROOT", "A#", 96);
   top_scale_w = measure_cycle_box_w("SCALE", "Harmonic Minor", 176);
   top_oct_w = measure_cycle_box_w("OCT", "8", 96);
@@ -1027,7 +1085,11 @@ function compute_layout()
   top_ui_y = top_root_y;
   top_ui_h = top_root_h;
   top_info_x = top_x + top_w - top_info_w - top_pad_r;
-  top_info_y = top_y + top_pad_t + 8 * chrome_scale;
+  top_status_x = top_info_x;
+  top_status_y = top_y + top_pad_t + 4 * chrome_scale;
+  top_info_y = top_status_y + 18 * chrome_scale;
+  top_reset_x = top_x + top_w - top_pad_r - top_reset_w;
+  top_reset_y = top_y + top_h - top_pad_b - top_reset_h;
 
   lane_title_x = lane_card_pad_l;
   lane_title_y = lane_y + lane_card_pad_t;
@@ -1122,8 +1184,20 @@ function draw_top_bar()
   format_ui_scale_pct(ui_scale_pct);
   draw_cycle_box(top_ui_x, top_ui_y, top_ui_w, top_ui_h, "UI", #ui_scale_txt);
 
-  sprintf(#top_info_txt, "Edit Lane %d  Pattern %d  Page %d", ui_lane + 1, current_ui_pattern() + 1, ui_page + 1);
+  gfx_setfont(2, "Verdana", floor(11 * chrome_scale));
+  transport_playing ? (
+    reset_one_shot_armed ? sprintf(#top_status_txt, "PLAYING  RESET 1 ARMED") : sprintf(#top_status_txt, "PLAYING");
+  ) : (
+    reset_one_shot_armed ? sprintf(#top_status_txt, "STOPPED  RESET 1 ARMED") : sprintf(#top_status_txt, "STOPPED");
+  );
+  draw_text(top_status_x, top_status_y, 0.92, 0.95, 0.99, #top_status_txt);
+
+  sprintf(#top_info_txt, "Edit Lane %d  Pattern %d  Page %d  Step %02d", ui_lane + 1, current_ui_pattern() + 1, ui_page + 1, ui_edit_step + 1);
   draw_text(top_info_x, top_info_y, 0.84, 0.88, 0.94, #top_info_txt);
+  lane_mode[ui_lane] == MODE_CHAIN ? sprintf(#chain_pos_txt, "%d", ui_focus_chain_slot + 1) : sprintf(#chain_pos_txt, "-");
+  sprintf(#top_active_txt, "Active Step %02d  Page %d  Pattern %d  Chain %s", ui_focus_step + 1, ui_focus_page + 1, ui_focus_pattern + 1, #chain_pos_txt);
+  draw_text(top_info_x, top_info_y + 14 * chrome_scale, 0.62, 0.69, 0.78, #top_active_txt);
+  draw_button(top_reset_x, top_reset_y, top_reset_w, top_reset_h, "RESET 1", reset_one_shot_armed);
 );
 
 function draw_lane_bar() local(lane_i, x_i)
@@ -1169,7 +1243,7 @@ function draw_pattern_bar() local(pat_i, pat_i_selected, x_i, y_i, row_i, col_i,
     x_i = pat_x + section_pad_l + col_i * (btn_w + pattern_btn_gap_x);
     y_i = pat_btn_y0 + row_i * (pat_slot_cell_h + pattern_btn_gap_y);
     sprintf(#pat_btn, "%d", pat_i + 1);
-    draw_button(x_i, y_i, main_w, pat_btn_h, #pat_btn, pat_i_selected == pat_i);
+    draw_button_state(x_i, y_i, main_w, pat_btn_h, #pat_btn, pat_i_selected == pat_i, ui_focus_pattern == pat_i);
     draw_button(x_i + main_w + slot_dup_gap, y_i, copy_w, pat_btn_h, ">>", 0);
     draw_button(x_i + main_w + slot_dup_gap * 2 + copy_w, y_i, copy_w, pat_btn_h, ">|", 0);
     pat_i += 1;
@@ -1185,7 +1259,7 @@ function draw_chain_bar() local(slot_i, slot_x, slot_w, start_i, page_i, copy_w,
   page_i = 0;
   while (page_i < MAX_PAGES) (
     sprintf(#chain_page_btn, "%d", page_i + 1);
-    draw_button(page_button_x(chain_x + section_pad_l, page_i, chain_page_btn_w), chain_page_y, chain_page_btn_w, chain_control_h, #chain_page_btn, ui_chain_page == page_i);
+    draw_button_state(page_button_x(chain_x + section_pad_l, page_i, chain_page_btn_w), chain_page_y, chain_page_btn_w, chain_control_h, #chain_page_btn, lane_mode[ui_lane] == MODE_CHAIN && ui_chain_page == page_i, lane_mode[ui_lane] == MODE_CHAIN && ui_focus_chain_page == page_i);
     page_i += 1;
   );
 
@@ -1200,7 +1274,7 @@ function draw_chain_bar() local(slot_i, slot_x, slot_w, start_i, page_i, copy_w,
   while (slot_i < PAGE_SIZE) (
     slot_x = chain_x + section_pad_l + slot_i * (slot_w + step_gap);
     sprintf(#slot_txt, "%d", lane_chain_pat[idx_chain(ui_lane, start_i + slot_i)] + 1);
-    draw_button(slot_x, chain_slot_y, main_w, chain_slot_h, #slot_txt, ui_chain_slot == start_i + slot_i);
+    draw_button_state(slot_x, chain_slot_y, main_w, chain_slot_h, #slot_txt, lane_mode[ui_lane] == MODE_CHAIN && ui_chain_slot == start_i + slot_i, lane_mode[ui_lane] == MODE_CHAIN && ui_focus_chain_slot == start_i + slot_i);
     draw_button(slot_x + main_w + slot_dup_gap, chain_slot_y, copy_w, chain_slot_h, ">>", 0);
     draw_button(slot_x + main_w + slot_dup_gap * 2 + copy_w, chain_slot_y, copy_w, chain_slot_h, ">|", 0);
     slot_i += 1;
@@ -1209,15 +1283,7 @@ function draw_chain_bar() local(slot_i, slot_x, slot_w, start_i, page_i, copy_w,
 
 function sync_preview_state()
 (
-  !(play_state & 1) ? (
-    lane_i = 0;
-    while (lane_i < NUM_LANES) (
-      rt_current_pattern[lane_i] = lane_mode[lane_i] == MODE_CHAIN ? current_chain_pattern(lane_i, 0) : lane_active_pattern[lane_i];
-      rt_current_chain_pos[lane_i] = 0;
-      rt_step_in_pattern[lane_i] = 0;
-      lane_i += 1;
-    );
-  );
+  sync_transport_focus();
 );
 
 function handle_mouse_control_drag(mouse_down_i) local(delta_i, lane_i, idx_i)
@@ -1253,7 +1319,7 @@ function handle_mouse_control_drag(mouse_down_i) local(delta_i, lane_i, idx_i)
   );
 );
 
-function draw_step_grid() local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, y_i, mode_i, vel_fill_h, note_y, gate_y, vel_y, step_panel_x, header_y, page_i, group_x)
+function draw_step_grid() local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, y_i, mode_i, vel_fill_h, note_y, gate_y, vel_y, step_panel_x, header_y, page_i, group_x, step_active_i, step_edit_i)
 (
   draw_fill(grid_x, grid_y, grid_w, grid_h, 0.05, 0.07, 0.10);
   draw_frame(grid_x, grid_y, grid_w, grid_h, 0.23, 0.28, 0.35);
@@ -1266,7 +1332,7 @@ function draw_step_grid() local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i,
   while (page_i < MAX_PAGES) (
     sprintf(#page_btn, "%d", page_i + 1);
     group_x = page_group_x(pat_page_x, page_i, pat_page_group_w);
-    draw_button(group_x, page_row_y, pat_page_btn_w, pat_control_h, #page_btn, ui_page == page_i);
+    draw_button_state(group_x, page_row_y, pat_page_btn_w, pat_control_h, #page_btn, ui_page == page_i, ui_focus_page == page_i);
     draw_button(group_x + pat_page_btn_w + page_btn_gap, page_row_y, pat_page_next_w, pat_control_h, ">>", 0);
     draw_button(group_x + pat_page_btn_w + page_btn_gap + pat_page_next_w + page_btn_gap, page_row_y, pat_page_empty_w, pat_control_h, ">|", 0);
     page_i += 1;
@@ -1291,6 +1357,16 @@ function draw_step_grid() local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i,
       draw_fill(x_i, y_i, step_w, step_outer_h, 0.09, 0.11, 0.15);
     );
     draw_frame(x_i, y_i, step_w, step_outer_h, 0.17, 0.21, 0.27);
+    step_edit_i = step_i == ui_edit_step;
+    step_active_i = ui_focus_pattern == pat_i && ui_focus_page == ui_page && step_i == ui_focus_step;
+    step_edit_i ? (
+      draw_fill(x_i, y_i, step_w, 3 * ui_scale, 0.86, 0.66, 0.34);
+      draw_frame(x_i, y_i, step_w, step_outer_h, 0.62, 0.44, 0.22);
+    );
+    step_active_i ? (
+      draw_frame(x_i + 2 * ui_scale, y_i + 2 * ui_scale, step_w - 4 * ui_scale, step_outer_h - 4 * ui_scale, 0.24, 0.78, 0.70);
+      draw_fill(x_i + step_w - 4 * ui_scale, y_i, 4 * ui_scale, step_outer_h, 0.24, 0.78, 0.70);
+    );
 
     mode_i = pat_step_mode[idx_i];
     mode_i == STEP_OFF ? draw_fill(step_panel_x, header_y, step_inner_w, step_num_h, 0.24, 0.23, 0.22);
@@ -1364,9 +1440,11 @@ function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, s
 
       step_i < pat_len_i ? (
         in_rect(mouse_x, mouse_y, step_panel_x, mode_y, step_inner_w, step_num_h) ? (
+          ui_edit_step = step_i;
           pat_step_mode[idx_i] == STEP_OFF ? pat_step_mode[idx_i] = STEP_HOLD : pat_step_mode[idx_i] = STEP_OFF;
         ) :
         in_rect(mouse_x, mouse_y, step_panel_x, note_y, step_inner_w, step_note_h) ? (
+          ui_edit_step = step_i;
           pat_step_mode[idx_i] != STEP_NOTE ? (
             note_seed_i = note_seed_modifier_down() ? previous_note_idx_in_pattern(ui_lane, pat_i, step_i) : -1;
             note_seed_i < 0 ? note_seed_i = scale_default_note_idx;
@@ -1382,6 +1460,7 @@ function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, s
         ) :
         in_rect(mouse_x, mouse_y, step_panel_x, gate_y, step_inner_w, step_gate_h) ? (
           pat_step_mode[idx_i] == STEP_NOTE ? (
+            ui_edit_step = step_i;
             drag_mode = DRAG_GATE;
             drag_lane = ui_lane;
             drag_pattern = pat_i;
@@ -1392,6 +1471,7 @@ function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, s
         ) :
         in_rect(mouse_x, mouse_y, step_panel_x, vel_y, step_inner_w, step_vel_h) ? (
           pat_step_mode[idx_i] == STEP_NOTE ? (
+            ui_edit_step = step_i;
             drag_mode = DRAG_VEL;
             drag_lane = ui_lane;
             drag_pattern = pat_i;
@@ -1432,6 +1512,7 @@ function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, s
 
 function handle_mouse()
 (
+  sync_transport_focus();
   mouse_down = mouse_cap & 1;
   click_i = mouse_down && !last_mouse_down;
 
@@ -1483,6 +1564,10 @@ function handle_mouse()
       drag_start_y = mouse_y;
     );
 
+    in_rect(mouse_x, mouse_y, top_reset_x, top_reset_y, top_reset_w, top_reset_h) ? (
+      reset_one_shot_armed = 1 - reset_one_shot_armed;
+    );
+
     lane_i = 0;
     while (lane_i < NUM_LANES) (
       lx_i = lane_x + lane_i * (lane_card_w + lane_gap);
@@ -1528,6 +1613,8 @@ function handle_mouse()
       lane_i += 1;
     );
 
+    sync_transport_focus();
+
     btn_w = pat_btn_w;
     copy_w = clampf(btn_w * 0.18, 16 * ui_scale, 24 * ui_scale);
     main_w = btn_w - copy_w * 2 - slot_dup_gap * 2;
@@ -1547,6 +1634,8 @@ function handle_mouse()
       );
       pat_i += 1;
     );
+
+    sync_transport_focus();
 
     page_i = 0;
     while (page_i < MAX_PAGES) (
@@ -1631,6 +1720,20 @@ function handle_mouse()
   last_mouse_down = mouse_down;
 );
 
+function handle_keyboard() local(key_i, guard_i)
+(
+  guard_i = 0;
+  while (guard_i < 32) (
+    key_i = gfx_getchar();
+    key_i < 1 ? (
+      guard_i = 32;
+    ) : (
+      (key_i == 87 || key_i == 119) ? reset_one_shot_armed = 1;
+      guard_i += 1;
+    );
+  );
+);
+
 scale_lengths[0] = 7;  scale_offsets[0 * 12 + 0] = 0;  scale_offsets[0 * 12 + 1] = 2;  scale_offsets[0 * 12 + 2] = 4;  scale_offsets[0 * 12 + 3] = 5;  scale_offsets[0 * 12 + 4] = 7;  scale_offsets[0 * 12 + 5] = 9;  scale_offsets[0 * 12 + 6] = 11;
 scale_lengths[1] = 7;  scale_offsets[1 * 12 + 0] = 0;  scale_offsets[1 * 12 + 1] = 2;  scale_offsets[1 * 12 + 2] = 3;  scale_offsets[1 * 12 + 3] = 5;  scale_offsets[1 * 12 + 4] = 7;  scale_offsets[1 * 12 + 5] = 8;  scale_offsets[1 * 12 + 6] = 10;
 scale_lengths[2] = 7;  scale_offsets[2 * 12 + 0] = 0;  scale_offsets[2 * 12 + 1] = 2;  scale_offsets[2 * 12 + 2] = 3;  scale_offsets[2 * 12 + 3] = 5;  scale_offsets[2 * 12 + 4] = 7;  scale_offsets[2 * 12 + 5] = 9;  scale_offsets[2 * 12 + 6] = 10;
@@ -1652,6 +1755,14 @@ ui_lane = 0;
 ui_page = 0;
 ui_chain_page = 0;
 ui_chain_slot = 0;
+ui_edit_step = 0;
+ui_focus_pattern = lane_active_pattern[ui_lane];
+ui_focus_step = 0;
+ui_focus_page = 0;
+ui_focus_step_abs = 0;
+ui_focus_cycle_step = 0;
+ui_focus_chain_slot = -1;
+ui_focus_chain_page = 0;
 drag_mode = DRAG_NONE;
 drag_lane = 0;
 drag_pattern = 0;
@@ -1659,6 +1770,11 @@ drag_step = 0;
 drag_origin = 0;
 drag_start_y = 0;
 last_mouse_down = 0;
+display_transport_beat = 0;
+display_transport_anchor_beats = 0;
+transport_anchor_beats = 0;
+stopped_cursor_beat = 0;
+reset_one_shot_armed = 0;
 last_transport_playing = 0;
 last_beat_position = 0;
 last_block_beats = 0;
@@ -1719,32 +1835,48 @@ transport_playing && last_transport_playing ? (
   block_start_beats + EPS < last_beat_position ? transport_restart = 1;
 );
 
+transport_started = transport_playing && !last_transport_playing;
+transport_stopped = !transport_playing && last_transport_playing;
+
+!transport_playing ? stopped_cursor_beat = block_start_beats;
+transport_started ? (
+  transport_anchor_beats = reset_one_shot_armed ? stopped_cursor_beat : 0;
+  reset_one_shot_armed = 0;
+);
+
 transport_restart ? flush_all_note_offs();
 flush_due_note_offs();
 
-!transport_playing && last_transport_playing ? (
+transport_stopped ? (
   init_runtime();
-  sync_preview_state();
 );
 
-transport_playing && transport_restart ? restart_transport_playback(block_start_beats);
+display_transport_beat = block_start_beats;
+display_transport_anchor_beats = transport_playing ? transport_anchor_beats : 0;
 
 block_any_solo = any_lane_soloed();
 
 transport_playing ? (
+  block_rel_start_beats = block_start_beats - transport_anchor_beats;
+  block_rel_end_beats = block_end_beats - transport_anchor_beats;
   lane_i = 0;
   while (lane_i < NUM_LANES) (
     !lane_can_emit(lane_i) && rt_note_on[lane_i] ? send_lane_note_off_now(lane_i, 0);
 
-    step_time = rt_next_step_beat[lane_i];
+    step_beats_i = lane_step_beats(lane_i);
+    step_abs_i = ceilf(block_rel_start_beats / max(step_beats_i, EPS) - EPS);
     step_guard = 0;
-    while ((step_time < (block_end_beats - EPS)) && (step_guard < 256)) (
-      rel_offset = floor(((step_time - block_start_beats) * 60 / max(tempo, 1) * srate) + 0.5);
-      rel_offset < 0 ? rel_offset = 0;
-      rel_offset >= samplesblock ? rel_offset = samplesblock - 1;
-      fire_lane_step(lane_i, rel_offset);
-      rt_next_step_beat[lane_i] += lane_step_beats(lane_i);
-      step_time = rt_next_step_beat[lane_i];
+    while (step_guard < 512) (
+      step_time_rel = step_abs_i * step_beats_i;
+      step_time_rel < (block_rel_end_beats - EPS) ? (
+        rel_offset = floor(((step_time_rel - block_rel_start_beats) * 60 / max(tempo, 1) * srate) + 0.5);
+        rel_offset < 0 ? rel_offset = 0;
+        rel_offset >= samplesblock ? rel_offset = samplesblock - 1;
+        fire_lane_step(lane_i, step_abs_i, rel_offset);
+        step_abs_i += 1;
+      ) : (
+        step_guard = 512;
+      );
       step_guard += 1;
     );
 
@@ -1769,6 +1901,7 @@ gfx_clear = 0x101418;
   last_layout_scale_pct = ui_scale_pct;
   layout_dirty = 0;
 );
+handle_keyboard();
 handle_mouse();
 draw_top_bar();
 draw_lane_bar();
