@@ -1,4 +1,4 @@
-desc:LifeGrain (12x10) - POP-SAFE v2 (voice headroom + wet slew limit)
+desc:LifeGrain (12x10) - POP-SAFE v3 (headroom + wet slew + hard ceiling)
 
 ////////////////////////////////////////////////////////////////////////////////
 // SLIDERS
@@ -76,6 +76,7 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
   wet_prevL = 0;
   wet_prevR = 0;
   head_gain = 1.0; // smoothed
+  out_ceiling = 0.89; // ~ -1 dBFS ceiling to avoid full-scale pops
 
   pi2 = 2*$pi;
   pi_half = 0.5*$pi;
@@ -169,6 +170,17 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
       v+=1;
     );
     reset_cell_voices();
+  );
+
+  function count_live_cells(base) local(i, n)
+  (
+    n = 0;
+    i = 0;
+    loop(GRID_N,
+      n += (mem[base+i] > 0) ? 1 : 0;
+      i += 1;
+    );
+    n;
   );
 
   function update_buf_len() local(want)
@@ -291,6 +303,12 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
   curBeat = beat_position;
   last_play_state = play_state;
 
+  // Re-sync on timeline jumps/rewinds so scheduling can't stall silent.
+  (play_now && (curBeat + step_beats < next_step_beat)) ? (
+    next_step_beat = curBeat;
+    force_emit_init = 1;
+  );
+
   play_now && primed ? (
     max_steps = 8;
     loop(max_steps,
@@ -375,6 +393,14 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
 
       next_step_beat += step_beats;
       force_emit_init = 0;
+
+      // If Life fully dies, reseed so fully-wet mode doesn't get stuck silent.
+      (density > 0 && (count_live_cells(cur_base) == 0)) ? (
+        seed_world();
+        reset_voices();
+        force_emit_init = 1;
+        next_step_beat = curBeat;
+      );
     );
   );
 
@@ -383,9 +409,16 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
 ////////////////////////////////////////////////////////////////////////////////
 
 @sample
+  inL = spl0;
+  inR = spl1;
+
+  // Safety against NaN/Inf or extreme receive sums entering the grain buffer.
+  (inL == inL) ? (inL = clamp(inL, -8, 8);) : (inL = 0;);
+  (inR == inR) ? (inR = clamp(inR, -8, 8);) : (inR = 0;);
+
   (!freeze) ? (
-    mem[buf_baseL + write_pos] = spl0;
-    mem[buf_baseR + write_pos] = spl1;
+    mem[buf_baseL + write_pos] = inL;
+    mem[buf_baseR + write_pos] = inR;
     write_pos += 1;
     (write_pos >= buf_len) ? write_pos = 0;
     buf_written < buf_len ? buf_written += 1;
@@ -537,12 +570,20 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
   wetMix = mix/100.0;
   dryMix = dry/100.0;
 
-  outL = spl0*dryMix + wetL*wetMix;
-  outR = spl1*dryMix + wetR*wetMix;
+  outL = inL*dryMix + wetL*wetMix;
+  outR = inR*dryMix + wetR*wetMix;
+
+  // Safety against any invalid math in edge cases.
+  (outL == outL) ? (outL = clamp(outL, -64, 64);) : (outL = 0;);
+  (outR == outR) ? (outR = clamp(outR, -64, 64);) : (outR = 0;);
 
   // gentle safety sat (won't crack like a hard clamp)
   outL = softsat(outL);
   outR = softsat(outR);
+
+  // Final hard ceiling: prevents 0 dBFS jumps during pathological pop events.
+  outL = clamp(outL, -out_ceiling, out_ceiling);
+  outR = clamp(outR, -out_ceiling, out_ceiling);
 
   spl0 = outL;
   spl1 = outR;
