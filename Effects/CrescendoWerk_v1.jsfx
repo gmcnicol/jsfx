@@ -1144,7 +1144,35 @@ function macro_section_for_bar(bar_i) local(sec_i)
   sec_i;
 );
 
-function plan_form() local(bar_i, macro_i, phrase_i, class_i, is_long_form, poi_default_start, variation_chance_i, fill_chance_i)
+function extended_poi_class_for_bar(bar_i) local(span_i, pocket_a_i, pocket_b_i, pocket_c_i, class_i)
+(
+  class_i = -1;
+  planned_total_bars >= 64 ? (
+    span_i = min(2, max(1, planned_poi_bars));
+    pocket_a_i =
+      planned_total_bars == 64 ? 27 :
+      planned_total_bars == 128 ? 47 :
+      95;
+    pocket_b_i =
+      planned_total_bars == 64 ? 37 :
+      planned_total_bars == 128 ? 71 :
+      143;
+    pocket_c_i = planned_total_bars == 256 ? 175 : -1;
+
+    abs(pocket_a_i - planned_poi_start) > 6 && bar_i >= pocket_a_i && bar_i < (pocket_a_i + span_i) ? (
+      class_i = (bar_i - pocket_a_i) == 0 ? CLASS_POI_MAIN : CLASS_POI_VARIATION;
+    );
+    class_i < 0 && abs(pocket_b_i - planned_poi_start) > 6 && bar_i >= pocket_b_i && bar_i < (pocket_b_i + span_i) ? (
+      class_i = (bar_i - pocket_b_i) == 0 ? CLASS_POI_MAIN : CLASS_POI_VARIATION;
+    );
+    class_i < 0 && pocket_c_i >= 0 && abs(pocket_c_i - planned_poi_start) > 6 && bar_i >= pocket_c_i && bar_i < (pocket_c_i + span_i) ? (
+      class_i = (bar_i - pocket_c_i) == 0 ? CLASS_POI_MAIN : CLASS_POI_VARIATION;
+    );
+  );
+  class_i;
+);
+
+function plan_form() local(bar_i, macro_i, phrase_i, class_i, is_long_form, poi_default_start, variation_chance_i, fill_chance_i, extended_poi_class_i)
 (
   planned_total_bars = snap_total_bars(total_bars);
   planned_effective_tempo = tempo_reference > 0 ? tempo_reference : max(tempo, 1);
@@ -1201,6 +1229,7 @@ function plan_form() local(bar_i, macro_i, phrase_i, class_i, is_long_form, poi_
     bar_macro_section[bar_i] = macro_i;
     phrase_i = bar_i % 4;
     class_i = CLASS_MAIN;
+    extended_poi_class_i = extended_poi_class_for_bar(bar_i);
     variation_chance_i = planned_total_bars <= 16 ? min(5, max(1, floor((100 - repetition_bias) * 0.08))) :
       min(16, max(4, floor((100 - repetition_bias) * 0.20)));
     fill_chance_i = planned_total_bars <= 16 ? fill_frequency * 0.08 :
@@ -1211,6 +1240,7 @@ function plan_form() local(bar_i, macro_i, phrase_i, class_i, is_long_form, poi_
     planned_poi_bars > 0 && bar_i >= planned_poi_start && bar_i < (planned_poi_start + planned_poi_bars) ? (
       class_i = (bar_i - planned_poi_start) == 0 ? CLASS_POI_MAIN : CLASS_POI_VARIATION;
     ) :
+    extended_poi_class_i >= 0 ? class_i = extended_poi_class_i :
     is_long_form && bar_i >= (planned_turnaround_bar - planned_turnaround_zone_bars + 1) && bar_i < planned_turnaround_bar ? (
       class_i = (planned_turnaround_bar - bar_i) <= 1 ? CLASS_PRE_FILL : CLASS_VARIATION;
     ) :
