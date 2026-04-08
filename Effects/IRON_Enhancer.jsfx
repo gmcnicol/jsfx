@@ -1,0 +1,343 @@
+desc:IRON Enhancer
+
+slider1:0<0,100,0.1>ENHANCE (%)
+slider2:100<0,100,0.1>MIX (%)
+slider3:0<0,3,1{1x,2x,4x,8x}>OVERSAMPLE
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+@init
+function denorm_zero(value)
+(
+  abs(value) < 0.000000000001 ? 0.0 : value;
+);
+
+function soft_limit(sample_value, ceiling_value) local(abs_value, over_value, range_value, limited_value)
+(
+  abs_value = abs(sample_value);
+  abs_value <= ceiling_value ? sample_value :
+  (
+    over_value = abs_value - ceiling_value;
+    range_value = 1.0 - ceiling_value;
+    limited_value = ceiling_value + (over_value * range_value) / (over_value + range_value);
+    sample_value < 0.0 ? -limited_value : limited_value;
+  );
+);
+
+function nonlinear_oversampled(input_sample, state_index, oversample_factor, aa_coeff) local(prev_in, aa1, aa2, inv_factor, sum_value, i, frac, interp, shape_input, shape_sq, shaped, y)
+(
+  prev_in = mem[state_index + 0];
+  aa1 = mem[state_index + 1];
+  aa2 = mem[state_index + 2];
+
+  inv_factor = 1.0 / oversample_factor;
+  sum_value = 0.0;
+  i = 0;
+
+  loop(oversample_factor,
+    frac = (i + 1.0) * inv_factor;
+    interp = prev_in + (input_sample - prev_in) * frac;
+
+    shape_input = interp * drive_gain_g * internal_headroom_g + asymmetry_g;
+    shape_sq = shape_input * shape_input;
+    shaped = shape_input * (27.0 + shape_sq) / (27.0 + 9.0 * shape_sq);
+    shaped -= asymmetry_sat_g;
+    shaped /= internal_headroom_g;
+
+    y = interp + (shaped - interp) * harmonic_blend_g;
+
+    aa1 += aa_coeff * (y - aa1);
+    aa2 += aa_coeff * (aa1 - aa2);
+
+    sum_value += aa2;
+    i += 1;
+  );
+
+  mem[state_index + 0] = input_sample;
+  mem[state_index + 1] = aa1;
+  mem[state_index + 2] = aa2;
+
+  sum_value * inv_factor;
+);
+
+ext_nodenorm = 1;
+
+// Oversampling nonlinear state indices in mem[]
+state_active_l = 0;
+state_active_r = 4;
+state_old_l = 16;
+state_old_r = 20;
+
+// Clear memory state
+mem_clear_index = 0;
+loop(64,
+  mem[mem_clear_index] = 0.0;
+  mem_clear_index += 1;
+);
+
+// Smoothed control states
+enhance_target = 0.0;
+enhance_smooth = 0.0;
+mix_target = 1.0;
+mix_smooth = 1.0;
+
+// Oversample mode/crossfade states
+active_oversample_factor = 1;
+previous_oversample_factor = 1;
+aa_coeff_active = 1.0;
+aa_coeff_previous = 1.0;
+oversample_crossfade_samples = 256.0;
+oversample_crossfade_count = 0.0;
+
+// Filter/envelope states
+env_follow = 0.0;
+env_attack_coeff = 0.0;
+env_release_coeff = 0.0;
+low_tight_coeff = 0.0;
+air_split_coeff = 0.0;
+
+low_state_l = 0.0;
+low_state_r = 0.0;
+air_lp_l = 0.0;
+air_lp_r = 0.0;
+prev_dry_l = 0.0;
+prev_dry_r = 0.0;
+
+// DC blocker states
+dc_prev_x_l = 0.0;
+dc_prev_x_r = 0.0;
+dc_prev_y_l = 0.0;
+dc_prev_y_r = 0.0;
+
+// Loudness match states
+level_in_env = 0.0;
+level_wet_env = 0.0;
+level_match_coeff = 0.0035;
+
+// Constants
+dc_block_r = 0.995;
+internal_headroom_g = 0.70;
+limiter_ceiling = 0.966050878;
+anti_alias_cutoff_hz = 20000.0;
+
+@slider
+// Sliders
+enhance_target = slider1 * 0.01;
+mix_target = slider2 * 0.01;
+
+oversample_option = floor(slider3 + 0.5);
+oversample_factor_target = pow(2, oversample_option);
+
+// Filter setup
+anti_alias_cutoff_hz = min(20000.0, srate * 0.45);
+
+low_tight_hz = 180.0;
+air_split_hz = 4200.0;
+
+low_tight_coeff = 1.0 - exp(-6.283185307179586 * low_tight_hz / srate);
+air_split_coeff = 1.0 - exp(-6.283185307179586 * air_split_hz / srate);
+
+env_attack_time = 0.004;
+env_release_time = 0.090;
+env_attack_coeff = 1.0 - exp(-1.0 / (env_attack_time * srate));
+env_release_coeff = 1.0 - exp(-1.0 / (env_release_time * srate));
+
+// Oversampling mode switch with pop-safe crossfade
+oversample_factor_target != active_oversample_factor ? (
+  previous_oversample_factor = active_oversample_factor;
+  previous_os_rate = srate * previous_oversample_factor;
+  aa_coeff_previous = 1.0 - exp(-6.283185307179586 * anti_alias_cutoff_hz / previous_os_rate);
+  aa_coeff_previous = min(1.0, max(0.0001, aa_coeff_previous));
+
+  // Snapshot active nonlinear states into old bank
+  mem[state_old_l + 0] = mem[state_active_l + 0];
+  mem[state_old_l + 1] = mem[state_active_l + 1];
+  mem[state_old_l + 2] = mem[state_active_l + 2];
+
+  mem[state_old_r + 0] = mem[state_active_r + 0];
+  mem[state_old_r + 1] = mem[state_active_r + 1];
+  mem[state_old_r + 2] = mem[state_active_r + 2];
+
+  active_oversample_factor = oversample_factor_target;
+  active_os_rate = srate * active_oversample_factor;
+  aa_coeff_active = 1.0 - exp(-6.283185307179586 * anti_alias_cutoff_hz / active_os_rate);
+  aa_coeff_active = min(1.0, max(0.0001, aa_coeff_active));
+
+  oversample_crossfade_count = oversample_crossfade_samples;
+) : (
+  active_os_rate = srate * active_oversample_factor;
+  aa_coeff_active = 1.0 - exp(-6.283185307179586 * anti_alias_cutoff_hz / active_os_rate);
+  aa_coeff_active = min(1.0, max(0.0001, aa_coeff_active));
+
+  previous_os_rate = srate * previous_oversample_factor;
+  aa_coeff_previous = 1.0 - exp(-6.283185307179586 * anti_alias_cutoff_hz / previous_os_rate);
+  aa_coeff_previous = min(1.0, max(0.0001, aa_coeff_previous));
+);
+
+@sample
+// Smooth controls
+enhance_smooth += (enhance_target - enhance_smooth) * 0.0025;
+mix_smooth += (mix_target - mix_smooth) * 0.0025;
+
+enhance_smooth = denorm_zero(enhance_smooth);
+mix_smooth = denorm_zero(mix_smooth);
+
+// Input
+dry_l = spl0;
+dry_r = spl1;
+
+// Envelope follower for dynamic tilt
+mono_abs = 0.5 * (abs(dry_l) + abs(dry_r));
+mono_abs > env_follow ? (
+  env_follow += (mono_abs - env_follow) * env_attack_coeff;
+) : (
+  env_follow += (mono_abs - env_follow) * env_release_coeff;
+);
+env_follow = denorm_zero(env_follow);
+
+env_norm = min(1.0, max(0.0, env_follow * 1.5));
+
+// ENHANCE mapping (nonlinear feel)
+enhance_curve = pow(enhance_smooth, 1.55);
+enhance_curve_sq = enhance_curve * enhance_curve;
+processing_active = enhance_curve > 0.00005;
+
+// Tonal polish
+low_tight_amount = 0.16 * enhance_curve * (0.45 + 0.55 * env_norm);
+air_open_amount = 0.12 * enhance_curve * (0.35 + 0.65 * (1.0 - env_norm));
+transient_amount = 0.035 * enhance_curve * (0.40 + 0.60 * (1.0 - env_norm));
+
+low_state_l += low_tight_coeff * (dry_l - low_state_l);
+low_state_r += low_tight_coeff * (dry_r - low_state_r);
+
+air_lp_l += air_split_coeff * (dry_l - air_lp_l);
+air_lp_r += air_split_coeff * (dry_r - air_lp_r);
+
+transient_l = dry_l - prev_dry_l;
+transient_r = dry_r - prev_dry_r;
+prev_dry_l = dry_l;
+prev_dry_r = dry_r;
+
+polished_l = dry_l - (low_state_l * low_tight_amount) + ((dry_l - air_lp_l) * air_open_amount) + (transient_l * transient_amount);
+polished_r = dry_r - (low_state_r * low_tight_amount) + ((dry_r - air_lp_r) * air_open_amount) + (transient_r * transient_amount);
+
+// Nonlinear block (oversampled only)
+drive_gain_g = 1.0 + (2.20 * enhance_curve) + (0.80 * enhance_curve_sq);
+harmonic_blend_g = (0.10 * enhance_curve) + (0.68 * enhance_curve_sq);
+asymmetry_g = (0.03 * enhance_curve) + (0.05 * enhance_curve_sq);
+
+asym_sq = asymmetry_g * asymmetry_g;
+asymmetry_sat_g = asymmetry_g * (27.0 + asym_sq) / (27.0 + 9.0 * asym_sq);
+
+processing_active ? (
+  wet_new_l = nonlinear_oversampled(polished_l, state_active_l, active_oversample_factor, aa_coeff_active);
+  wet_new_r = nonlinear_oversampled(polished_r, state_active_r, active_oversample_factor, aa_coeff_active);
+
+  oversample_crossfade_count > 0.0 ? (
+    wet_old_l = nonlinear_oversampled(polished_l, state_old_l, previous_oversample_factor, aa_coeff_previous);
+    wet_old_r = nonlinear_oversampled(polished_r, state_old_r, previous_oversample_factor, aa_coeff_previous);
+
+    crossfade_alpha = 1.0 - (oversample_crossfade_count / oversample_crossfade_samples);
+    wet_l = wet_old_l + (wet_new_l - wet_old_l) * crossfade_alpha;
+    wet_r = wet_old_r + (wet_new_r - wet_old_r) * crossfade_alpha;
+
+    oversample_crossfade_count -= 1.0;
+    oversample_crossfade_count = max(0.0, oversample_crossfade_count);
+  ) : (
+    wet_l = wet_new_l;
+    wet_r = wet_new_r;
+  );
+
+  // DC filter after nonlinearity
+  dc_out_l = wet_l - dc_prev_x_l + dc_block_r * dc_prev_y_l;
+  dc_out_r = wet_r - dc_prev_x_r + dc_block_r * dc_prev_y_r;
+
+  dc_prev_x_l = wet_l;
+  dc_prev_x_r = wet_r;
+  dc_prev_y_l = dc_out_l;
+  dc_prev_y_r = dc_out_r;
+
+  wet_l = dc_out_l;
+  wet_r = dc_out_r;
+
+  // Subtle density and auto output compensation
+  density_amount = (0.10 * enhance_curve) + (0.22 * enhance_curve_sq);
+  density_shape = 0.20 + (0.55 * enhance_curve);
+
+  dense_l = wet_l / (1.0 + abs(wet_l) * density_shape);
+  dense_r = wet_r / (1.0 + abs(wet_r) * density_shape);
+
+  wet_l = wet_l + (dense_l - wet_l) * density_amount;
+  wet_r = wet_r + (dense_r - wet_r) * density_amount;
+
+  auto_comp = 1.0 / (1.0 + (0.26 * enhance_curve) + (0.28 * enhance_curve_sq));
+  wet_l *= auto_comp;
+  wet_r *= auto_comp;
+) : (
+  // Transparent bypass when ENHANCE is effectively zero
+  wet_l = polished_l;
+  wet_r = polished_r;
+
+  // Keep nonlinear banks coherent for click-free re-engage
+  mem[state_active_l + 0] = polished_l;
+  mem[state_active_l + 1] = polished_l;
+  mem[state_active_l + 2] = polished_l;
+
+  mem[state_active_r + 0] = polished_r;
+  mem[state_active_r + 1] = polished_r;
+  mem[state_active_r + 2] = polished_r;
+
+  mem[state_old_l + 0] = polished_l;
+  mem[state_old_l + 1] = polished_l;
+  mem[state_old_l + 2] = polished_l;
+
+  mem[state_old_r + 0] = polished_r;
+  mem[state_old_r + 1] = polished_r;
+  mem[state_old_r + 2] = polished_r;
+
+  oversample_crossfade_count = 0.0;
+);
+
+// Mix stage
+mixed_l = dry_l + (wet_l - dry_l) * mix_smooth;
+mixed_r = dry_r + (wet_r - dry_r) * mix_smooth;
+
+// True bidirectional gain match on post-mix output.
+detector_in = 0.5 * (abs(dry_l) + abs(dry_r));
+detector_out = 0.5 * (abs(mixed_l) + abs(mixed_r));
+
+level_in_env += (detector_in - level_in_env) * level_match_coeff;
+level_wet_env += (detector_out - level_wet_env) * level_match_coeff;
+
+raw_match = (level_in_env + 0.0001) / (level_wet_env + 0.0001);
+target_match = min(2.0, max(0.50, raw_match));
+match_amount = mix_smooth * (0.30 + (0.70 * enhance_curve));
+match_gain = 1.0 + (target_match - 1.0) * match_amount;
+
+mixed_l *= match_gain;
+mixed_r *= match_gain;
+
+// Safety limiter (end guard)
+spl0 = soft_limit(mixed_l, limiter_ceiling);
+spl1 = soft_limit(mixed_r, limiter_ceiling);
+
+// Denormal cleanup
+low_state_l = denorm_zero(low_state_l);
+low_state_r = denorm_zero(low_state_r);
+air_lp_l = denorm_zero(air_lp_l);
+air_lp_r = denorm_zero(air_lp_r);
+dc_prev_y_l = denorm_zero(dc_prev_y_l);
+dc_prev_y_r = denorm_zero(dc_prev_y_r);
+
+/*
+ACCEPTANCE TESTS
+1. ENHANCE=0, MIX=100 -> transparent.
+2. ENHANCE=100, 1x -> bold but not broken.
+3. ENHANCE=100, 8x -> smoother top end.
+4. Oversample switching does not explode.
+5. Hot signal near 0 dBFS remains controlled.
+6. No alias fizz on bright synth.
+*/

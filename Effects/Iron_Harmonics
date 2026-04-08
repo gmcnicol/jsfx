@@ -1,0 +1,453 @@
+desc:Harmonic Sculptor (Odd/Even + Low/High + Harmonics Amount + Fundamental + SOTA 2/4/8x OS FIR)
+
+// =============================================================
+// FULL SCRIPT (as requested)
+// - NO scientific notation anywhere.
+// - Stereo always.
+// - 2/4/8x oversampling using cascaded 2× polyphase FIR stages.
+// - Chebyshev harmonic generator (2..9) with:
+//     * Odd/Even bias
+//     * Low/High order bias
+//     * Harmonics Amount (scales only harmonic block)
+//     * Fundamental knob (0..1, unity at 0.5, +18 dB at 1.0)
+// - Optional DC highpass (recommended; even harmonics can create DC).
+// - Switching OS resets states + 10ms fade-in to avoid pops.
+// =============================================================
+
+slider1:drive_db=0<-24,24,0.1>Drive (dB)
+slider2:odd_even=0.50<0,1,0.001>Odd <-> Even
+slider3:order_bias=0.25<0,1,0.001>Low <-> High Order
+slider4:harm_amt=1.00<0,2,0.001>Harmonics Amount
+slider5:fund=0.50<0,1,0.001>Fundamental (0..1, unity @ 0.5, +18dB @1)
+slider6:os_mode=1<0,2,1{2x,4x,8x}>Oversample
+slider7:dc_hp=0<0,1,1{Off,On}>DC Highpass
+slider8:out_db=0<-24,24,0.1>Output (dB)
+
+@init
+function up2(x, base, idx) local(sumE, sumO, m, v) (
+  // push sample into ring
+  mem[base + idx] = x;
+  idx = (idx + 1) & MASK;
+
+  sumE = 0;
+  sumO = 0;
+  m = 0;
+  while (m < TAPN) (
+    v = mem[base + ((idx - 1 - m) & MASK)];
+    sumE += mem[COEF_E + m] * v;
+    sumO += mem[COEF_O + m] * v;
+    m += 1;
+  );
+
+  // Normalize polyphase branch outputs (each branch is ~0.5 DC gain).
+  // Without this, each up/down stage pair loses about 6 dB.
+  up_y0 = sumE * 2;
+  up_y1 = sumO * 2;
+  idx;          // return updated idx
+);
+
+function down2(x0, x1, baseE, baseO, idx) local(sum, m, vE, vO) (
+  mem[baseE + idx] = x0;
+  mem[baseO + idx] = x1;
+  idx = (idx + 1) & MASK;
+
+  sum = 0;
+  m = 0;
+  while (m < TAPN) (
+    vE = mem[baseE + ((idx - 1 - m) & MASK)];
+    vO = mem[baseO + ((idx - 1 - m) & MASK)];
+    sum += mem[COEF_E + m] * vE + mem[COEF_O + m] * vO;
+    m += 1;
+  );
+
+  down_y = sum;
+  idx;
+);
+
+function cheby_mix(x) local(
+  x_in, x_nl,
+  a, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9,
+  e2p, e4p, e6p, e8p, o3p, o5p, o7p, o9p,
+  e2, e4, e6, e8, o3, o5, o7, o9, h, y, ay
+) (
+  // Fundamental path stays on the original sample so fund=0.5 is true unity.
+  x_in = x;
+
+  // Drive only the harmonic-generator domain.
+  x_nl = x_in * drive_lin;
+  a = abs(x_nl);
+  x_nl = x_nl / (1 + a + eps);
+
+  x_nl > 0.999 ? x_nl = 0.999;
+  x_nl < -0.999 ? x_nl = -0.999;
+
+  // Chebyshev recurrence
+  t0 = 1;
+  t1 = x_nl;
+
+  t2 = 2 * x_nl * t1 - t0;
+  t3 = 2 * x_nl * t2 - t1;
+  t4 = 2 * x_nl * t3 - t2;
+  t5 = 2 * x_nl * t4 - t3;
+  t6 = 2 * x_nl * t5 - t4;
+  t7 = 2 * x_nl * t6 - t5;
+  t8 = 2 * x_nl * t7 - t6;
+  t9 = 2 * x_nl * t8 - t7;
+
+  // Order-bias profiles (musical, controlled)
+  e2p = low_b * 1.00 + high_b * 0.10;
+  e4p = low_b * 0.55 + high_b * 0.30;
+  e6p = low_b * 0.25 + high_b * 0.75;
+  e8p = low_b * 0.10 + high_b * 1.00;
+
+  o3p = low_b * 1.00 + high_b * 0.10;
+  o5p = low_b * 0.50 + high_b * 0.35;
+  o7p = low_b * 0.20 + high_b * 0.80;
+  o9p = low_b * 0.08 + high_b * 1.00;
+
+  // 1/n^2 rolloff to keep high-order sane
+  e2 = (1 / (2 * 2)) * e2p * even_g;
+  e4 = (1 / (4 * 4)) * e4p * even_g;
+  e6 = (1 / (6 * 6)) * e6p * even_g;
+  e8 = (1 / (8 * 8)) * e8p * even_g;
+
+  o3 = (1 / (3 * 3)) * o3p * odd_g;
+  o5 = (1 / (5 * 5)) * o5p * odd_g;
+  o7 = (1 / (7 * 7)) * o7p * odd_g;
+  o9 = (1 / (9 * 9)) * o9p * odd_g;
+
+  // Harmonics-only (no T1)
+  h = e2 * t2 + o3 * t3 + e4 * t4 + o5 * t5 + e6 * t6 + o7 * t7 + e8 * t8 + o9 * t9;
+
+  // Harmonics Amount scales only the harmonic block
+  h *= harm_amt;
+
+  // Add fundamental and apply gentle static compensation tied to Fundamental.
+  y = (h + fund_g * x_in) * fund_norm;
+
+  // Protect only very hot peaks so neutral settings stay close to unity.
+  ay = abs(y);
+  ay > 1.8 ? y = y / (1 + 0.25 * (ay - 1.8) + eps);
+
+  y;
+);
+
+function dc_highpass(x, ch) local(y) (
+  // 1-pole highpass: y[n] = x[n] - x[n-1] + r*y[n-1]
+  ch == 0 ? (
+    y = x - dc_x1L + dc_r * dc_y1L;
+    dc_x1L = x;
+    dc_y1L = y;
+  ) : (
+    y = x - dc_x1R + dc_r * dc_y1R;
+    dc_x1R = x;
+    dc_y1R = y;
+  );
+  y;
+);
+  // tiny epsilon (no scientific notation)
+  eps = 0.000000000001;
+
+  // -----------------------------
+  // FIR polyphase coefficients for a solid 2x stage
+  // Split into he[32] + ho[32] taps.
+  // -----------------------------
+  COEF_E = 0;
+  COEF_O = 32;
+
+  TAPN = 32;
+  MASK = 31; // ring length 32
+
+  // he[0..31]
+  mem[0] = 0.000253115;
+  mem[1] = -0.002455504;
+  mem[2] = -0.001075800;
+  mem[3] = 0.001337080;
+  mem[4] = -0.002264207;
+  mem[5] = 0.003623489;
+  mem[6] = -0.005467863;
+  mem[7] = 0.007903586;
+  mem[8] = -0.011086784;
+  mem[9] = 0.014719373;
+  mem[10] = -0.018891030;
+  mem[11] = 0.023579231;
+  mem[12] = -0.028760617;
+  mem[13] = 0.034410010;
+  mem[14] = -0.040499330;
+  mem[15] = 0.046996148;
+  mem[16] = 0.453060874;
+  mem[17] = 0.046996148;
+  mem[18] = -0.040499330;
+  mem[19] = 0.034410010;
+  mem[20] = -0.028760617;
+  mem[21] = 0.023579231;
+  mem[22] = -0.018891030;
+  mem[23] = 0.014719373;
+  mem[24] = -0.011086784;
+  mem[25] = 0.007903586;
+  mem[26] = -0.005467863;
+  mem[27] = 0.003623489;
+  mem[28] = -0.002264207;
+  mem[29] = 0.001337080;
+  mem[30] = -0.001075800;
+  mem[31] = -0.002455504;
+
+  // ho[0..31] (last padded 0)
+  mem[32] = -0.000343015;
+  mem[33] = -0.003722339;
+  mem[34] = 0.002705070;
+  mem[35] = -0.003394234;
+  mem[36] = 0.004238006;
+  mem[37] = -0.005166507;
+  mem[38] = 0.006143858;
+  mem[39] = -0.007135708;
+  mem[40] = 0.008105016;
+  mem[41] = -0.009015967;
+  mem[42] = 0.009833640;
+  mem[43] = -0.010523159;
+  mem[44] = 0.011048908;
+  mem[45] = -0.011374325;
+  mem[46] = 0.011461922;
+  mem[47] = 0.500000000; // center
+  mem[48] = 0.011461922;
+  mem[49] = -0.011374325;
+  mem[50] = 0.011048908;
+  mem[51] = -0.010523159;
+  mem[52] = 0.009833640;
+  mem[53] = -0.009015967;
+  mem[54] = 0.008105016;
+  mem[55] = -0.007135708;
+  mem[56] = 0.006143858;
+  mem[57] = -0.005166507;
+  mem[58] = 0.004238006;
+  mem[59] = -0.003394234;
+  mem[60] = 0.002705070;
+  mem[61] = -0.003722339;
+  mem[62] = -0.000343015;
+  mem[63] = 0.000000000;
+
+  // -----------------------------
+  // Buffer layout (all rings length 32)
+  // -----------------------------
+  BUF_BASE = 64;
+
+  // Up rings per stage/channel
+  s1uL = BUF_BASE;         s1uR = s1uL + 32;
+  s2uL = s1uR + 32;        s2uR = s2uL + 32;
+  s3uL = s2uR + 32;        s3uR = s3uL + 32;
+
+  // Down rings per stage/channel: even+odd
+  // Stage3 down
+  s3dLe = s3uR + 32;       s3dLo = s3dLe + 32;  s3dRe = s3dLo + 32;  s3dRo = s3dRe + 32;
+  // Stage2 down
+  s2dLe = s3dRo + 32;      s2dLo = s2dLe + 32;  s2dRe = s2dLo + 32;  s2dRo = s2dRe + 32;
+  // Stage1 down
+  s1dLe = s2dRo + 32;      s1dLo = s1dLe + 32;  s1dRe = s1dLo + 32;  s1dRo = s1dRe + 32;
+
+  MEM_END = s1dRo + 32;
+
+  // Clear buffer region
+  i = BUF_BASE;
+  while (i < MEM_END) ( mem[i] = 0; i += 1; );
+
+  // Ring indices
+  s1u_iL=0; s1u_iR=0; s2u_iL=0; s2u_iR=0; s3u_iL=0; s3u_iR=0;
+  s3d_iL=0; s3d_iR=0; s2d_iL=0; s2d_iR=0; s1d_iL=0; s1d_iR=0;
+
+  // DC HP states (1-pole)
+  dc_x1L=0; dc_y1L=0;
+  dc_x1R=0; dc_y1R=0;
+  // Very low-cut highpass to avoid audible bass loss when enabled.
+  dc_r = 0.9995;
+
+  // OS change ramp
+  last_osN = 4;
+  os_ramp = 1;
+  os_ramp_inc = 0;
+
+  // Program-level matcher
+  match_in_env = 0;
+  match_out_env = 0;
+  match_a = 1 - exp(-2*$pi * 6 / srate);
+
+@slider
+  drive_lin = 10^(drive_db/20);
+  out_lin   = 10^(out_db/20);
+
+  osN = (os_mode == 0 ? 2 : (os_mode == 1 ? 4 : 8));
+
+  // On OS change: clear states + fade-in to avoid clicks
+  osN != last_osN ? (
+    last_osN = osN;
+
+    i = BUF_BASE;
+    while (i < MEM_END) ( mem[i] = 0; i += 1; );
+
+    s1u_iL=0; s1u_iR=0; s2u_iL=0; s2u_iR=0; s3u_iL=0; s3u_iR=0;
+    s3d_iL=0; s3d_iR=0; s2d_iL=0; s2d_iR=0; s1d_iL=0; s1d_iR=0;
+
+    dc_x1L=0; dc_y1L=0;
+    dc_x1R=0; dc_y1R=0;
+
+    os_ramp = 0;
+    os_ramp_inc = 1 / (srate * 0.01); // 10ms
+  );
+
+  even_g = 1 - odd_even;
+  odd_g  = odd_even;
+  low_b  = 1 - order_bias;
+  high_b = order_bias;
+
+  // Fundamental knob:
+  // 0..0.5 => 0..1 (linear)
+  // 0.5..1 => 1..(+18 dB) (exponential in dB)
+  fund_g =
+    fund <= 0.5
+      ? (fund * 2)
+      : (10^((18 * ((fund - 0.5) * 2)) / 20));
+  fund_g < 0 ? fund_g = 0;
+
+  // Static normalization versus Fundamental:
+  // Keep level anchored at fund=0.5 (fund_g=1), and compensate as fund moves.
+  e2n = (1 / (2 * 2)) * (low_b * 1.00 + high_b * 0.10) * even_g;
+  e4n = (1 / (4 * 4)) * (low_b * 0.55 + high_b * 0.30) * even_g;
+  e6n = (1 / (6 * 6)) * (low_b * 0.25 + high_b * 0.75) * even_g;
+  e8n = (1 / (8 * 8)) * (low_b * 0.10 + high_b * 1.00) * even_g;
+
+  o3n = (1 / (3 * 3)) * (low_b * 1.00 + high_b * 0.10) * odd_g;
+  o5n = (1 / (5 * 5)) * (low_b * 0.50 + high_b * 0.35) * odd_g;
+  o7n = (1 / (7 * 7)) * (low_b * 0.20 + high_b * 0.80) * odd_g;
+  o9n = (1 / (9 * 9)) * (low_b * 0.08 + high_b * 1.00) * odd_g;
+
+  h_rms = harm_amt * sqrt(
+    e2n * e2n + e4n * e4n + e6n * e6n + e8n * e8n +
+    o3n * o3n + o5n * o5n + o7n * o7n + o9n * o9n
+  );
+  rms_ref = sqrt(1 + h_rms * h_rms);
+  rms_now = sqrt(fund_g * fund_g + h_rms * h_rms);
+  fund_norm_raw = rms_now > eps ? (rms_ref / rms_now) : 1;
+  // Partial compensation: keeps loudness steadier without flattening the control.
+  fund_norm = fund_norm_raw ^ 0.35;
+  fund_norm > 2 ? fund_norm = 2;
+  fund_norm < 0.5 ? fund_norm = 0.5;
+
+@sample
+  inL = spl0;
+  inR = spl1;
+
+  // Ramp-in after OS change
+  os_ramp < 1 ? (
+    os_ramp += os_ramp_inc;
+    os_ramp > 1 ? os_ramp = 1;
+  );
+
+  // =========================
+  // LEFT: oversample -> process -> decimate
+  // =========================
+  s1u_iL = up2(inL, s1uL, s1u_iL);
+  a0 = up_y0; a1 = up_y1;
+
+  osN == 2 ? (
+    a0 = cheby_mix(a0);
+    a1 = cheby_mix(a1);
+    s1d_iL = down2(a0, a1, s1dLe, s1dLo, s1d_iL);
+    yL = down_y;
+  ) : (
+    s2u_iL = up2(a0, s2uL, s2u_iL); b0 = up_y0; b1 = up_y1;
+    s2u_iL = up2(a1, s2uL, s2u_iL); b2 = up_y0; b3 = up_y1;
+
+    osN == 4 ? (
+      b0 = cheby_mix(b0); b1 = cheby_mix(b1); b2 = cheby_mix(b2); b3 = cheby_mix(b3);
+
+      s2d_iL = down2(b0, b1, s2dLe, s2dLo, s2d_iL); d0 = down_y;
+      s2d_iL = down2(b2, b3, s2dLe, s2dLo, s2d_iL); d1 = down_y;
+
+      s1d_iL = down2(d0, d1, s1dLe, s1dLo, s1d_iL);
+      yL = down_y;
+    ) : (
+      s3u_iL = up2(b0, s3uL, s3u_iL); c0 = up_y0; c1 = up_y1;
+      s3u_iL = up2(b1, s3uL, s3u_iL); c2 = up_y0; c3 = up_y1;
+      s3u_iL = up2(b2, s3uL, s3u_iL); c4 = up_y0; c5 = up_y1;
+      s3u_iL = up2(b3, s3uL, s3u_iL); c6 = up_y0; c7 = up_y1;
+
+      c0 = cheby_mix(c0); c1 = cheby_mix(c1); c2 = cheby_mix(c2); c3 = cheby_mix(c3);
+      c4 = cheby_mix(c4); c5 = cheby_mix(c5); c6 = cheby_mix(c6); c7 = cheby_mix(c7);
+
+      s3d_iL = down2(c0, c1, s3dLe, s3dLo, s3d_iL); e0 = down_y;
+      s3d_iL = down2(c2, c3, s3dLe, s3dLo, s3d_iL); e1 = down_y;
+      s3d_iL = down2(c4, c5, s3dLe, s3dLo, s3d_iL); e2v = down_y;
+      s3d_iL = down2(c6, c7, s3dLe, s3dLo, s3d_iL); e3 = down_y;
+
+      s2d_iL = down2(e0, e1, s2dLe, s2dLo, s2d_iL); d0 = down_y;
+      s2d_iL = down2(e2v, e3, s2dLe, s2dLo, s2d_iL); d1 = down_y;
+
+      s1d_iL = down2(d0, d1, s1dLe, s1dLo, s1d_iL);
+      yL = down_y;
+    );
+  );
+
+  // =========================
+  // RIGHT: oversample -> process -> decimate
+  // =========================
+  s1u_iR = up2(inR, s1uR, s1u_iR);
+  a0 = up_y0; a1 = up_y1;
+
+  osN == 2 ? (
+    a0 = cheby_mix(a0);
+    a1 = cheby_mix(a1);
+    s1d_iR = down2(a0, a1, s1dRe, s1dRo, s1d_iR);
+    yR = down_y;
+  ) : (
+    s2u_iR = up2(a0, s2uR, s2u_iR); b0 = up_y0; b1 = up_y1;
+    s2u_iR = up2(a1, s2uR, s2u_iR); b2 = up_y0; b3 = up_y1;
+
+    osN == 4 ? (
+      b0 = cheby_mix(b0); b1 = cheby_mix(b1); b2 = cheby_mix(b2); b3 = cheby_mix(b3);
+
+      s2d_iR = down2(b0, b1, s2dRe, s2dRo, s2d_iR); d0 = down_y;
+      s2d_iR = down2(b2, b3, s2dRe, s2dRo, s2d_iR); d1 = down_y;
+
+      s1d_iR = down2(d0, d1, s1dRe, s1dRo, s1d_iR);
+      yR = down_y;
+    ) : (
+      s3u_iR = up2(b0, s3uR, s3u_iR); c0 = up_y0; c1 = up_y1;
+      s3u_iR = up2(b1, s3uR, s3u_iR); c2 = up_y0; c3 = up_y1;
+      s3u_iR = up2(b2, s3uR, s3u_iR); c4 = up_y0; c5 = up_y1;
+      s3u_iR = up2(b3, s3uR, s3u_iR); c6 = up_y0; c7 = up_y1;
+
+      c0 = cheby_mix(c0); c1 = cheby_mix(c1); c2 = cheby_mix(c2); c3 = cheby_mix(c3);
+      c4 = cheby_mix(c4); c5 = cheby_mix(c5); c6 = cheby_mix(c6); c7 = cheby_mix(c7);
+
+      s3d_iR = down2(c0, c1, s3dRe, s3dRo, s3d_iR); e0 = down_y;
+      s3d_iR = down2(c2, c3, s3dRe, s3dRo, s3d_iR); e1 = down_y;
+      s3d_iR = down2(c4, c5, s3dRe, s3dRo, s3d_iR); e2v = down_y;
+      s3d_iR = down2(c6, c7, s3dRe, s3dRo, s3d_iR); e3 = down_y;
+
+      s2d_iR = down2(e0, e1, s2dRe, s2dRo, s2d_iR); d0 = down_y;
+      s2d_iR = down2(e2v, e3, s2dRe, s2dRo, s2d_iR); d1 = down_y;
+
+      s1d_iR = down2(d0, d1, s1dRe, s1dRo, s1d_iR);
+      yR = down_y;
+    );
+  );
+
+  // Optional DC highpass (recommended with even harmonics)
+  dc_hp == 1 ? (
+    yL = dc_highpass(yL, 0);
+    yR = dc_highpass(yR, 1);
+  );
+
+  // Match processed output to input loudness before user output trim.
+  det_in = inL*inL + inR*inR;
+  det_out = yL*yL + yR*yR;
+  match_in_env += match_a * (det_in - match_in_env);
+  match_out_env += match_a * (det_out - match_out_env);
+  auto_gain = sqrt((match_in_env + eps) / (match_out_env + eps));
+  auto_gain > 4 ? auto_gain = 4;
+  auto_gain < 0.25 ? auto_gain = 0.25;
+  yL *= auto_gain;
+  yR *= auto_gain;
+
+  // Apply output gain + OS ramp
+  spl0 = yL * out_lin * os_ramp;
+  spl1 = yR * out_lin * os_ramp;

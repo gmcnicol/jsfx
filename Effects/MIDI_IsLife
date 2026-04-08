@@ -1,0 +1,484 @@
+desc:LifeGrid (12x10) - Tempo-Synced Life Pluck MIDI Generator (with Mojo)
+// Tempo-synced Game of Life MIDI generator on a 12x10 grid.
+// Births trigger short "plucks" (note-on then scheduled note-off).
+// Mojo biases rules + density sustain + dynamics shape.
+//
+// Notes:
+// - MIDI paint: incoming note-ons in range set cells alive.
+// - Auto (Mojo) mode chooses rules based on Mojo position.
+// - Transport stop sends all-notes-off safety flush.
+
+////////////////////////////////////////////////////////////////////////////////
+// SLIDERS
+////////////////////////////////////////////////////////////////////////////////
+
+slider1:step_idx=4<0,5,1{1/1 (whole),1/2,1/4,1/8,1/16,1/32}>Step (tempo-synced)
+slider2:pluck_pct=75<5,200,1>Pluck length (% of step)
+slider3:vel_base=80<1,127,1>Velocity base
+slider4:vel_nei=10<0,30,1>Velocity per neighbor
+
+slider5:base_note=36<0,96,1>Base note (row0, x=0)
+slider6:root=0<0,11,1{C,C#,D,D#,E,F,F#,G,G#,A,A#,B}>Root (semitones)
+
+slider7:scale=1<0,7,1{Chromatic,Major,Nat minor,Dorian,Mixolydian,Maj pent,Min pent}>Scale
+slider8:mode=0<0,4,1{Auto (Mojo),Conway,HighLife,Seeds,Day&Night}>Life mode (rules)
+slider9:wrap=1<0,1,1{Off,On}>Wrap edges
+
+slider10:density=35<0,100,1>Random seed density (%)
+slider11:reseed=0<0,1,1{No,Yes}>Reseed now
+slider12:paint=1<0,1,1{Off,On}>MIDI paint (note-on sets cells)
+
+slider13:mojo=55<0,100,1>Mojo (tight -> lush)
+
+////////////////////////////////////////////////////////////////////////////////
+// ENGINE
+////////////////////////////////////////////////////////////////////////////////
+
+@init
+  GRID_W = 12;
+  GRID_H = 10;
+  GRID_N = GRID_W*GRID_H;
+
+  // memory layout
+  cur_base = 0;
+  nxt_base = 256;
+  off_base = 512; // scheduled note-off beat per cell, -1 = none
+
+  last_play_state = -1;
+  world_dirty = 1;
+  gfx_last_w = -1;
+  gfx_last_h = -1;
+  gfx_cache = 100;
+  gfx_cache_ready = 0;
+
+  // scale masks (12-bit)
+  SCALE_CHR = (1<<12)-1;
+  SCALE_MAJ = (1<<0)|(1<<2)|(1<<4)|(1<<5)|(1<<7)|(1<<9)|(1<<11);
+  SCALE_MIN = (1<<0)|(1<<2)|(1<<3)|(1<<5)|(1<<7)|(1<<8)|(1<<10);
+  SCALE_DOR = (1<<0)|(1<<2)|(1<<3)|(1<<5)|(1<<7)|(1<<9)|(1<<10);
+  SCALE_MIX = (1<<0)|(1<<2)|(1<<4)|(1<<5)|(1<<7)|(1<<9)|(1<<10);
+  SCALE_MAJ_PENT = (1<<0)|(1<<2)|(1<<4)|(1<<7)|(1<<9);
+  SCALE_MIN_PENT = (1<<0)|(1<<3)|(1<<5)|(1<<7)|(1<<10);
+
+  function clamp(v, lo, hi) (
+    v < lo ? lo : (v > hi ? hi : v);
+  );
+
+  function get_scale_mask(s) local(m)
+  (
+    s == 0 ? m = SCALE_CHR :
+    s == 1 ? m = SCALE_MAJ :
+    s == 2 ? m = SCALE_MIN :
+    s == 3 ? m = SCALE_DOR :
+    s == 4 ? m = SCALE_MIX :
+    s == 5 ? m = SCALE_MAJ_PENT :
+    s == 6 ? m = SCALE_MIN_PENT :
+             m = SCALE_CHR;
+    m;
+  );
+
+  function step_beats_from_idx(i) local(sb)
+  (
+    i == 0 ? sb = 4 :
+    i == 1 ? sb = 2 :
+    i == 2 ? sb = 1 :
+    i == 3 ? sb = 0.5 :
+    i == 4 ? sb = 0.25 :
+             sb = 0.125;
+    sb;
+  );
+
+  function idx_xy(x,y) (y*GRID_W + x);
+
+  // safe wrap: returns 0..m-1
+  function wrapi(v, m) local(r)
+  (
+    r = v % m;
+    r < 0 ? (r += m);
+    r;
+  );
+
+  function get_cell(base, x, y) local(xx yy i)
+  (
+    wrap ? (
+      xx = wrapi(x, GRID_W);
+      yy = wrapi(y, GRID_H);
+      mem[base + idx_xy(xx,yy)];
+    ) : (
+      (x < 0 || x >= GRID_W || y < 0 || y >= GRID_H) ? 0 : mem[base + idx_xy(x,y)];
+    );
+  );
+
+  function count_neighbors(base, x, y) local(n)
+  (
+    n = 0;
+    n += get_cell(base, x-1, y-1);
+    n += get_cell(base, x,   y-1);
+    n += get_cell(base, x+1, y-1);
+    n += get_cell(base, x-1, y);
+    n += get_cell(base, x+1, y);
+    n += get_cell(base, x-1, y+1);
+    n += get_cell(base, x,   y+1);
+    n += get_cell(base, x+1, y+1);
+    n;
+  );
+
+  // snap pitch class to allowed scale bits
+  function snap_pc(pc, mask) local(d up dn)
+  (
+    (mask & (1<<pc)) ? pc :
+    (
+      d = 1;
+      loop(11,
+        up = (pc + d) % 12;
+        dn = (pc - d + 12) % 12;
+        (mask & (1<<dn)) ? (pc = dn; d = 999;);
+        (mask & (1<<up)) ? (pc = up; d = 999;);
+        d += 1;
+      );
+      pc;
+    );
+  );
+
+  function send_note_on(note, vel) (
+    note = clamp(note, 0, 127);
+    vel  = clamp(vel, 1, 127);
+    midisend(0, $x90, note | (vel<<8)); // ch 1
+  );
+
+  function send_note_off(note) (
+    note = clamp(note, 0, 127);
+    midisend(0, $x80, note);
+  );
+
+  function cell_note(x, y, mask) local(pc spc note)
+  (
+    pc = x;
+    spc = snap_pc(pc, mask);
+    note = base_note + root + spc + 12*y;
+    note;
+  );
+
+  function all_notes_off(mask) local(x y n i)
+  (
+    y = 0;
+    loop(GRID_H,
+      x = 0;
+      loop(GRID_W,
+        n = cell_note(x,y,mask);
+        send_note_off(n);
+        i = idx_xy(x,y);
+        mem[off_base + i] = -1;
+        x += 1;
+      );
+      y += 1;
+    );
+  );
+
+  // safe random index 0..n-1
+  function rand_index(n) local(r)
+  (
+    r = floor(rand(1) * n); // rand(1) is [0,1) in JSFX; still clamp for paranoia
+    r = clamp(r, 0, n-1);
+    r;
+  );
+
+  function seed_world() local(i r)
+  (
+    i = 0;
+    loop(GRID_N,
+      r = rand(1);
+      mem[cur_base + i] = (r < (density/100)) ? 1 : 0;
+      mem[off_base + i] = -1;
+      i += 1;
+    );
+  );
+
+  seed_world();
+  next_step_beat = beat_position + step_beats_from_idx(step_idx);
+
+@slider
+  world_dirty = 1;
+
+  // momentary reseed
+  reseed ? (
+    seed_world();
+    world_dirty = 1;
+    next_step_beat = beat_position + step_beats_from_idx(step_idx);
+    reseed = 0;
+    slider11 = 0;
+  );
+
+@block
+  // hard guard against accidental dimension corruption
+  GRID_W = 12;
+  GRID_H = 10;
+  GRID_N = GRID_W*GRID_H;
+
+  scale_mask = get_scale_mask(scale);
+  step_beats = step_beats_from_idx(step_idx);
+
+  // mojo 0..1
+  m = mojo/100.0;
+
+  // pluck length shaped by mojo
+  pluck_pct_eff = pluck_pct * (0.70 + 0.90*m);
+  pluck_pct_eff = clamp(pluck_pct_eff, 5, 200);
+  pluck_beats = step_beats * (pluck_pct_eff/100.0);
+
+  // dynamics shaped by mojo
+  vel_base_eff = vel_base * (0.95 + 0.10*m);
+  vel_nei_eff  = vel_nei  * (1.35 - 0.55*m);
+
+  // choose effective mode (Auto uses mojo)
+  eff_mode = mode;
+  (mode == 0) ? (
+    m < 0.25 ? eff_mode = 3 :   // Seeds
+    m < 0.58 ? eff_mode = 1 :   // Conway
+    m < 0.85 ? eff_mode = 2 :   // HighLife
+               eff_mode = 4;    // Day&Night
+  );
+
+  // sustain behavior scales with mojo
+  min_alive   = 3 + floor(10*m);   // 3..13
+  sprinkle_n  = 3 + floor(12*m);   // 3..15
+
+  // transport stop safety flush
+  play_now = play_state & 1;
+  (last_play_state != -1) ? (
+    (last_play_state & 1) && !play_now ? all_notes_off(scale_mask);
+  );
+  last_play_state = play_state;
+
+  // MIDI input: pass-thru + optional paint
+  while (
+    midirecv(offset, msg1, msg23) ?
+    (
+      status = msg1 & 240;
+      note = msg23 & 127;
+      vel  = (msg23 >> 8) & 127;
+
+      midisend(offset, msg1, msg23);
+
+      paint ? (
+        (status == $x90 && vel > 0) ? (
+          nn = note - (base_note + root);
+          (nn >= 0 && nn < (GRID_H*12)) ? (
+            y = floor(nn / 12);
+            x = nn - 12*y;
+            i = idx_xy(x,y);
+            (mem[cur_base + i] == 0) ? (
+              mem[cur_base + i] = 1;
+              world_dirty = 1;
+            );
+          );
+        );
+      );
+
+      1;
+    ) : 0
+  );
+
+  curBeat = beat_position;
+
+  play_now ? (
+    // scheduled note-offs
+    i = 0;
+    loop(GRID_N,
+      offb = mem[off_base + i];
+      (offb >= 0) && (curBeat >= offb) ? (
+        y = floor(i / GRID_W);
+        x = i - y*GRID_W;
+        n = cell_note(x,y,scale_mask);
+        send_note_off(n);
+        mem[off_base + i] = -1;
+      );
+      i += 1;
+    );
+
+    // advance generations (bounded catch-up to avoid burst floods)
+    steps_done = 0;
+    max_steps_per_block = 8;
+    while ((curBeat >= next_step_beat) && (steps_done < max_steps_per_block)) (
+      y = 0;
+      loop(GRID_H,
+        x = 0;
+        loop(GRID_W,
+          i = idx_xy(x,y);
+          alive = mem[cur_base + i];
+          nei = count_neighbors(cur_base, x, y);
+
+          next_alive = 0;
+
+          // eff_mode: 1=Conway,2=HighLife,3=Seeds,4=Day&Night
+          eff_mode == 1 ? (
+            alive ? (
+              (nei == 2 || nei == 3) ? next_alive = 1;
+            ) : (
+              (nei == 3) ? next_alive = 1;
+            );
+          ) :
+          eff_mode == 2 ? (
+            alive ? (
+              (nei == 2 || nei == 3) ? next_alive = 1;
+            ) : (
+              (nei == 3 || nei == 6) ? next_alive = 1;
+            );
+          ) :
+          eff_mode == 3 ? (
+            alive ? (
+              next_alive = 0;
+            ) : (
+              (nei == 2) ? next_alive = 1;
+            );
+          ) : (
+            alive ? (
+              (nei == 3 || nei == 4 || nei == 6 || nei == 7 || nei == 8) ? next_alive = 1;
+            ) : (
+              (nei == 3 || nei == 6 || nei == 7 || nei == 8) ? next_alive = 1;
+            );
+          );
+
+          mem[nxt_base + i] = next_alive;
+
+          // PLUCK on births only
+          (!alive && next_alive) ? (
+            v = vel_base_eff + vel_nei_eff*nei;
+            // gentle "soften extremes" as mojo rises (still tempo-locked)
+            v = vel_base_eff + (v - vel_base_eff) * (1.10 - 0.35*m);
+            v = clamp(v, 1, 127);
+
+            n = cell_note(x,y,scale_mask);
+            send_note_on(n, v);
+
+            mem[off_base + i] = next_step_beat + pluck_beats;
+          );
+
+          x += 1;
+        );
+        y += 1;
+      );
+
+      // commit nxt -> cur, count alive
+      changed_gen = 0;
+      i = 0;
+      alive_count = 0;
+      loop(GRID_N,
+        v = mem[nxt_base + i];
+        oldv = mem[cur_base + i];
+        changed_gen += (v != oldv);
+        mem[cur_base + i] = v;
+        alive_count += v;
+        i += 1;
+      );
+
+      // sprinkle if dying out (scaled by mojo)
+      (alive_count < min_alive) ? (
+        k = 0;
+        loop(sprinkle_n,
+          ii = rand_index(GRID_N);
+          prev = mem[cur_base + ii];
+          mem[cur_base + ii] = 1;
+          changed_gen += (prev == 0);
+          k += 1;
+        );
+      );
+
+      (changed_gen > 0) ? world_dirty = 1;
+      next_step_beat += step_beats;
+      steps_done += 1;
+    );
+
+    // if we are still behind (seek/jump), fast-forward instead of flooding MIDI
+    (curBeat >= next_step_beat) ? (
+      next_step_beat = curBeat + step_beats;
+    );
+  );
+
+@sample
+  // MIDI-only effect; pass audio
+  spl0 = spl0;
+  spl1 = spl1;
+
+@gfx 420 320
+  (gfx_w != gfx_last_w || gfx_h != gfx_last_h) ? (
+    gfx_last_w = gfx_w;
+    gfx_last_h = gfx_h;
+    gfx_setimgdim(gfx_cache, gfx_w, gfx_h);
+    gfx_cache_ready = 1;
+    world_dirty = 1;
+  );
+
+  (world_dirty && gfx_cache_ready) ? (
+    gfx_dest = gfx_cache;
+    g_pad = 12;
+    g_top_pad = 24;
+
+    g_avail_w = gfx_w - g_pad*2;
+    g_avail_h = gfx_h - g_top_pad - g_pad;
+    g_cw = floor(g_avail_w / GRID_W);
+    g_ch = floor(g_avail_h / GRID_H);
+    g_cell = (g_cw < g_ch) ? g_cw : g_ch;
+    g_cell < 2 ? g_cell = 2;
+
+    g_panel_w_px = g_cell * GRID_W;
+    g_panel_h_px = g_cell * GRID_H;
+    g_ox = floor((gfx_w - g_panel_w_px) * 0.5);
+    g_oy = floor(g_top_pad + (g_avail_h - g_panel_h_px) * 0.5);
+
+    // panel background
+    gfx_set(0.07, 0.08, 0.10, 1);
+    gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+    // frame + dead-field fill (single rect instead of per-cell dead draws)
+    gfx_set(0.16, 0.18, 0.22, 1);
+    gfx_rect(g_ox-2, g_oy-2, g_panel_w_px+4, g_panel_h_px+4, 1);
+    gfx_set(0.11, 0.12, 0.14, 1);
+    gfx_rect(g_ox, g_oy, g_panel_w_px, g_panel_h_px, 1);
+
+    // alive cells only
+    g_alive_n = 0;
+    g_mm = mojo / 100.0;
+    gfx_set(0.10 + 0.18*g_mm, 0.70 + 0.22*g_mm, 0.30 + 0.10*(1-g_mm), 1);
+    g_y = 0;
+    loop(GRID_H,
+      g_x = 0;
+      loop(GRID_W,
+        g_i = idx_xy(g_x,g_y);
+        g_alive = mem[cur_base + g_i];
+        g_alive ? (
+          g_alive_n += 1;
+          g_cx = g_ox + g_x*g_cell;
+          g_cy = g_oy + g_y*g_cell;
+          gfx_rect(g_cx, g_cy, g_cell-1, g_cell-1, 1);
+        );
+        g_x += 1;
+      );
+      g_y += 1;
+    );
+
+    // grid lines
+    gfx_set(0.24, 0.27, 0.31, 1);
+    g_x = 0;
+    loop(GRID_W+1,
+      g_gx = g_ox + g_x*g_cell;
+      gfx_line(g_gx, g_oy, g_gx, g_oy+g_panel_h_px);
+      g_x += 1;
+    );
+    g_y = 0;
+    loop(GRID_H+1,
+      g_gy = g_oy + g_y*g_cell;
+      gfx_line(g_ox, g_gy, g_ox+g_panel_w_px, g_gy);
+      g_y += 1;
+    );
+
+    // header
+    gfx_set(0.84, 0.86, 0.90, 1);
+    gfx_x = g_pad;
+    gfx_y = 6;
+    gfx_printf("LifeGrid %dx%d  Alive: %d", GRID_W, GRID_H, g_alive_n);
+    gfx_dest = -1;
+    world_dirty = 0;
+  );
+
+  gfx_cache_ready ? gfx_blit(gfx_cache, 1, 0);

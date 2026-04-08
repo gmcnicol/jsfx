@@ -137,14 +137,18 @@ linDcR = linOutR;
 procL = outL - artefacts*linOutL;
 procR = outR - artefacts*linOutR;
 
+// Iron slider controls blend from linear reference to processed signal.
+blendL = linOutL + (procL - linOutL) * amt;
+blendR = linOutR + (procR - linOutR) * amt;
+
 // Match processed output back to the linear reference path for unity Iron level.
 detRef = linOutL*linOutL + linOutR*linOutR;
-detProc = procL*procL + procR*procR;
+detProc = blendL*blendL + blendR*blendR;
 
 matchRef += matchA*(detRef - matchRef);
 matchProc += matchA*(detProc - matchProc);
 ironMatch = sqrt((matchRef + 0.000000000001) / (matchProc + 0.000000000001));
 ironMatch = clamp(ironMatch, 0.25, 4.0);
 
-spl0 = procL * ironMatch * outGain;
-spl1 = procR * ironMatch * outGain;
+spl0 = blendL * ironMatch * outGain;
+spl1 = blendR * ironMatch * outGain;
