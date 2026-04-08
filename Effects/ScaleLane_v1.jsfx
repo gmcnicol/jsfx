@@ -420,6 +420,23 @@ function step_has_valid_hold_source(lane_i, pat_i, step_i) local(scan_i, mode_i,
   found_i;
 );
 
+function previous_note_idx_in_pattern(lane_i, pat_i, step_i) local(scan_i, idx_i, found_i)
+(
+  found_i = -1;
+  scan_i = step_i - 1;
+  while ((scan_i >= 0) && (found_i < 0)) (
+    idx_i = idx_pat_step(lane_i, pat_i, scan_i);
+    pat_step_mode[idx_i] == STEP_NOTE ? found_i = pat_step_note_idx[idx_i];
+    scan_i -= 1;
+  );
+  found_i;
+);
+
+function note_seed_modifier_down()
+(
+  mouse_cap & 4;
+);
+
 function set_step_defaults(step_idx_i)
 (
   pat_step_mode[step_idx_i] = STEP_OFF;
@@ -1327,7 +1344,7 @@ function draw_step_grid() local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i,
   );
 );
 
-function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, mode_y, note_y, gate_y, vel_y, step_panel_x, prev_mode_i, drag_delta_i, shift_down_i)
+function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, start_i, vis_i, step_i, idx_i, x_i, mode_y, note_y, gate_y, vel_y, step_panel_x, drag_delta_i, shift_down_i, note_seed_i)
 (
   pat_i = current_ui_pattern();
   pat_len_i = safe_pattern_length(ui_lane, pat_i);
@@ -1347,13 +1364,14 @@ function handle_mouse_step_grid(click_i, mouse_down_i) local(pat_i, pat_len_i, s
 
       step_i < pat_len_i ? (
         in_rect(mouse_x, mouse_y, step_panel_x, mode_y, step_inner_w, step_num_h) ? (
-          prev_mode_i = pat_step_mode[idx_i];
-          pat_step_mode[idx_i] += 1;
-          pat_step_mode[idx_i] > STEP_HOLD ? pat_step_mode[idx_i] = STEP_OFF;
-          prev_mode_i != STEP_NOTE && pat_step_mode[idx_i] == STEP_NOTE ? pat_step_note_idx[idx_i] = scale_default_note_idx;
+          pat_step_mode[idx_i] == STEP_OFF ? pat_step_mode[idx_i] = STEP_HOLD : pat_step_mode[idx_i] = STEP_OFF;
         ) :
         in_rect(mouse_x, mouse_y, step_panel_x, note_y, step_inner_w, step_note_h) ? (
-          pat_step_mode[idx_i] != STEP_NOTE ? pat_step_note_idx[idx_i] = scale_default_note_idx;
+          pat_step_mode[idx_i] != STEP_NOTE ? (
+            note_seed_i = note_seed_modifier_down() ? previous_note_idx_in_pattern(ui_lane, pat_i, step_i) : -1;
+            note_seed_i < 0 ? note_seed_i = scale_default_note_idx;
+            pat_step_note_idx[idx_i] = note_seed_i;
+          );
           drag_mode = DRAG_NOTE;
           drag_lane = ui_lane;
           drag_pattern = pat_i;
