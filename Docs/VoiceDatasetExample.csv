@@ -1,0 +1,6 @@
+phrase_id,text,max_seconds,important,takes_per_style,section,style_hint,notes
+0001,I’m going to tell this plainly.,6,true,2,opening,normal,
+0002,Not because I want to.,4,false,1,opening,slow,
+0003,Because it keeps coming back.,5,true,2,opening,tense,lean in slightly
+0004,You can hear it in the room.,5,false,,middle,normal,
+0005,So I’m slowing down on purpose.,6,true,,middle,slow,hold the first word
