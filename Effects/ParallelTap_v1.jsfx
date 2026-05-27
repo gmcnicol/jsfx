@@ -1,0 +1,1730 @@
+desc:ParallelTap v1 - wet-only parallel multi-tap delay
+
+in_pin:Input Left
+in_pin:Input Right
+in_pin:Input 3
+in_pin:Input 4
+in_pin:Input 5
+in_pin:Input 6
+in_pin:Input 7
+in_pin:Input 8
+in_pin:Input 9
+in_pin:Input 10
+in_pin:Input 11
+in_pin:Input 12
+in_pin:Input 13
+in_pin:Input 14
+in_pin:Input 15
+in_pin:Input 16
+out_pin:Out 1
+out_pin:Out 2
+out_pin:Out 3
+out_pin:Out 4
+out_pin:Out 5
+out_pin:Out 6
+out_pin:Out 7
+out_pin:Out 8
+out_pin:Out 9
+out_pin:Out 10
+out_pin:Out 11
+out_pin:Out 12
+out_pin:Out 13
+out_pin:Out 14
+out_pin:Out 15
+out_pin:Out 16
+
+slider1:ui_scale_pct=115<75,200,1>-UI Scale
+slider2:attack_ms=2<0,2000,0.1>-Attack (ms)
+slider3:decay_ms=45<0,2000,1>-Decay (ms)
+slider4:sustain_pct=100<0,100,1>-Sustain (%)
+slider5:release_ms=160<1,3000,1>-Release (ms)
+slider6:grid_res=2<0,5,1{1/4,1/8,1/16,1/32,1/64,1 bar}>-Grid
+slider7:grid_feel=0<0,1,1{Straight,Triplet}>-Feel
+
+slider8:tap1_enable=1<0,1,1{Off,On}>-Tap 1 Enable
+slider9:tap1_pos=2<1,192,1>-Tap 1 Position
+slider10:tap1_nudge_ms=0<-50,50,0.1>-Tap 1 Nudge (ms)
+slider11:tap1_trim_db=0<-21,12,0.1>-Tap 1 Trim (dBFS)
+slider12:tap1_out_pair=0<0,7,1{1/2,3/4,5/6,7/8,9/10,11/12,13/14,15/16}>-Tap 1 Output
+
+slider13:tap2_enable=1<0,1,1{Off,On}>-Tap 2 Enable
+slider14:tap2_pos=4<1,192,1>-Tap 2 Position
+slider15:tap2_nudge_ms=0<-50,50,0.1>-Tap 2 Nudge (ms)
+slider16:tap2_trim_db=-2<-21,12,0.1>-Tap 2 Trim (dBFS)
+slider17:tap2_out_pair=0<0,7,1{1/2,3/4,5/6,7/8,9/10,11/12,13/14,15/16}>-Tap 2 Output
+
+slider18:tap3_enable=1<0,1,1{Off,On}>-Tap 3 Enable
+slider19:tap3_pos=8<1,192,1>-Tap 3 Position
+slider20:tap3_nudge_ms=0<-50,50,0.1>-Tap 3 Nudge (ms)
+slider21:tap3_trim_db=-4<-21,12,0.1>-Tap 3 Trim (dBFS)
+slider22:tap3_out_pair=0<0,7,1{1/2,3/4,5/6,7/8,9/10,11/12,13/14,15/16}>-Tap 3 Output
+
+slider23:tap4_enable=1<0,1,1{Off,On}>-Tap 4 Enable
+slider24:tap4_pos=16<1,192,1>-Tap 4 Position
+slider25:tap4_nudge_ms=0<-50,50,0.1>-Tap 4 Nudge (ms)
+slider26:tap4_trim_db=-5<-21,12,0.1>-Tap 4 Trim (dBFS)
+slider27:tap4_out_pair=0<0,7,1{1/2,3/4,5/6,7/8,9/10,11/12,13/14,15/16}>-Tap 4 Output
+
+slider28:tap5_enable=0<0,1,1{Off,On}>-Tap 5 Enable
+slider29:tap5_pos=6<1,192,1>-Tap 5 Position
+slider30:tap5_nudge_ms=0<-50,50,0.1>-Tap 5 Nudge (ms)
+slider31:tap5_trim_db=-7<-21,12,0.1>-Tap 5 Trim (dBFS)
+slider32:tap5_out_pair=0<0,7,1{1/2,3/4,5/6,7/8,9/10,11/12,13/14,15/16}>-Tap 5 Output
+
+slider33:tap6_enable=0<0,1,1{Off,On}>-Tap 6 Enable
+slider34:tap6_pos=10<1,192,1>-Tap 6 Position
+slider35:tap6_nudge_ms=0<-50,50,0.1>-Tap 6 Nudge (ms)
+slider36:tap6_trim_db=-8<-21,12,0.1>-Tap 6 Trim (dBFS)
+slider37:tap6_out_pair=0<0,7,1{1/2,3/4,5/6,7/8,9/10,11/12,13/14,15/16}>-Tap 6 Output
+
+slider38:tap7_enable=0<0,1,1{Off,On}>-Tap 7 Enable
+slider39:tap7_pos=12<1,192,1>-Tap 7 Position
+slider40:tap7_nudge_ms=0<-50,50,0.1>-Tap 7 Nudge (ms)
+slider41:tap7_trim_db=-9<-21,12,0.1>-Tap 7 Trim (dBFS)
+slider42:tap7_out_pair=0<0,7,1{1/2,3/4,5/6,7/8,9/10,11/12,13/14,15/16}>-Tap 7 Output
+
+slider43:tap8_enable=0<0,1,1{Off,On}>-Tap 8 Enable
+slider44:tap8_pos=14<1,192,1>-Tap 8 Position
+slider45:tap8_nudge_ms=0<-50,50,0.1>-Tap 8 Nudge (ms)
+slider46:tap8_trim_db=-10.5<-21,12,0.1>-Tap 8 Trim (dBFS)
+slider47:tap8_out_pair=0<0,7,1{1/2,3/4,5/6,7/8,9/10,11/12,13/14,15/16}>-Tap 8 Output
+
+slider48:input_pair=0<0,8,1{Auto all,1/2,3/4,5/6,7/8,9/10,11/12,13/14,15/16}>-Input
+slider49:attack_curve=35<-100,100,1>-Attack Curve
+slider50:decay_curve=0<-100,100,1>-Decay Curve
+slider51:release_curve=0<-100,100,1>-Release Curve
+
+@init
+
+ext_noinit = 1;
+
+NUM_TAPS = 8;
+NUM_PAIRS = 8;
+DEFAULT_BAR_BEATS = 4;
+MAX_GRID_STEPS = 192;
+MIN_TRIM_DB = -21;
+MAX_TRIM_DB = 12;
+INPUT_GATE_OPEN_THRESH = 0.0008;
+INPUT_GATE_CLOSE_THRESH = 0.00025;
+INPUT_GATE_HOLD_MS = 35;
+INPUT_RETRIGGER_MS = 4;
+INPUT_RETRIGGER_RATIO = 1.8;
+DRAG_PARAM_NONE = 0;
+DRAG_PARAM_UI_SCALE = 1;
+DRAG_PARAM_GRID = 2;
+DRAG_PARAM_FEEL = 3;
+DRAG_PARAM_ATTACK = 4;
+DRAG_PARAM_DECAY = 5;
+DRAG_PARAM_SUSTAIN = 6;
+DRAG_PARAM_RELEASE = 7;
+DRAG_PARAM_ATTACK_CURVE = 8;
+DRAG_PARAM_DECAY_CURVE = 9;
+DRAG_PARAM_RELEASE_CURVE = 10;
+DRAG_PARAM_TAP_POS = 11;
+DRAG_PARAM_TAP_NUDGE = 12;
+DRAG_PARAM_TAP_PAIR = 13;
+MAX_DELAY_SECONDS = 8;
+MAX_BUFFER_SAMPLES = 390000;
+ENV_STAGE_OFF = 0;
+ENV_STAGE_ATTACK = 1;
+ENV_STAGE_DECAY = 2;
+ENV_STAGE_SUSTAIN = 3;
+ENV_STAGE_RELEASE = 4;
+tap_level_smooth = 0;
+tap_level_ui = 32;
+tap_enable_ui = 48;
+tap_pos_ui = 64;
+tap_nudge_ui = 80;
+tap_pair_ui = 96;
+tap_dirty = 112;
+tap_env_val = 128;
+tap_env_pos = 144;
+tap_env_stage = 160;
+tap_gate_prev = 176;
+tap_release_start = 192;
+tap_delay_smooth = 208;
+tap_retrigger_hold = 224;
+dry_buf_l = 512;
+buf_len = floor(MAX_DELAY_SECONDS * srate) + 16;
+buf_len < 4096 ? buf_len = 4096;
+buf_len > MAX_BUFFER_SAMPLES ? buf_len = MAX_BUFFER_SAMPLES;
+dry_buf_r = dry_buf_l + buf_len;
+dry_gate_buf = dry_buf_r + buf_len;
+actual_max_delay_seconds = (buf_len - 16) / srate;
+actual_max_delay_seconds > MAX_DELAY_SECONDS ? actual_max_delay_seconds = MAX_DELAY_SECONDS;
+write_pos = 0;
+sample_in_block = 0;
+free_run_beat = 0;
+block_ts_num = 4;
+block_ts_denom = 4;
+last_ui_bar_beats = -1;
+last_grid_res = -1;
+last_grid_feel = -1;
+attack_ui = attack_ms;
+decay_ui = decay_ms;
+sustain_ui = sustain_pct;
+release_ui = release_ms;
+attack_curve_ui = attack_curve;
+decay_curve_ui = decay_curve;
+release_curve_ui = release_curve;
+
+persistent_magic < 241108 ? (
+  tap1_trim_db > MAX_TRIM_DB ? tap1_trim_db = max(MIN_TRIM_DB, min(MAX_TRIM_DB, 20 * log(tap1_trim_db * 0.01) / log(10)));
+  tap2_trim_db > MAX_TRIM_DB ? tap2_trim_db = max(MIN_TRIM_DB, min(MAX_TRIM_DB, 20 * log(tap2_trim_db * 0.01) / log(10)));
+  tap3_trim_db > MAX_TRIM_DB ? tap3_trim_db = max(MIN_TRIM_DB, min(MAX_TRIM_DB, 20 * log(tap3_trim_db * 0.01) / log(10)));
+  tap4_trim_db > MAX_TRIM_DB ? tap4_trim_db = max(MIN_TRIM_DB, min(MAX_TRIM_DB, 20 * log(tap4_trim_db * 0.01) / log(10)));
+  tap5_trim_db > MAX_TRIM_DB ? tap5_trim_db = max(MIN_TRIM_DB, min(MAX_TRIM_DB, 20 * log(tap5_trim_db * 0.01) / log(10)));
+  tap6_trim_db > MAX_TRIM_DB ? tap6_trim_db = max(MIN_TRIM_DB, min(MAX_TRIM_DB, 20 * log(tap6_trim_db * 0.01) / log(10)));
+  tap7_trim_db > MAX_TRIM_DB ? tap7_trim_db = max(MIN_TRIM_DB, min(MAX_TRIM_DB, 20 * log(tap7_trim_db * 0.01) / log(10)));
+  tap8_trim_db > MAX_TRIM_DB ? tap8_trim_db = max(MIN_TRIM_DB, min(MAX_TRIM_DB, 20 * log(tap8_trim_db * 0.01) / log(10)));
+);
+
+i = 0;
+while (i < NUM_TAPS) (
+  tap_level_smooth[i] = 0;
+  tap_env_val[i] = 0;
+  tap_env_pos[i] = 0;
+  tap_env_stage[i] = ENV_STAGE_OFF;
+  tap_gate_prev[i] = 0;
+  tap_release_start[i] = 0;
+  tap_delay_smooth[i] = -1;
+  tap_retrigger_hold[i] = 0;
+  i += 1;
+);
+
+i = 0;
+while (i < buf_len) (
+  dry_buf_l[i] = 0;
+  dry_buf_r[i] = 0;
+  dry_gate_buf[i] = 0;
+  i += 1;
+);
+
+tap_level_ui[0] = tap1_trim_db;
+tap_level_ui[1] = tap2_trim_db;
+tap_level_ui[2] = tap3_trim_db;
+tap_level_ui[3] = tap4_trim_db;
+tap_level_ui[4] = tap5_trim_db;
+tap_level_ui[5] = tap6_trim_db;
+tap_level_ui[6] = tap7_trim_db;
+tap_level_ui[7] = tap8_trim_db;
+
+tap_enable_ui[0] = tap1_enable;
+tap_enable_ui[1] = tap2_enable;
+tap_enable_ui[2] = tap3_enable;
+tap_enable_ui[3] = tap4_enable;
+tap_enable_ui[4] = tap5_enable;
+tap_enable_ui[5] = tap6_enable;
+tap_enable_ui[6] = tap7_enable;
+tap_enable_ui[7] = tap8_enable;
+
+tap_pos_ui[0] = tap1_pos;
+tap_pos_ui[1] = tap2_pos;
+tap_pos_ui[2] = tap3_pos;
+tap_pos_ui[3] = tap4_pos;
+tap_pos_ui[4] = tap5_pos;
+tap_pos_ui[5] = tap6_pos;
+tap_pos_ui[6] = tap7_pos;
+tap_pos_ui[7] = tap8_pos;
+
+tap_nudge_ui[0] = tap1_nudge_ms;
+tap_nudge_ui[1] = tap2_nudge_ms;
+tap_nudge_ui[2] = tap3_nudge_ms;
+tap_nudge_ui[3] = tap4_nudge_ms;
+tap_nudge_ui[4] = tap5_nudge_ms;
+tap_nudge_ui[5] = tap6_nudge_ms;
+tap_nudge_ui[6] = tap7_nudge_ms;
+tap_nudge_ui[7] = tap8_nudge_ms;
+
+tap_pair_ui[0] = tap1_out_pair;
+tap_pair_ui[1] = tap2_out_pair;
+tap_pair_ui[2] = tap3_out_pair;
+tap_pair_ui[3] = tap4_out_pair;
+tap_pair_ui[4] = tap5_out_pair;
+tap_pair_ui[5] = tap6_out_pair;
+tap_pair_ui[6] = tap7_out_pair;
+tap_pair_ui[7] = tap8_out_pair;
+
+tap_level_smooth[0] = floor(tap1_enable + 0.5) ? exp(tap_level_ui[0] * log(10) / 20) : 0;
+tap_level_smooth[1] = floor(tap2_enable + 0.5) ? exp(tap_level_ui[1] * log(10) / 20) : 0;
+tap_level_smooth[2] = floor(tap3_enable + 0.5) ? exp(tap_level_ui[2] * log(10) / 20) : 0;
+tap_level_smooth[3] = floor(tap4_enable + 0.5) ? exp(tap_level_ui[3] * log(10) / 20) : 0;
+tap_level_smooth[4] = floor(tap5_enable + 0.5) ? exp(tap_level_ui[4] * log(10) / 20) : 0;
+tap_level_smooth[5] = floor(tap6_enable + 0.5) ? exp(tap_level_ui[5] * log(10) / 20) : 0;
+tap_level_smooth[6] = floor(tap7_enable + 0.5) ? exp(tap_level_ui[6] * log(10) / 20) : 0;
+tap_level_smooth[7] = floor(tap8_enable + 0.5) ? exp(tap_level_ui[7] * log(10) / 20) : 0;
+
+persistent_magic != 241108 ? (
+  persistent_magic = 241108;
+);
+drag_tap = -1;
+drag_param = DRAG_PARAM_NONE;
+drag_param_tap = -1;
+drag_param_slider = 0;
+drag_param_slider_log = 0;
+drag_param_start_y = 0;
+drag_param_origin = 0;
+last_mouse_down = 0;
+last_layout_w = 0;
+last_layout_h = 0;
+last_layout_scale_pct = -1;
+layout_dirty = 1;
+bg_dirty = 1;
+header_dirty = 1;
+adsr_dirty = 1;
+cache_ready = 0;
+IMG_CACHE = 1;
+
+i = 0;
+while (i < NUM_TAPS) (
+  tap_dirty[i] = 1;
+  i += 1;
+);
+
+function clamp(x, lo, hi)
+(
+  x < lo ? lo : x > hi ? hi : x;
+);
+
+function clampi(x, lo, hi)
+(
+  x = floor(x + 0.5);
+  x < lo ? lo : x > hi ? hi : x;
+);
+
+function db_to_gain(db)
+(
+  exp(db * log(10) / 20);
+);
+
+function curve_shape(t_i, curve_i) local(power_i)
+(
+  t_i <= 0 ? 0 :
+  t_i >= 1 ? 1 :
+  (
+    curve_i = clamp(curve_i, -100, 100) * 0.01;
+    power_i = exp(log(2) * curve_i * 3);
+    exp(log(max(t_i, 0.000001)) * power_i);
+  );
+);
+
+function stage_norm(pos_i, len_i)
+(
+  len_i <= 1 ? 1 : clamp(pos_i / (len_i - 1), 0, 1);
+);
+
+function adsr_value_at(env_pos, a_samp, d_samp, r_samp, s_amp, a_curve, d_curve, r_curve) local(stage_pos, t_i)
+(
+  env_pos < a_samp ? (
+    t_i = stage_norm(env_pos, a_samp);
+    curve_shape(t_i, a_curve);
+  ) :
+  env_pos < a_samp + d_samp ? (
+    stage_pos = env_pos - a_samp;
+    t_i = stage_norm(stage_pos, d_samp);
+    1 - (1 - s_amp) * curve_shape(t_i, d_curve);
+  ) :
+  env_pos < a_samp + d_samp + r_samp ? (
+    stage_pos = env_pos - a_samp - d_samp;
+    t_i = stage_norm(stage_pos, r_samp);
+    s_amp * (1 - curve_shape(t_i, r_curve));
+  ) :
+  0;
+);
+
+function attack_time_to_norm(value_i)
+(
+  log(clamp(value_i, 0, 2000) + 1) / log(2001);
+);
+
+function attack_norm_to_time(norm_i)
+(
+  exp(log(2001) * clamp(norm_i, 0, 1)) - 1;
+);
+
+function decay_time_to_norm(value_i)
+(
+  log(clamp(value_i, 0, 2000) + 1) / log(2001);
+);
+
+function decay_norm_to_time(norm_i)
+(
+  exp(log(2001) * clamp(norm_i, 0, 1)) - 1;
+);
+
+function wrapi(x, hi)
+(
+  x = floor(x + 0.5);
+  while (x < 0) (x += hi;);
+  while (x >= hi) (x -= hi;);
+  x;
+);
+
+function in_rect(mx, my, x, y, w, h)
+(
+  (mx >= x) && (mx < (x + w)) && (my >= y) && (my < (y + h));
+);
+
+function tap_enabled(tap_i)
+(
+  floor(tap_enable_ui[tap_i] + 0.5);
+);
+
+function tap_position(tap_i)
+(
+  floor(tap_pos_ui[tap_i] + 0.5);
+);
+
+function tap_nudge(tap_i)
+(
+  tap_nudge_ui[tap_i];
+);
+
+function tap_level(tap_i)
+(
+  tap_level_ui[tap_i];
+);
+
+function tap_pair(tap_i)
+(
+  floor(tap_pair_ui[tap_i] + 0.5);
+);
+
+function current_tap_enabled(tap_i)
+(
+  tap_i == 0 ? clampi(tap1_enable, 0, 1) :
+  tap_i == 1 ? clampi(tap2_enable, 0, 1) :
+  tap_i == 2 ? clampi(tap3_enable, 0, 1) :
+  tap_i == 3 ? clampi(tap4_enable, 0, 1) :
+  tap_i == 4 ? clampi(tap5_enable, 0, 1) :
+  tap_i == 5 ? clampi(tap6_enable, 0, 1) :
+  tap_i == 6 ? clampi(tap7_enable, 0, 1) :
+  clampi(tap8_enable, 0, 1);
+);
+
+function current_tap_position(tap_i)
+(
+  tap_i == 0 ? tap1_pos :
+  tap_i == 1 ? tap2_pos :
+  tap_i == 2 ? tap3_pos :
+  tap_i == 3 ? tap4_pos :
+  tap_i == 4 ? tap5_pos :
+  tap_i == 5 ? tap6_pos :
+  tap_i == 6 ? tap7_pos :
+  tap8_pos;
+);
+
+function current_tap_nudge(tap_i)
+(
+  tap_i == 0 ? tap1_nudge_ms :
+  tap_i == 1 ? tap2_nudge_ms :
+  tap_i == 2 ? tap3_nudge_ms :
+  tap_i == 3 ? tap4_nudge_ms :
+  tap_i == 4 ? tap5_nudge_ms :
+  tap_i == 5 ? tap6_nudge_ms :
+  tap_i == 6 ? tap7_nudge_ms :
+  tap8_nudge_ms;
+);
+
+function current_tap_level(tap_i)
+(
+  tap_i == 0 ? tap1_trim_db :
+  tap_i == 1 ? tap2_trim_db :
+  tap_i == 2 ? tap3_trim_db :
+  tap_i == 3 ? tap4_trim_db :
+  tap_i == 4 ? tap5_trim_db :
+  tap_i == 5 ? tap6_trim_db :
+  tap_i == 6 ? tap7_trim_db :
+  tap8_trim_db;
+);
+
+function current_tap_pair(tap_i)
+(
+  tap_i == 0 ? tap1_out_pair :
+  tap_i == 1 ? tap2_out_pair :
+  tap_i == 2 ? tap3_out_pair :
+  tap_i == 3 ? tap4_out_pair :
+  tap_i == 4 ? tap5_out_pair :
+  tap_i == 5 ? tap6_out_pair :
+  tap_i == 6 ? tap7_out_pair :
+  tap8_out_pair;
+);
+
+function mark_all_taps_dirty() local(dirty_i)
+(
+  dirty_i = 0;
+  while (dirty_i < NUM_TAPS) (
+    tap_dirty[dirty_i] = 1;
+    dirty_i += 1;
+  );
+);
+
+function bar_beats_from_sig(sig_num, sig_denom) local(beats)
+(
+  sig_num = sig_num > 0 ? sig_num : 4;
+  sig_denom = sig_denom > 0 ? sig_denom : 4;
+  beats = sig_num * 4 / sig_denom;
+  beats > 0 ? beats : DEFAULT_BAR_BEATS;
+);
+
+function grid_base_beats(res_i, bar_beats) local(base)
+(
+  res_i = clampi(res_i, 0, 5);
+  base = res_i == 0 ? 1 :
+    res_i == 1 ? 0.5 :
+    res_i == 2 ? 0.25 :
+    res_i == 3 ? 0.125 :
+    res_i == 4 ? 0.0625 :
+    bar_beats;
+  base;
+);
+
+function grid_step_beats(res_i, feel_i, bar_beats) local(step)
+(
+  step = grid_base_beats(res_i, bar_beats);
+  (clampi(feel_i, 0, 1) == 1) && (clampi(res_i, 0, 5) != 5) ? step *= 0.6666666667;
+  step;
+);
+
+function grid_step_count_for(res_i, feel_i, bar_beats) local(step, count)
+(
+  step = grid_step_beats(res_i, feel_i, bar_beats);
+  count = step > 0 ? floor(bar_beats / step + 0.000001) : 1;
+  count < 1 ? count = 1;
+  count > MAX_GRID_STEPS ? count = MAX_GRID_STEPS;
+  count;
+);
+
+function current_grid_step_count()
+(
+  grid_step_count_for(grid_res, grid_feel, bar_beats_from_sig(block_ts_num, block_ts_denom));
+);
+
+function grid_label(res_i, feel_i)
+(
+  res_i = clampi(res_i, 0, 5);
+  clampi(feel_i, 0, 1) == 1 && res_i != 5 ? (
+    res_i == 0 ? sprintf(#grid_txt, "1/4T") :
+    res_i == 1 ? sprintf(#grid_txt, "1/8T") :
+    res_i == 2 ? sprintf(#grid_txt, "1/16T") :
+    res_i == 3 ? sprintf(#grid_txt, "1/32T") :
+    sprintf(#grid_txt, "1/64T");
+  ) : (
+    res_i == 0 ? sprintf(#grid_txt, "1/4") :
+    res_i == 1 ? sprintf(#grid_txt, "1/8") :
+    res_i == 2 ? sprintf(#grid_txt, "1/16") :
+    res_i == 3 ? sprintf(#grid_txt, "1/32") :
+    res_i == 4 ? sprintf(#grid_txt, "1/64") :
+    sprintf(#grid_txt, "1 bar");
+  );
+);
+
+function feel_label(feel_i)
+(
+  clampi(feel_i, 0, 1) == 1 ? sprintf(#feel_txt, "Triplet") : sprintf(#feel_txt, "Straight");
+);
+
+function position_label(pos_i) local(step_count)
+(
+  step_count = current_grid_step_count();
+  pos_i = clampi(pos_i, 1, step_count);
+  sprintf(#position_txt, "%d/%d", pos_i, step_count);
+);
+
+function wrap_position(value_i, step_count) local(v)
+(
+  step_count = clampi(step_count, 1, MAX_GRID_STEPS);
+  v = floor(value_i + 0.5);
+  while (v < 1) (v += step_count;);
+  while (v > step_count) (v -= step_count;);
+  v;
+);
+
+function set_grid_res(value_i)
+(
+  value_i = wrapi(value_i, 6);
+  grid_res != value_i ? (
+    grid_res = value_i;
+    adsr_dirty = 1;
+    mark_all_taps_dirty();
+  );
+);
+
+function set_grid_feel(value_i)
+(
+  value_i = wrapi(value_i, 2);
+  grid_feel != value_i ? (
+    grid_feel = value_i;
+    adsr_dirty = 1;
+    mark_all_taps_dirty();
+  );
+);
+
+function write_tap_enable_slider(tap_i, value_i)
+(
+  tap_i == 0 ? tap1_enable = value_i :
+  tap_i == 1 ? tap2_enable = value_i :
+  tap_i == 2 ? tap3_enable = value_i :
+  tap_i == 3 ? tap4_enable = value_i :
+  tap_i == 4 ? tap5_enable = value_i :
+  tap_i == 5 ? tap6_enable = value_i :
+  tap_i == 6 ? tap7_enable = value_i :
+  tap8_enable = value_i;
+);
+
+function write_tap_position_slider(tap_i, value_i)
+(
+  tap_i == 0 ? tap1_pos = value_i :
+  tap_i == 1 ? tap2_pos = value_i :
+  tap_i == 2 ? tap3_pos = value_i :
+  tap_i == 3 ? tap4_pos = value_i :
+  tap_i == 4 ? tap5_pos = value_i :
+  tap_i == 5 ? tap6_pos = value_i :
+  tap_i == 6 ? tap7_pos = value_i :
+  tap8_pos = value_i;
+);
+
+function write_tap_nudge_slider(tap_i, value_i)
+(
+  tap_i == 0 ? tap1_nudge_ms = value_i :
+  tap_i == 1 ? tap2_nudge_ms = value_i :
+  tap_i == 2 ? tap3_nudge_ms = value_i :
+  tap_i == 3 ? tap4_nudge_ms = value_i :
+  tap_i == 4 ? tap5_nudge_ms = value_i :
+  tap_i == 5 ? tap6_nudge_ms = value_i :
+  tap_i == 6 ? tap7_nudge_ms = value_i :
+  tap8_nudge_ms = value_i;
+);
+
+function write_tap_level_slider(tap_i, value_i)
+(
+  tap_i == 0 ? tap1_trim_db = value_i :
+  tap_i == 1 ? tap2_trim_db = value_i :
+  tap_i == 2 ? tap3_trim_db = value_i :
+  tap_i == 3 ? tap4_trim_db = value_i :
+  tap_i == 4 ? tap5_trim_db = value_i :
+  tap_i == 5 ? tap6_trim_db = value_i :
+  tap_i == 6 ? tap7_trim_db = value_i :
+  tap8_trim_db = value_i;
+);
+
+function write_tap_pair_slider(tap_i, value_i)
+(
+  tap_i == 0 ? tap1_out_pair = value_i :
+  tap_i == 1 ? tap2_out_pair = value_i :
+  tap_i == 2 ? tap3_out_pair = value_i :
+  tap_i == 3 ? tap4_out_pair = value_i :
+  tap_i == 4 ? tap5_out_pair = value_i :
+  tap_i == 5 ? tap6_out_pair = value_i :
+  tap_i == 6 ? tap7_out_pair = value_i :
+  tap8_out_pair = value_i;
+);
+
+function commit_tap_slider_state(tap_i)
+(
+  write_tap_enable_slider(tap_i, tap_enabled(tap_i));
+  write_tap_position_slider(tap_i, tap_position(tap_i));
+  write_tap_nudge_slider(tap_i, tap_nudge(tap_i));
+  write_tap_level_slider(tap_i, tap_level(tap_i));
+  write_tap_pair_slider(tap_i, tap_pair(tap_i));
+);
+
+function sync_tap_slider_state(tap_i, enable_i, pos_i, nudge_i, level_i, pair_i) local(dirty_i)
+(
+  dirty_i = 0;
+  enable_i = clampi(enable_i, 0, 1);
+  pos_i = clampi(pos_i, 1, MAX_GRID_STEPS);
+  nudge_i = clamp(nudge_i, -50, 50);
+  level_i = clamp(level_i, MIN_TRIM_DB, MAX_TRIM_DB);
+  pair_i = clampi(pair_i, 0, 7);
+
+  tap_enable_ui[tap_i] != enable_i ? (
+    tap_enable_ui[tap_i] = enable_i;
+    dirty_i = 1;
+  );
+
+  !(drag_param == DRAG_PARAM_TAP_POS && drag_param_tap == tap_i) && tap_pos_ui[tap_i] != pos_i ? (
+    tap_pos_ui[tap_i] = pos_i;
+    dirty_i = 1;
+  );
+
+  !(drag_param == DRAG_PARAM_TAP_NUDGE && drag_param_tap == tap_i) && abs(tap_nudge_ui[tap_i] - nudge_i) > 0.0001 ? (
+    tap_nudge_ui[tap_i] = nudge_i;
+    dirty_i = 1;
+  );
+
+  drag_tap != tap_i && abs(tap_level_ui[tap_i] - level_i) > 0.0001 ? (
+    tap_level_ui[tap_i] = level_i;
+    dirty_i = 1;
+  );
+
+  !(drag_param == DRAG_PARAM_TAP_PAIR && drag_param_tap == tap_i) && tap_pair_ui[tap_i] != pair_i ? (
+    tap_pair_ui[tap_i] = pair_i;
+    dirty_i = 1;
+  );
+
+  dirty_i ? tap_dirty[tap_i] = 1;
+);
+
+function sync_modulated_tap_sliders()
+(
+  sync_tap_slider_state(0, tap1_enable, tap1_pos, tap1_nudge_ms, tap1_trim_db, tap1_out_pair);
+  sync_tap_slider_state(1, tap2_enable, tap2_pos, tap2_nudge_ms, tap2_trim_db, tap2_out_pair);
+  sync_tap_slider_state(2, tap3_enable, tap3_pos, tap3_nudge_ms, tap3_trim_db, tap3_out_pair);
+  sync_tap_slider_state(3, tap4_enable, tap4_pos, tap4_nudge_ms, tap4_trim_db, tap4_out_pair);
+  sync_tap_slider_state(4, tap5_enable, tap5_pos, tap5_nudge_ms, tap5_trim_db, tap5_out_pair);
+  sync_tap_slider_state(5, tap6_enable, tap6_pos, tap6_nudge_ms, tap6_trim_db, tap6_out_pair);
+  sync_tap_slider_state(6, tap7_enable, tap7_pos, tap7_nudge_ms, tap7_trim_db, tap7_out_pair);
+  sync_tap_slider_state(7, tap8_enable, tap8_pos, tap8_nudge_ms, tap8_trim_db, tap8_out_pair);
+);
+
+function set_tap_enable(tap_i, value_i)
+(
+  value_i = clampi(value_i, 0, 1);
+  tap_enable_ui[tap_i] != value_i ? (
+    tap_enable_ui[tap_i] = value_i;
+    (drag_param == DRAG_PARAM_NONE && drag_tap < 0) ? write_tap_enable_slider(tap_i, value_i);
+    tap_dirty[tap_i] = 1;
+  );
+);
+
+function set_tap_position(tap_i, value_i)
+(
+  value_i = wrap_position(value_i, current_grid_step_count());
+  tap_pos_ui[tap_i] != value_i ? (
+    tap_pos_ui[tap_i] = value_i;
+    (drag_param == DRAG_PARAM_NONE && drag_tap < 0) ? write_tap_position_slider(tap_i, value_i);
+    tap_dirty[tap_i] = 1;
+  );
+);
+
+function set_tap_nudge(tap_i, value_i)
+(
+  value_i = clamp(value_i, -50, 50);
+  tap_nudge_ui[tap_i] != value_i ? (
+    tap_nudge_ui[tap_i] = value_i;
+    (drag_param == DRAG_PARAM_NONE && drag_tap < 0) ? write_tap_nudge_slider(tap_i, value_i);
+    tap_dirty[tap_i] = 1;
+  );
+);
+
+function set_tap_level(tap_i, value_i)
+(
+  value_i = clamp(value_i, MIN_TRIM_DB, MAX_TRIM_DB);
+  abs(tap_level_ui[tap_i] - value_i) > 0.05 ? (
+    tap_level_ui[tap_i] = value_i;
+    (drag_param == DRAG_PARAM_NONE && drag_tap < 0) ? write_tap_level_slider(tap_i, value_i);
+    tap_dirty[tap_i] = 1;
+  );
+);
+
+function set_tap_pair(tap_i, value_i)
+(
+  value_i = wrapi(value_i, NUM_PAIRS);
+  tap_pair_ui[tap_i] != value_i ? (
+    tap_pair_ui[tap_i] = value_i;
+    (drag_param == DRAG_PARAM_NONE && drag_tap < 0) ? write_tap_pair_slider(tap_i, value_i);
+    tap_dirty[tap_i] = 1;
+  );
+);
+
+function set_ui_scale(value_i)
+(
+  value_i = clampi(value_i, 75, 200);
+  ui_scale_pct != value_i ? (
+    ui_scale_pct = value_i;
+    layout_dirty = 1;
+  );
+);
+
+function set_attack(value_i)
+(
+  value_i = clamp(value_i, 0, 2000);
+  attack_ui != value_i ? (
+    attack_ui = value_i;
+    attack_ms = value_i;
+    adsr_dirty = 1;
+  );
+);
+
+function set_decay(value_i)
+(
+  value_i = clamp(value_i, 0, 2000);
+  decay_ui != value_i ? (
+    decay_ui = value_i;
+    decay_ms = value_i;
+    adsr_dirty = 1;
+  );
+);
+
+function set_sustain(value_i)
+(
+  value_i = clamp(value_i, 0, 100);
+  sustain_ui != value_i ? (
+    sustain_ui = value_i;
+    sustain_pct = value_i;
+    adsr_dirty = 1;
+  );
+);
+
+function set_release(value_i)
+(
+  value_i = clamp(value_i, 1, 3000);
+  release_ui != value_i ? (
+    release_ui = value_i;
+    release_ms = value_i;
+    adsr_dirty = 1;
+  );
+);
+
+function set_attack_curve(value_i)
+(
+  value_i = clamp(value_i, -100, 100);
+  attack_curve_ui != value_i ? (
+    attack_curve_ui = value_i;
+    attack_curve = value_i;
+    adsr_dirty = 1;
+  );
+);
+
+function set_decay_curve(value_i)
+(
+  value_i = clamp(value_i, -100, 100);
+  decay_curve_ui != value_i ? (
+    decay_curve_ui = value_i;
+    decay_curve = value_i;
+    adsr_dirty = 1;
+  );
+);
+
+function set_release_curve(value_i)
+(
+  value_i = clamp(value_i, -100, 100);
+  release_curve_ui != value_i ? (
+    release_curve_ui = value_i;
+    release_curve = value_i;
+    adsr_dirty = 1;
+  );
+);
+
+function sync_adsr_slider_state() local(attack_i, decay_i, sustain_i, release_i, attack_curve_i, decay_curve_i, release_curve_i)
+(
+  attack_i = clamp(attack_ms, 0, 2000);
+  decay_i = clamp(decay_ms, 0, 2000);
+  sustain_i = clamp(sustain_pct, 0, 100);
+  release_i = clamp(release_ms, 1, 3000);
+  attack_curve_i = clamp(attack_curve, -100, 100);
+  decay_curve_i = clamp(decay_curve, -100, 100);
+  release_curve_i = clamp(release_curve, -100, 100);
+  (attack_ui != attack_i || decay_ui != decay_i || sustain_ui != sustain_i || release_ui != release_i ||
+    attack_curve_ui != attack_curve_i || decay_curve_ui != decay_curve_i || release_curve_ui != release_curve_i) ? (
+    attack_ui = attack_i;
+    decay_ui = decay_i;
+    sustain_ui = sustain_i;
+    release_ui = release_i;
+    attack_curve_ui = attack_curve_i;
+    decay_curve_ui = decay_curve_i;
+    release_curve_ui = release_curve_i;
+    adsr_dirty = 1;
+  );
+);
+
+function start_param_drag(mode_i, tap_i, origin_i)
+(
+  drag_param = mode_i;
+  drag_param_tap = tap_i;
+  drag_param_slider = 0;
+  drag_param_slider_log = 0;
+  drag_param_start_y = mouse_y;
+  drag_param_origin = origin_i;
+);
+
+function start_param_slider_drag(mode_i, tap_i, x_i, w_i, min_i, max_i, step_i)
+(
+  drag_param = mode_i;
+  drag_param_tap = tap_i;
+  drag_param_slider = 1;
+  drag_param_slider_log = 0;
+  drag_param_slider_x = x_i;
+  drag_param_slider_w = max(w_i, 1);
+  drag_param_slider_min = min_i;
+  drag_param_slider_max = max_i;
+  drag_param_slider_step = max(step_i, 0.001);
+);
+
+function start_param_log_slider_drag(mode_i, tap_i, x_i, w_i, min_i, max_i, step_i)
+(
+  start_param_slider_drag(mode_i, tap_i, x_i, w_i, min_i, max_i, step_i);
+  drag_param_slider_log = 1;
+);
+
+function update_param_drag() local(delta_i, step_i, norm_i, value_i)
+(
+  drag_param != DRAG_PARAM_NONE ? (
+    drag_param_slider ? (
+      norm_i = clamp((mouse_x - drag_param_slider_x) / drag_param_slider_w, 0, 1);
+      value_i = drag_param_slider_log ? (
+        drag_param == DRAG_PARAM_DECAY ? decay_norm_to_time(norm_i) : attack_norm_to_time(norm_i)
+      ) : drag_param_slider_min + norm_i * (drag_param_slider_max - drag_param_slider_min);
+      value_i = floor(value_i / drag_param_slider_step + 0.5) * drag_param_slider_step;
+      drag_param == DRAG_PARAM_ATTACK ? set_attack(value_i) :
+      drag_param == DRAG_PARAM_DECAY ? set_decay(value_i) :
+      drag_param == DRAG_PARAM_SUSTAIN ? set_sustain(value_i) :
+      drag_param == DRAG_PARAM_RELEASE ? set_release(value_i) :
+      drag_param == DRAG_PARAM_ATTACK_CURVE ? set_attack_curve(value_i) :
+      drag_param == DRAG_PARAM_DECAY_CURVE ? set_decay_curve(value_i) :
+      drag_param == DRAG_PARAM_RELEASE_CURVE ? set_release_curve(value_i);
+    ) :
+    (
+      delta_i = floor((drag_param_start_y - mouse_y) / (18 * ui_scale));
+      drag_param == DRAG_PARAM_UI_SCALE ? set_ui_scale(drag_param_origin + delta_i * 5) :
+      drag_param == DRAG_PARAM_GRID ? set_grid_res(drag_param_origin + delta_i) :
+      drag_param == DRAG_PARAM_FEEL ? set_grid_feel(drag_param_origin + delta_i) :
+      drag_param == DRAG_PARAM_ATTACK ? set_attack(drag_param_origin + delta_i * (mouse_shift ? 10 : 1)) :
+      drag_param == DRAG_PARAM_DECAY ? set_decay(drag_param_origin + delta_i * (mouse_shift ? 10 : 1)) :
+      drag_param == DRAG_PARAM_SUSTAIN ? set_sustain(drag_param_origin + delta_i * (mouse_shift ? 10 : 1)) :
+      drag_param == DRAG_PARAM_RELEASE ? set_release(drag_param_origin + delta_i * (mouse_shift ? 10 : 1)) :
+      drag_param == DRAG_PARAM_ATTACK_CURVE ? set_attack_curve(drag_param_origin + delta_i * (mouse_shift ? 10 : 1)) :
+      drag_param == DRAG_PARAM_DECAY_CURVE ? set_decay_curve(drag_param_origin + delta_i * (mouse_shift ? 10 : 1)) :
+      drag_param == DRAG_PARAM_RELEASE_CURVE ? set_release_curve(drag_param_origin + delta_i * (mouse_shift ? 10 : 1)) :
+      drag_param == DRAG_PARAM_TAP_POS ? set_tap_position(drag_param_tap, drag_param_origin + delta_i) :
+      drag_param == DRAG_PARAM_TAP_NUDGE ? (
+        step_i = mouse_shift ? 5 : 1;
+        set_tap_nudge(drag_param_tap, drag_param_origin + delta_i * step_i);
+      ) :
+      drag_param == DRAG_PARAM_TAP_PAIR ? set_tap_pair(drag_param_tap, drag_param_origin + delta_i);
+    );
+  );
+);
+
+function pair_label(pair_i)
+(
+  pair_i = clampi(pair_i, 0, 7);
+  pair_i == 0 ? sprintf(#pair_txt, "1/2") :
+  pair_i == 1 ? sprintf(#pair_txt, "3/4") :
+  pair_i == 2 ? sprintf(#pair_txt, "5/6") :
+  pair_i == 3 ? sprintf(#pair_txt, "7/8") :
+  pair_i == 4 ? sprintf(#pair_txt, "9/10") :
+  pair_i == 5 ? sprintf(#pair_txt, "11/12") :
+  pair_i == 6 ? sprintf(#pair_txt, "13/14") :
+  sprintf(#pair_txt, "15/16");
+);
+
+function add_to_output_channel(chan_i, sample_i)
+(
+  chan_i == 0 ? spl0 += sample_i :
+  chan_i == 1 ? spl1 += sample_i :
+  chan_i == 2 ? spl2 += sample_i :
+  chan_i == 3 ? spl3 += sample_i :
+  chan_i == 4 ? spl4 += sample_i :
+  chan_i == 5 ? spl5 += sample_i :
+  chan_i == 6 ? spl6 += sample_i :
+  chan_i == 7 ? spl7 += sample_i :
+  chan_i == 8 ? spl8 += sample_i :
+  chan_i == 9 ? spl9 += sample_i :
+  chan_i == 10 ? spl10 += sample_i :
+  chan_i == 11 ? spl11 += sample_i :
+  chan_i == 12 ? spl12 += sample_i :
+  chan_i == 13 ? spl13 += sample_i :
+  chan_i == 14 ? spl14 += sample_i :
+  spl15 += sample_i;
+);
+
+function add_to_output_pair(pair_i, sample_l, sample_r) local(chan_l)
+(
+  pair_i = clampi(pair_i, 0, 7);
+  chan_l = pair_i * 2;
+  add_to_output_channel(chan_l, sample_l);
+  add_to_output_channel(chan_l + 1, sample_r);
+);
+
+function read_input_left(pair_i)
+(
+  pair_i == 1 ? spl0 :
+  pair_i == 2 ? spl2 :
+  pair_i == 3 ? spl4 :
+  pair_i == 4 ? spl6 :
+  pair_i == 5 ? spl8 :
+  pair_i == 6 ? spl10 :
+  pair_i == 7 ? spl12 :
+  pair_i == 8 ? spl14 :
+  spl0 + spl2 + spl4 + spl6 + spl8 + spl10 + spl12 + spl14;
+);
+
+function read_input_right(pair_i)
+(
+  pair_i == 1 ? spl1 :
+  pair_i == 2 ? spl3 :
+  pair_i == 3 ? spl5 :
+  pair_i == 4 ? spl7 :
+  pair_i == 5 ? spl9 :
+  pair_i == 6 ? spl11 :
+  pair_i == 7 ? spl13 :
+  pair_i == 8 ? spl15 :
+  spl1 + spl3 + spl5 + spl7 + spl9 + spl11 + spl13 + spl15;
+);
+
+function read_dry_left(delay_samples) local(delay_floor, delay_frac, pos_a, pos_b)
+(
+  delay_samples = clamp(delay_samples, 0, buf_len - 3);
+  delay_floor = floor(delay_samples);
+  delay_frac = delay_samples - delay_floor;
+  pos_a = write_pos - delay_floor;
+  while (pos_a < 0) (pos_a += buf_len;);
+  pos_b = pos_a - 1;
+  pos_b < 0 ? pos_b += buf_len;
+  dry_buf_l[pos_a] * (1 - delay_frac) + dry_buf_l[pos_b] * delay_frac;
+);
+
+function read_dry_right(delay_samples) local(delay_floor, delay_frac, pos_a, pos_b)
+(
+  delay_samples = clamp(delay_samples, 0, buf_len - 3);
+  delay_floor = floor(delay_samples);
+  delay_frac = delay_samples - delay_floor;
+  pos_a = write_pos - delay_floor;
+  while (pos_a < 0) (pos_a += buf_len;);
+  pos_b = pos_a - 1;
+  pos_b < 0 ? pos_b += buf_len;
+  dry_buf_r[pos_a] * (1 - delay_frac) + dry_buf_r[pos_b] * delay_frac;
+);
+
+function read_dry_gate_state(delay_samples) local(delay_floor, pos_a, pos_b)
+(
+  delay_samples = clamp(delay_samples, 0, buf_len - 3);
+  delay_floor = floor(delay_samples);
+  pos_a = write_pos - delay_floor;
+  while (pos_a < 0) (pos_a += buf_len;);
+  pos_b = pos_a - 1;
+  pos_b < 0 ? pos_b += buf_len;
+  max(dry_gate_buf[pos_a], dry_gate_buf[pos_b]);
+);
+
+function advance_tap_envelope(tap_i, gate_i, trigger_i, a_samp, d_samp, r_samp, s_amp, a_curve, d_curve, r_curve) local(stage_i, pos_i, env_i, rel_start_i, t_i)
+(
+  stage_i = tap_env_stage[tap_i];
+  pos_i = tap_env_pos[tap_i];
+  env_i = tap_env_val[tap_i];
+
+  trigger_i ? (
+    stage_i = ENV_STAGE_ATTACK;
+    pos_i = 0;
+    env_i = 0;
+  );
+
+  stage_i == ENV_STAGE_ATTACK ? (
+    a_samp <= 0 ? (
+      env_i = 1;
+      stage_i = ENV_STAGE_DECAY;
+      pos_i = 0;
+    ) : (
+      t_i = stage_norm(pos_i, a_samp);
+      env_i = curve_shape(t_i, a_curve);
+      pos_i += 1;
+      pos_i >= a_samp ? (
+        env_i = 1;
+        stage_i = ENV_STAGE_DECAY;
+        pos_i = 0;
+      );
+    );
+  ) : stage_i == ENV_STAGE_DECAY ? (
+    d_samp <= 0 ? (
+      env_i = s_amp;
+      stage_i = gate_i ? ENV_STAGE_SUSTAIN : ENV_STAGE_RELEASE;
+      pos_i = 0;
+      tap_release_start[tap_i] = env_i;
+    ) : (
+      t_i = stage_norm(pos_i, d_samp);
+      env_i = 1 - (1 - s_amp) * curve_shape(t_i, d_curve);
+      pos_i += 1;
+      pos_i >= d_samp ? (
+        env_i = s_amp;
+        stage_i = gate_i ? ENV_STAGE_SUSTAIN : ENV_STAGE_RELEASE;
+        pos_i = 0;
+        tap_release_start[tap_i] = env_i;
+      );
+    );
+  ) : stage_i == ENV_STAGE_SUSTAIN ? (
+    env_i = s_amp;
+    !gate_i ? (
+      stage_i = ENV_STAGE_RELEASE;
+      pos_i = 0;
+      tap_release_start[tap_i] = env_i;
+    );
+  ) : stage_i == ENV_STAGE_RELEASE ? (
+    rel_start_i = tap_release_start[tap_i];
+    r_samp <= 1 ? (
+      env_i = 0;
+      stage_i = ENV_STAGE_OFF;
+      pos_i = 0;
+    ) : (
+      t_i = stage_norm(pos_i, r_samp);
+      env_i = rel_start_i * (1 - curve_shape(t_i, r_curve));
+      pos_i += 1;
+      pos_i >= r_samp ? (
+        env_i = 0;
+        stage_i = ENV_STAGE_OFF;
+        pos_i = 0;
+      );
+    );
+  ) : (
+    env_i = 0;
+    stage_i = ENV_STAGE_OFF;
+    pos_i = 0;
+  );
+
+  !gate_i && stage_i == ENV_STAGE_OFF ? env_i = 0;
+  tap_gate_prev[tap_i] = gate_i;
+  tap_env_stage[tap_i] = stage_i;
+  tap_env_pos[tap_i] = pos_i;
+  tap_env_val[tap_i] = clamp(env_i, 0, 1);
+);
+
+function draw_text_center(txt, x, y, w, h) local(str_w, str_h)
+(
+  gfx_measurestr(txt, str_w, str_h);
+  gfx_x = x + (w - str_w) * 0.5;
+  gfx_y = y + (h - str_h) * 0.5;
+  gfx_drawstr(txt);
+);
+
+function draw_button(txt, x, y, w, h, active)
+(
+  active ? gfx_set(0.15, 0.50, 0.38, 1) : gfx_set(0.18, 0.21, 0.26, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(0.78, 0.84, 0.88, 1);
+  draw_text_center(txt, x, y, w, h);
+);
+
+function draw_stepper(label_txt, value_txt, x, y, w, h) local(btn_w)
+(
+  btn_w = 20 * ui_scale;
+  gfx_set(0.14, 0.16, 0.20, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(0.24, 0.28, 0.34, 1);
+  gfx_rect(x, y, btn_w, h, 1);
+  gfx_rect(x + w - btn_w, y, btn_w, h, 1);
+  gfx_set(0.80, 0.86, 0.89, 1);
+  draw_text_center("-", x, y, btn_w, h);
+  draw_text_center("+", x + w - btn_w, y, btn_w, h);
+  gfx_set(0.58, 0.65, 0.69, 1);
+  gfx_x = x + btn_w + 4 * ui_scale;
+  gfx_y = y + 3 * ui_scale;
+  gfx_drawstr(label_txt);
+  gfx_set(0.92, 0.94, 0.94, 1);
+  draw_text_center(value_txt, x + btn_w, y + 9 * ui_scale, w - btn_w * 2, h - 8 * ui_scale);
+);
+
+function draw_slider(label_txt, value_txt, value_i, min_i, max_i, x, y, w, h) local(norm_i, track_x, track_y, track_w, track_h, fill_w, knob_w, str_w, str_h)
+(
+  norm_i = clamp((value_i - min_i) / max(max_i - min_i, 0.001), 0, 1);
+  track_x = x + 8 * ui_scale;
+  track_w = w - 16 * ui_scale;
+  track_y = y + h - 10 * ui_scale;
+  track_h = 4 * ui_scale;
+  knob_w = 5 * ui_scale;
+  fill_w = track_w * norm_i;
+
+  gfx_set(0.14, 0.16, 0.20, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(0.58, 0.65, 0.69, 1);
+  gfx_x = x + 8 * ui_scale;
+  gfx_y = y + 3 * ui_scale;
+  gfx_drawstr(label_txt);
+  gfx_set(0.92, 0.94, 0.94, 1);
+  gfx_measurestr(value_txt, str_w, str_h);
+  gfx_x = x + w - str_w - 8 * ui_scale;
+  gfx_y = y + 3 * ui_scale;
+  gfx_drawstr(value_txt);
+  gfx_set(0.22, 0.26, 0.31, 1);
+  gfx_rect(track_x, track_y, track_w, track_h, 1);
+  gfx_set(0.20, 0.57, 0.45, 1);
+  gfx_rect(track_x, track_y, fill_w, track_h, 1);
+  gfx_set(0.82, 0.88, 0.88, 1);
+  gfx_rect(track_x + fill_w - knob_w * 0.5, track_y - 3 * ui_scale, knob_w, track_h + 6 * ui_scale, 1);
+);
+
+function draw_attack_time_slider(label_txt, value_txt, value_i, x, y, w, h) local(norm_i, track_x, track_y, track_w, track_h, fill_w, knob_w, str_w, str_h)
+(
+  norm_i = attack_time_to_norm(value_i);
+  track_x = x + 8 * ui_scale;
+  track_w = w - 16 * ui_scale;
+  track_y = y + h - 10 * ui_scale;
+  track_h = 4 * ui_scale;
+  knob_w = 5 * ui_scale;
+  fill_w = track_w * norm_i;
+
+  gfx_set(0.14, 0.16, 0.20, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(0.58, 0.65, 0.69, 1);
+  gfx_x = x + 8 * ui_scale;
+  gfx_y = y + 3 * ui_scale;
+  gfx_drawstr(label_txt);
+  gfx_set(0.92, 0.94, 0.94, 1);
+  gfx_measurestr(value_txt, str_w, str_h);
+  gfx_x = x + w - str_w - 8 * ui_scale;
+  gfx_y = y + 3 * ui_scale;
+  gfx_drawstr(value_txt);
+  gfx_set(0.22, 0.26, 0.31, 1);
+  gfx_rect(track_x, track_y, track_w, track_h, 1);
+  gfx_set(0.20, 0.57, 0.45, 1);
+  gfx_rect(track_x, track_y, fill_w, track_h, 1);
+  gfx_set(0.82, 0.88, 0.88, 1);
+  gfx_rect(track_x + fill_w - knob_w * 0.5, track_y - 3 * ui_scale, knob_w, track_h + 6 * ui_scale, 1);
+);
+
+function draw_decay_time_slider(label_txt, value_txt, value_i, x, y, w, h) local(norm_i, track_x, track_y, track_w, track_h, fill_w, knob_w, str_w, str_h)
+(
+  norm_i = decay_time_to_norm(value_i);
+  track_x = x + 8 * ui_scale;
+  track_w = w - 16 * ui_scale;
+  track_y = y + h - 10 * ui_scale;
+  track_h = 4 * ui_scale;
+  knob_w = 5 * ui_scale;
+  fill_w = track_w * norm_i;
+
+  gfx_set(0.14, 0.16, 0.20, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(0.58, 0.65, 0.69, 1);
+  gfx_x = x + 8 * ui_scale;
+  gfx_y = y + 3 * ui_scale;
+  gfx_drawstr(label_txt);
+  gfx_set(0.92, 0.94, 0.94, 1);
+  gfx_measurestr(value_txt, str_w, str_h);
+  gfx_x = x + w - str_w - 8 * ui_scale;
+  gfx_y = y + 3 * ui_scale;
+  gfx_drawstr(value_txt);
+  gfx_set(0.22, 0.26, 0.31, 1);
+  gfx_rect(track_x, track_y, track_w, track_h, 1);
+  gfx_set(0.20, 0.57, 0.45, 1);
+  gfx_rect(track_x, track_y, fill_w, track_h, 1);
+  gfx_set(0.82, 0.88, 0.88, 1);
+  gfx_rect(track_x + fill_w - knob_w * 0.5, track_y - 3 * ui_scale, knob_w, track_h + 6 * ui_scale, 1);
+);
+
+function compute_layout()
+(
+  ui_scale = ui_scale_pct * 0.01;
+  margin = floor(14 * ui_scale + 0.5);
+  gap = floor(10 * ui_scale + 0.5);
+  header_h = floor(42 * ui_scale + 0.5);
+  adsr_h = floor(76 * ui_scale + 0.5);
+  strip_top = margin + header_h + gap + adsr_h + gap;
+  strip_h = gfx_h - strip_top - margin;
+  strip_h < floor(330 * ui_scale + 0.5) ? strip_h = floor(330 * ui_scale + 0.5);
+  strip_w = floor((gfx_w - margin * 2 - gap * 7) / 8);
+  strip_w < floor(92 * ui_scale + 0.5) ? strip_w = floor(92 * ui_scale + 0.5);
+  last_layout_w = gfx_w;
+  last_layout_h = gfx_h;
+  last_layout_scale_pct = ui_scale_pct;
+  gfx_setimgdim(IMG_CACHE, gfx_w, gfx_h);
+  i = 0;
+  while (i < NUM_TAPS) (
+    tap_dirty[i] = 1;
+    i += 1;
+  );
+  bg_dirty = 1;
+  header_dirty = 1;
+  adsr_dirty = 1;
+  cache_ready = 1;
+  layout_dirty = 0;
+);
+
+function render_bg()
+(
+  gfx_set(0.06, 0.08, 0.10, 1);
+  gfx_rect(0, 0, gfx_w, gfx_h, 1);
+  bg_dirty = 0;
+);
+
+function render_header()
+(
+  gfx_set(0.06, 0.08, 0.10, 1);
+  gfx_rect(0, margin, gfx_w, header_h, 1);
+  gfx_set(0.12, 0.15, 0.19, 1);
+  gfx_rect(0, margin, gfx_w, header_h, 1);
+  gfx_setfont(1, "Verdana", floor(20 * ui_scale));
+  gfx_set(0.88, 0.91, 0.92, 1);
+  gfx_x = 12 * ui_scale;
+  gfx_y = margin + 11 * ui_scale;
+  gfx_drawstr("ParallelTap v1");
+  gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+  sprintf(#ui_scale_txt, "%d%%", ui_scale_pct);
+  draw_stepper("UI", #ui_scale_txt, gfx_w - margin - 116 * ui_scale, margin + 8 * ui_scale, 116 * ui_scale, 24 * ui_scale);
+  header_dirty = 0;
+);
+
+function render_adsr() local(adsr_x, adsr_y, adsr_w)
+(
+  adsr_x = margin;
+  adsr_y = margin + header_h + gap;
+  adsr_w = gfx_w - margin * 2;
+  gfx_set(0.13, 0.15, 0.19, 1);
+  gfx_rect(adsr_x, adsr_y, adsr_w, adsr_h, 1);
+  gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+  gfx_set(0.55, 0.62, 0.66, 1);
+  gfx_x = adsr_x + 10 * ui_scale;
+  gfx_y = adsr_y + 8 * ui_scale;
+  gfx_drawstr("Grid + Shared ADSR");
+  adsr_ctrl_w = (gfx_w - margin * 2 - gap * 8) / 9;
+  grid_label(grid_res, grid_feel);
+  feel_label(grid_feel);
+  attack_ui < 10 ? sprintf(#attack_txt, "%.1f ms", attack_ui) : sprintf(#attack_txt, "%d ms", floor(attack_ui + 0.5));
+  attack_curve_ui < 0 ? sprintf(#attack_curve_txt, "Snap %d", floor(abs(attack_curve_ui) + 0.5)) :
+  attack_curve_ui > 0 ? sprintf(#attack_curve_txt, "Soft %d", floor(attack_curve_ui + 0.5)) :
+  sprintf(#attack_curve_txt, "Linear");
+  decay_curve_ui < 0 ? sprintf(#decay_curve_txt, "Snap %d", floor(abs(decay_curve_ui) + 0.5)) :
+  decay_curve_ui > 0 ? sprintf(#decay_curve_txt, "Soft %d", floor(decay_curve_ui + 0.5)) :
+  sprintf(#decay_curve_txt, "Linear");
+  release_curve_ui < 0 ? sprintf(#release_curve_txt, "Snap %d", floor(abs(release_curve_ui) + 0.5)) :
+  release_curve_ui > 0 ? sprintf(#release_curve_txt, "Soft %d", floor(release_curve_ui + 0.5)) :
+  sprintf(#release_curve_txt, "Linear");
+  sprintf(#decay_txt, "%d ms", floor(decay_ui + 0.5));
+  sprintf(#sustain_txt, "%d%%", floor(sustain_ui + 0.5));
+  sprintf(#release_txt, "%d ms", floor(release_ui + 0.5));
+  draw_stepper("Grid", #grid_txt, adsr_x, adsr_y + 28 * ui_scale, adsr_ctrl_w, 30 * ui_scale);
+  draw_stepper("Feel", #feel_txt, adsr_x + adsr_ctrl_w + gap, adsr_y + 28 * ui_scale, adsr_ctrl_w, 30 * ui_scale);
+  draw_attack_time_slider("Attack", #attack_txt, attack_ui, adsr_x + (adsr_ctrl_w + gap) * 2, adsr_y + 28 * ui_scale, adsr_ctrl_w, 30 * ui_scale);
+  draw_slider("A Curve", #attack_curve_txt, attack_curve_ui, -100, 100, adsr_x + (adsr_ctrl_w + gap) * 3, adsr_y + 28 * ui_scale, adsr_ctrl_w, 30 * ui_scale);
+  draw_decay_time_slider("Decay", #decay_txt, decay_ui, adsr_x + (adsr_ctrl_w + gap) * 4, adsr_y + 28 * ui_scale, adsr_ctrl_w, 30 * ui_scale);
+  draw_slider("D Curve", #decay_curve_txt, decay_curve_ui, -100, 100, adsr_x + (adsr_ctrl_w + gap) * 5, adsr_y + 28 * ui_scale, adsr_ctrl_w, 30 * ui_scale);
+  draw_slider("Sustain", #sustain_txt, sustain_ui, 0, 100, adsr_x + (adsr_ctrl_w + gap) * 6, adsr_y + 28 * ui_scale, adsr_ctrl_w, 30 * ui_scale);
+  draw_slider("Release", #release_txt, release_ui, 1, 3000, adsr_x + (adsr_ctrl_w + gap) * 7, adsr_y + 28 * ui_scale, adsr_ctrl_w, 30 * ui_scale);
+  draw_slider("R Curve", #release_curve_txt, release_curve_ui, -100, 100, adsr_x + (adsr_ctrl_w + gap) * 8, adsr_y + 28 * ui_scale, adsr_ctrl_w, 30 * ui_scale);
+  adsr_dirty = 0;
+);
+
+function render_tap(tap_i) local(strip_x, strip_y, inner_x, inner_w, tap_on, enable_y, grid_y, nudge_y, pair_y, fader_y, fader_h, track_x, knob_h, knob_y, level_norm)
+(
+  strip_x = margin + tap_i * (strip_w + gap);
+  strip_y = strip_top;
+  inner_x = strip_x + 8 * ui_scale;
+  inner_w = strip_w - 16 * ui_scale;
+  tap_on = tap_enabled(tap_i);
+
+  tap_on ? gfx_set(0.14, 0.19, 0.19, 1) : gfx_set(0.12, 0.14, 0.17, 1);
+  gfx_rect(strip_x, strip_y, strip_w, strip_h, 1);
+  gfx_set(0.27, 0.31, 0.36, 1);
+  gfx_rect(strip_x, strip_y, strip_w, 1 * ui_scale, 1);
+
+  gfx_setfont(2, "Verdana", floor(13 * ui_scale));
+  gfx_set(0.90, 0.93, 0.94, 1);
+  sprintf(#tap_title, "Tap %d", tap_i + 1);
+  draw_text_center(#tap_title, strip_x, strip_y + 8 * ui_scale, strip_w, 18 * ui_scale);
+
+  enable_y = strip_y + 30 * ui_scale;
+  draw_button(tap_on ? "On" : "Off", inner_x, enable_y, inner_w, 24 * ui_scale, tap_on);
+
+  gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+  grid_y = strip_y + 66 * ui_scale;
+  position_label(tap_position(tap_i));
+  draw_stepper("Pos", #position_txt, inner_x, grid_y, inner_w, 42 * ui_scale);
+
+  nudge_y = strip_y + 118 * ui_scale;
+  tap_nudge(tap_i) >= 0 ? sprintf(#nudge_txt, "+%.1f ms", tap_nudge(tap_i)) : sprintf(#nudge_txt, "%.1f ms", tap_nudge(tap_i));
+  draw_stepper("Nudge", #nudge_txt, inner_x, nudge_y, inner_w, 42 * ui_scale);
+
+  pair_y = strip_y + 170 * ui_scale;
+  pair_label(tap_pair(tap_i));
+  draw_stepper("Out", #pair_txt, inner_x, pair_y, inner_w, 42 * ui_scale);
+
+  fader_y = strip_y + 222 * ui_scale;
+  fader_h = strip_h - 260 * ui_scale;
+  fader_h < (86 * ui_scale) ? fader_h = 86 * ui_scale;
+  track_x = strip_x + strip_w * 0.5 - 5 * ui_scale;
+  knob_h = 18 * ui_scale;
+  level_norm = (tap_level(tap_i) - MIN_TRIM_DB) / (MAX_TRIM_DB - MIN_TRIM_DB);
+  level_norm = clamp(level_norm, 0, 1);
+  knob_y = fader_y + (1 - level_norm) * (fader_h - knob_h);
+
+  gfx_set(0.08, 0.10, 0.13, 1);
+  gfx_rect(track_x, fader_y, 10 * ui_scale, fader_h, 1);
+  tap_on ? gfx_set(0.23, 0.63, 0.48, 1) : gfx_set(0.32, 0.36, 0.40, 1);
+  gfx_rect(track_x, knob_y + knob_h * 0.5, 10 * ui_scale, fader_y + fader_h - knob_y - knob_h * 0.5, 1);
+  gfx_set(0.82, 0.88, 0.89, 1);
+  gfx_rect(inner_x + 7 * ui_scale, knob_y, inner_w - 14 * ui_scale, knob_h, 1);
+
+  sprintf(#level_txt, "%.1f dB", tap_level(tap_i));
+  gfx_set(0.78, 0.84, 0.87, 1);
+  draw_text_center(#level_txt, inner_x, fader_y + fader_h + 8 * ui_scale, inner_w, 18 * ui_scale);
+  tap_dirty[tap_i] = 0;
+);
+
+@slider
+
+ui_scale_pct = clampi(ui_scale_pct, 75, 200);
+attack_ms = clamp(attack_ms, 0, 2000);
+decay_ms = clamp(decay_ms, 0, 2000);
+sustain_pct = clamp(sustain_pct, 0, 100);
+release_ms = clamp(release_ms, 1, 3000);
+attack_curve = clamp(attack_curve, -100, 100);
+decay_curve = clamp(decay_curve, -100, 100);
+release_curve = clamp(release_curve, -100, 100);
+grid_res = clampi(grid_res, 0, 5);
+grid_feel = clampi(grid_feel, 0, 1);
+input_pair = clampi(input_pair, 0, 8);
+
+ui_scale_pct != last_layout_scale_pct ? layout_dirty = 1;
+(attack_ui != attack_ms || decay_ui != decay_ms || sustain_ui != sustain_pct || release_ui != release_ms ||
+  attack_curve_ui != attack_curve || decay_curve_ui != decay_curve || release_curve_ui != release_curve) ? adsr_dirty = 1;
+attack_ui = attack_ms;
+decay_ui = decay_ms;
+sustain_ui = sustain_pct;
+release_ui = release_ms;
+attack_curve_ui = attack_curve;
+decay_curve_ui = decay_curve;
+release_curve_ui = release_curve;
+
+(grid_res != last_grid_res || grid_feel != last_grid_feel) ? (
+  last_grid_res = grid_res;
+  last_grid_feel = grid_feel;
+  adsr_dirty = 1;
+  mark_all_taps_dirty();
+);
+
+tap1_enable = clampi(tap1_enable, 0, 1);
+tap2_enable = clampi(tap2_enable, 0, 1);
+tap3_enable = clampi(tap3_enable, 0, 1);
+tap4_enable = clampi(tap4_enable, 0, 1);
+tap5_enable = clampi(tap5_enable, 0, 1);
+tap6_enable = clampi(tap6_enable, 0, 1);
+tap7_enable = clampi(tap7_enable, 0, 1);
+tap8_enable = clampi(tap8_enable, 0, 1);
+
+tap_enable_ui[0] = tap1_enable;
+tap_enable_ui[1] = tap2_enable;
+tap_enable_ui[2] = tap3_enable;
+tap_enable_ui[3] = tap4_enable;
+tap_enable_ui[4] = tap5_enable;
+tap_enable_ui[5] = tap6_enable;
+tap_enable_ui[6] = tap7_enable;
+tap_enable_ui[7] = tap8_enable;
+
+tap1_pos = clampi(tap1_pos, 1, MAX_GRID_STEPS);
+tap2_pos = clampi(tap2_pos, 1, MAX_GRID_STEPS);
+tap3_pos = clampi(tap3_pos, 1, MAX_GRID_STEPS);
+tap4_pos = clampi(tap4_pos, 1, MAX_GRID_STEPS);
+tap5_pos = clampi(tap5_pos, 1, MAX_GRID_STEPS);
+tap6_pos = clampi(tap6_pos, 1, MAX_GRID_STEPS);
+tap7_pos = clampi(tap7_pos, 1, MAX_GRID_STEPS);
+tap8_pos = clampi(tap8_pos, 1, MAX_GRID_STEPS);
+
+tap_pos_ui[0] = tap1_pos;
+tap_pos_ui[1] = tap2_pos;
+tap_pos_ui[2] = tap3_pos;
+tap_pos_ui[3] = tap4_pos;
+tap_pos_ui[4] = tap5_pos;
+tap_pos_ui[5] = tap6_pos;
+tap_pos_ui[6] = tap7_pos;
+tap_pos_ui[7] = tap8_pos;
+
+tap1_nudge_ms = clamp(tap1_nudge_ms, -50, 50);
+tap2_nudge_ms = clamp(tap2_nudge_ms, -50, 50);
+tap3_nudge_ms = clamp(tap3_nudge_ms, -50, 50);
+tap4_nudge_ms = clamp(tap4_nudge_ms, -50, 50);
+tap5_nudge_ms = clamp(tap5_nudge_ms, -50, 50);
+tap6_nudge_ms = clamp(tap6_nudge_ms, -50, 50);
+tap7_nudge_ms = clamp(tap7_nudge_ms, -50, 50);
+tap8_nudge_ms = clamp(tap8_nudge_ms, -50, 50);
+
+tap_nudge_ui[0] = tap1_nudge_ms;
+tap_nudge_ui[1] = tap2_nudge_ms;
+tap_nudge_ui[2] = tap3_nudge_ms;
+tap_nudge_ui[3] = tap4_nudge_ms;
+tap_nudge_ui[4] = tap5_nudge_ms;
+tap_nudge_ui[5] = tap6_nudge_ms;
+tap_nudge_ui[6] = tap7_nudge_ms;
+tap_nudge_ui[7] = tap8_nudge_ms;
+
+tap1_trim_db = clamp(tap1_trim_db, MIN_TRIM_DB, MAX_TRIM_DB);
+tap2_trim_db = clamp(tap2_trim_db, MIN_TRIM_DB, MAX_TRIM_DB);
+tap3_trim_db = clamp(tap3_trim_db, MIN_TRIM_DB, MAX_TRIM_DB);
+tap4_trim_db = clamp(tap4_trim_db, MIN_TRIM_DB, MAX_TRIM_DB);
+tap5_trim_db = clamp(tap5_trim_db, MIN_TRIM_DB, MAX_TRIM_DB);
+tap6_trim_db = clamp(tap6_trim_db, MIN_TRIM_DB, MAX_TRIM_DB);
+tap7_trim_db = clamp(tap7_trim_db, MIN_TRIM_DB, MAX_TRIM_DB);
+tap8_trim_db = clamp(tap8_trim_db, MIN_TRIM_DB, MAX_TRIM_DB);
+
+drag_tap < 0 ? (
+  tap_level_ui[0] = tap1_trim_db;
+  tap_level_ui[1] = tap2_trim_db;
+  tap_level_ui[2] = tap3_trim_db;
+  tap_level_ui[3] = tap4_trim_db;
+  tap_level_ui[4] = tap5_trim_db;
+  tap_level_ui[5] = tap6_trim_db;
+  tap_level_ui[6] = tap7_trim_db;
+  tap_level_ui[7] = tap8_trim_db;
+);
+
+tap1_out_pair = clampi(tap1_out_pair, 0, 7);
+tap2_out_pair = clampi(tap2_out_pair, 0, 7);
+tap3_out_pair = clampi(tap3_out_pair, 0, 7);
+tap4_out_pair = clampi(tap4_out_pair, 0, 7);
+tap5_out_pair = clampi(tap5_out_pair, 0, 7);
+tap6_out_pair = clampi(tap6_out_pair, 0, 7);
+tap7_out_pair = clampi(tap7_out_pair, 0, 7);
+tap8_out_pair = clampi(tap8_out_pair, 0, 7);
+
+tap_pair_ui[0] = tap1_out_pair;
+tap_pair_ui[1] = tap2_out_pair;
+tap_pair_ui[2] = tap3_out_pair;
+tap_pair_ui[3] = tap4_out_pair;
+tap_pair_ui[4] = tap5_out_pair;
+tap_pair_ui[5] = tap6_out_pair;
+tap_pair_ui[6] = tap7_out_pair;
+tap_pair_ui[7] = tap8_out_pair;
+mark_all_taps_dirty();
+
+detect_attack_coeff = 1 - exp(-2 * $pi * 1200 / srate);
+detect_release_coeff = 1 - exp(-2 * $pi * 140 / srate);
+gate_hold_samples = max(floor(INPUT_GATE_HOLD_MS * 0.001 * srate + 0.5), 1);
+retrigger_hold_samples = max(floor(INPUT_RETRIGGER_MS * 0.001 * srate + 0.5), 1);
+
+@block
+
+block_beat_position = beat_position;
+block_tempo = tempo > 1 ? tempo : 120;
+block_ts_num = ts_num > 0 ? ts_num : 4;
+block_ts_denom = ts_denom > 0 ? ts_denom : 4;
+sample_in_block = 0;
+sync_adsr_slider_state();
+sync_modulated_tap_sliders();
+
+@sample
+
+input_pair_now = clampi(input_pair, 0, 8);
+dry_l = read_input_left(input_pair_now);
+dry_r = read_input_right(input_pair_now);
+
+input_mag = max(abs(dry_l), abs(dry_r));
+input_detect_prev = input_detect_env;
+input_mag > input_detect_env ? (
+  input_detect_env += detect_attack_coeff * (input_mag - input_detect_env);
+) : (
+  input_detect_env += detect_release_coeff * (input_mag - input_detect_env);
+);
+input_gate_prev ? (
+  input_detect_env > INPUT_GATE_CLOSE_THRESH ? input_gate_hold = gate_hold_samples;
+) : (
+  input_detect_env > INPUT_GATE_OPEN_THRESH ? input_gate_hold = gate_hold_samples;
+);
+input_active = input_gate_hold > 0;
+input_onset_trigger = input_active && input_retrigger_hold <= 0 &&
+  input_detect_env > max(INPUT_GATE_OPEN_THRESH, input_detect_prev * INPUT_RETRIGGER_RATIO + INPUT_GATE_OPEN_THRESH);
+input_trigger = input_active && (!input_gate_prev || input_onset_trigger);
+input_trigger ? input_retrigger_hold = retrigger_hold_samples;
+
+dry_buf_l[write_pos] = dry_l;
+dry_buf_r[write_pos] = dry_r;
+dry_gate_buf[write_pos] = input_trigger ? 2 : input_active ? 1 : 0;
+
+input_active ? input_gate_hold -= 1;
+input_retrigger_hold > 0 ? input_retrigger_hold -= 1;
+input_gate_prev = input_active;
+
+spl0 = 0;
+spl1 = 0;
+spl2 = 0;
+spl3 = 0;
+spl4 = 0;
+spl5 = 0;
+spl6 = 0;
+spl7 = 0;
+spl8 = 0;
+spl9 = 0;
+spl10 = 0;
+spl11 = 0;
+spl12 = 0;
+spl13 = 0;
+spl14 = 0;
+spl15 = 0;
+
+tempo_now = block_tempo > 1 ? block_tempo : 120;
+sec_per_beat_now = 60 / tempo_now;
+beats_per_sample = tempo_now / (60 * srate);
+bar_beats_now = bar_beats_from_sig(block_ts_num, block_ts_denom);
+grid_step_beats_now = grid_step_beats(grid_res, grid_feel, bar_beats_now);
+grid_step_count_now = grid_step_count_for(grid_res, grid_feel, bar_beats_now);
+attack_samp_now = floor(clamp(attack_ms, 0, 2000) * 0.001 * srate + 0.5);
+decay_samp_now = floor(clamp(decay_ms, 0, 2000) * 0.001 * srate + 0.5);
+release_samp_now = floor(clamp(release_ms, 1, 3000) * 0.001 * srate + 0.5);
+sustain_now = clamp(sustain_pct * 0.01, 0, 1);
+attack_curve_now = clamp(attack_curve, -100, 100);
+decay_curve_now = clamp(decay_curve, -100, 100);
+release_curve_now = clamp(release_curve, -100, 100);
+
+tap_i = 0;
+while (tap_i < NUM_TAPS) (
+  enabled_i = current_tap_enabled(tap_i);
+  enabled_i ? (
+    pos_i = clampi(current_tap_position(tap_i), 1, grid_step_count_now);
+    delay_seconds = (pos_i - 1) * grid_step_beats_now * sec_per_beat_now + clamp(current_tap_nudge(tap_i), -50, 50) * 0.001;
+    delay_seconds = clamp(delay_seconds, 0, actual_max_delay_seconds - (4 / srate));
+    target_delay_samples = delay_seconds * srate;
+    tap_delay_smooth[tap_i] < 0 || tap_env_stage[tap_i] == ENV_STAGE_OFF ? tap_delay_smooth[tap_i] = target_delay_samples;
+    gain_i = db_to_gain(clamp(current_tap_level(tap_i), MIN_TRIM_DB, MAX_TRIM_DB));
+    tap_l = read_dry_left(tap_delay_smooth[tap_i]);
+    tap_r = read_dry_right(tap_delay_smooth[tap_i]);
+    gate_state = read_dry_gate_state(tap_delay_smooth[tap_i]);
+    tap_active = gate_state >= 1;
+    tap_trigger = (gate_state >= 2 && tap_retrigger_hold[tap_i] <= 0) || (tap_active && tap_env_stage[tap_i] == ENV_STAGE_OFF);
+    tap_trigger ? tap_retrigger_hold[tap_i] = 2;
+    tap_retrigger_hold[tap_i] > 0 ? tap_retrigger_hold[tap_i] -= 1;
+    env_i = advance_tap_envelope(
+      tap_i,
+      tap_active,
+      tap_trigger,
+      attack_samp_now,
+      decay_samp_now,
+      release_samp_now,
+      sustain_now,
+      attack_curve_now,
+      decay_curve_now,
+      release_curve_now
+    );
+    gain_i > 0.000001 && env_i > 0.000001 ? add_to_output_pair(clampi(current_tap_pair(tap_i), 0, 7), tap_l * gain_i * env_i, tap_r * gain_i * env_i);
+  ) : (
+    tap_env_val[tap_i] = 0;
+    tap_env_pos[tap_i] = 0;
+    tap_env_stage[tap_i] = ENV_STAGE_OFF;
+    tap_gate_prev[tap_i] = 0;
+    tap_release_start[tap_i] = 0;
+    tap_delay_smooth[tap_i] = -1;
+    tap_retrigger_hold[tap_i] = 0;
+  );
+  tap_i += 1;
+);
+
+write_pos += 1;
+write_pos >= buf_len ? write_pos = 0;
+sample_in_block += 1;
+free_run_beat += beats_per_sample;
+free_run_beat >= bar_beats_now ? free_run_beat -= bar_beats_now;
+
+@gfx 1040 560
+
+sync_adsr_slider_state();
+sync_modulated_tap_sliders();
+(layout_dirty || gfx_w != last_layout_w || gfx_h != last_layout_h || ui_scale_pct != last_layout_scale_pct || !cache_ready) ? compute_layout();
+ui_bar_beats = bar_beats_from_sig(block_ts_num, block_ts_denom);
+ui_bar_beats != last_ui_bar_beats ? (
+  last_ui_bar_beats = ui_bar_beats;
+  adsr_dirty = 1;
+  mark_all_taps_dirty();
+);
+
+mouse_down = mouse_cap & 1;
+click = mouse_down && !last_mouse_down;
+mouse_shift = mouse_cap & 8;
+
+click ? (
+  scale_h = 24 * ui_scale;
+  scale_minus_x = gfx_w - margin - 116 * ui_scale;
+  scale_y = margin + 8 * ui_scale;
+  in_rect(mouse_x, mouse_y, scale_minus_x, scale_y, 20 * ui_scale, scale_h) ? set_ui_scale(ui_scale_pct - 5);
+  in_rect(mouse_x, mouse_y, scale_minus_x + 96 * ui_scale, scale_y, 20 * ui_scale, scale_h) ? set_ui_scale(ui_scale_pct + 5);
+  in_rect(mouse_x, mouse_y, scale_minus_x + 20 * ui_scale, scale_y, 76 * ui_scale, scale_h) ? start_param_drag(DRAG_PARAM_UI_SCALE, -1, ui_scale_pct);
+
+  adsr_y = margin + header_h + gap;
+  adsr_ctrl_w = (gfx_w - margin * 2 - gap * 8) / 9;
+  adsr_value_y = adsr_y + 28 * ui_scale;
+  step_btn_w = 20 * ui_scale;
+  adsr_value_h = 30 * ui_scale;
+  in_rect(mouse_x, mouse_y, margin, adsr_y + 28 * ui_scale, 20 * ui_scale, 30 * ui_scale) ? set_grid_res(grid_res - 1);
+  in_rect(mouse_x, mouse_y, margin + adsr_ctrl_w - 20 * ui_scale, adsr_y + 28 * ui_scale, 20 * ui_scale, 30 * ui_scale) ? set_grid_res(grid_res + 1);
+  in_rect(mouse_x, mouse_y, margin + step_btn_w, adsr_value_y, adsr_ctrl_w - step_btn_w * 2, adsr_value_h) ? start_param_drag(DRAG_PARAM_GRID, -1, grid_res);
+  in_rect(mouse_x, mouse_y, margin + (adsr_ctrl_w + gap), adsr_y + 28 * ui_scale, 20 * ui_scale, 30 * ui_scale) ? set_grid_feel(grid_feel - 1);
+  in_rect(mouse_x, mouse_y, margin + (adsr_ctrl_w + gap) + adsr_ctrl_w - 20 * ui_scale, adsr_y + 28 * ui_scale, 20 * ui_scale, 30 * ui_scale) ? set_grid_feel(grid_feel + 1);
+  in_rect(mouse_x, mouse_y, margin + (adsr_ctrl_w + gap) + step_btn_w, adsr_value_y, adsr_ctrl_w - step_btn_w * 2, adsr_value_h) ? start_param_drag(DRAG_PARAM_FEEL, -1, grid_feel);
+  in_rect(mouse_x, mouse_y, margin + (adsr_ctrl_w + gap) * 2, adsr_value_y, adsr_ctrl_w, adsr_value_h) ? start_param_log_slider_drag(DRAG_PARAM_ATTACK, -1, margin + (adsr_ctrl_w + gap) * 2 + 8 * ui_scale, adsr_ctrl_w - 16 * ui_scale, 0, 2000, 0.1);
+  in_rect(mouse_x, mouse_y, margin + (adsr_ctrl_w + gap) * 3, adsr_value_y, adsr_ctrl_w, adsr_value_h) ? start_param_slider_drag(DRAG_PARAM_ATTACK_CURVE, -1, margin + (adsr_ctrl_w + gap) * 3 + 8 * ui_scale, adsr_ctrl_w - 16 * ui_scale, -100, 100, 1);
+  in_rect(mouse_x, mouse_y, margin + (adsr_ctrl_w + gap) * 4, adsr_value_y, adsr_ctrl_w, adsr_value_h) ? start_param_log_slider_drag(DRAG_PARAM_DECAY, -1, margin + (adsr_ctrl_w + gap) * 4 + 8 * ui_scale, adsr_ctrl_w - 16 * ui_scale, 0, 2000, 1);
+  in_rect(mouse_x, mouse_y, margin + (adsr_ctrl_w + gap) * 5, adsr_value_y, adsr_ctrl_w, adsr_value_h) ? start_param_slider_drag(DRAG_PARAM_DECAY_CURVE, -1, margin + (adsr_ctrl_w + gap) * 5 + 8 * ui_scale, adsr_ctrl_w - 16 * ui_scale, -100, 100, 1);
+  in_rect(mouse_x, mouse_y, margin + (adsr_ctrl_w + gap) * 6, adsr_value_y, adsr_ctrl_w, adsr_value_h) ? start_param_slider_drag(DRAG_PARAM_SUSTAIN, -1, margin + (adsr_ctrl_w + gap) * 6 + 8 * ui_scale, adsr_ctrl_w - 16 * ui_scale, 0, 100, 1);
+  in_rect(mouse_x, mouse_y, margin + (adsr_ctrl_w + gap) * 7, adsr_value_y, adsr_ctrl_w, adsr_value_h) ? start_param_slider_drag(DRAG_PARAM_RELEASE, -1, margin + (adsr_ctrl_w + gap) * 7 + 8 * ui_scale, adsr_ctrl_w - 16 * ui_scale, 1, 3000, 1);
+  in_rect(mouse_x, mouse_y, margin + (adsr_ctrl_w + gap) * 8, adsr_value_y, adsr_ctrl_w, adsr_value_h) ? start_param_slider_drag(DRAG_PARAM_RELEASE_CURVE, -1, margin + (adsr_ctrl_w + gap) * 8 + 8 * ui_scale, adsr_ctrl_w - 16 * ui_scale, -100, 100, 1);
+
+  tap_i = 0;
+  while (tap_i < NUM_TAPS) (
+    strip_x = margin + tap_i * (strip_w + gap);
+    strip_y = strip_top;
+    inner_x = strip_x + 8 * ui_scale;
+    inner_w = strip_w - 16 * ui_scale;
+    enable_y = strip_y + 30 * ui_scale;
+    grid_y = strip_y + 66 * ui_scale;
+    nudge_y = strip_y + 118 * ui_scale;
+    pair_y = strip_y + 170 * ui_scale;
+    fader_y = strip_y + 222 * ui_scale;
+    fader_h = strip_h - 260 * ui_scale;
+    fader_h < (86 * ui_scale) ? fader_h = 86 * ui_scale;
+
+    in_rect(mouse_x, mouse_y, inner_x, enable_y, inner_w, 24 * ui_scale) ? set_tap_enable(tap_i, 1 - tap_enabled(tap_i));
+    in_rect(mouse_x, mouse_y, inner_x, grid_y, 20 * ui_scale, 42 * ui_scale) ? set_tap_position(tap_i, tap_position(tap_i) - 1);
+    in_rect(mouse_x, mouse_y, inner_x + inner_w - 20 * ui_scale, grid_y, 20 * ui_scale, 42 * ui_scale) ? set_tap_position(tap_i, tap_position(tap_i) + 1);
+    in_rect(mouse_x, mouse_y, inner_x + step_btn_w, grid_y, inner_w - step_btn_w * 2, 42 * ui_scale) ? start_param_drag(DRAG_PARAM_TAP_POS, tap_i, tap_position(tap_i));
+    in_rect(mouse_x, mouse_y, inner_x, nudge_y, 20 * ui_scale, 42 * ui_scale) ? set_tap_nudge(tap_i, tap_nudge(tap_i) - (mouse_shift ? 5 : 1));
+    in_rect(mouse_x, mouse_y, inner_x + inner_w - 20 * ui_scale, nudge_y, 20 * ui_scale, 42 * ui_scale) ? set_tap_nudge(tap_i, tap_nudge(tap_i) + (mouse_shift ? 5 : 1));
+    in_rect(mouse_x, mouse_y, inner_x + step_btn_w, nudge_y, inner_w - step_btn_w * 2, 42 * ui_scale) ? start_param_drag(DRAG_PARAM_TAP_NUDGE, tap_i, tap_nudge(tap_i));
+    in_rect(mouse_x, mouse_y, inner_x, pair_y, 20 * ui_scale, 42 * ui_scale) ? set_tap_pair(tap_i, tap_pair(tap_i) - 1);
+    in_rect(mouse_x, mouse_y, inner_x + inner_w - 20 * ui_scale, pair_y, 20 * ui_scale, 42 * ui_scale) ? set_tap_pair(tap_i, tap_pair(tap_i) + 1);
+    in_rect(mouse_x, mouse_y, inner_x + step_btn_w, pair_y, inner_w - step_btn_w * 2, 42 * ui_scale) ? start_param_drag(DRAG_PARAM_TAP_PAIR, tap_i, tap_pair(tap_i));
+
+    in_rect(mouse_x, mouse_y, inner_x, fader_y, inner_w, fader_h) ? (
+      drag_tap = tap_i;
+      drag_fader_y = fader_y;
+      drag_fader_h = fader_h;
+      set_tap_level(tap_i, MAX_TRIM_DB - ((mouse_y - fader_y) / fader_h) * (MAX_TRIM_DB - MIN_TRIM_DB));
+    );
+    tap_i += 1;
+  );
+);
+
+mouse_down && (drag_param != DRAG_PARAM_NONE) ? (
+  update_param_drag();
+) : (
+  !mouse_down ? (
+    drag_param != DRAG_PARAM_NONE && drag_param_tap >= 0 ? commit_tap_slider_state(drag_param_tap);
+    drag_param = DRAG_PARAM_NONE;
+    drag_param_tap = -1;
+    drag_param_slider = 0;
+    drag_param_slider_log = 0;
+  );
+);
+
+mouse_down && (drag_tap >= 0) ? (
+  set_tap_level(drag_tap, MAX_TRIM_DB - ((mouse_y - drag_fader_y) / drag_fader_h) * (MAX_TRIM_DB - MIN_TRIM_DB));
+) : (
+  !mouse_down && (drag_tap >= 0) ? (
+    commit_tap_slider_state(drag_tap);
+    drag_tap = -1;
+  );
+);
+
+(layout_dirty || gfx_w != last_layout_w || gfx_h != last_layout_h || ui_scale_pct != last_layout_scale_pct || !cache_ready) ? compute_layout();
+
+redraw_cache = bg_dirty || header_dirty || adsr_dirty;
+
+tap_i = 0;
+while (tap_i < NUM_TAPS) (
+  redraw_cache = redraw_cache || tap_dirty[tap_i];
+  tap_i += 1;
+);
+
+redraw_cache ? (
+  gfx_dest = IMG_CACHE;
+  bg_dirty ? render_bg();
+  header_dirty ? render_header();
+  adsr_dirty ? render_adsr();
+
+  tap_i = 0;
+  while (tap_i < NUM_TAPS) (
+    tap_dirty[tap_i] ? render_tap(tap_i);
+    tap_i += 1;
+  );
+  gfx_dest = -1;
+);
+
+gfx_x = 0;
+gfx_y = 0;
+gfx_blit(IMG_CACHE, 1, 0);
+
+last_mouse_down = mouse_down;
