@@ -6,6 +6,7 @@ JSFX Scripts that I've written for Cockos Reaper.
 * `CrescendoWerk_v1.jsfx` structured post-rock / post-metal MIDI drum generator with Patient Pulse, Procession / Tension, and Weight / Tom Motion layers plus a form-aware `@gfx` editor.
 * `DanseWerk_v1.jsfx` structured EBM / industrial MIDI drum generator with Command / Contamination / Punishment layers and a form-aware `@gfx` editor.
 * `MetalWerk_v1.jsfx` structured metal drum MIDI generator with layered Precision / Riff / Tribal identities and a form-aware `@gfx` editor.
+* `OpenScaleEQ_v1.jsfx` original MIT-licensed scale-aware spectral EQ with in-key boosts, out-of-key cuts, auto major/minor key estimation, M/S width utilities, safety ceiling, and a custom spectral display.
 * `ScaleLane_v1.jsfx` lean 4-lane scale-aware melodic MIDI sequencer with per-lane patterns, chain playback, and a stopped-only `@gfx` step editor.
 * `UndertowWerk_v1.jsfx` structured quiet/loud post-rock / math-rock MIDI drum generator with Anchor, Nerve, and Surge layers plus a form-aware `@gfx` editor.
 * `WaterSplash_ModeGravity.jsfx` version 1 poc of an idea that a midi note is like a pebble hitting a water surface - causing splashes of midi notes like water droplets.

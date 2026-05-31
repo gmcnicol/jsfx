@@ -1,0 +1,1533 @@
+desc:OpenScaleEQ v1
+tags:effect eq spectral harmonic scale tuned musical analyzer open-source
+options:no_meter
+
+in_pin:Input Left
+in_pin:Input Right
+out_pin:Output Left
+out_pin:Output Right
+
+slider1:0<-24,24,0.1>Input (dB)
+slider2:0<-24,24,0.1>Output (dB)
+slider3:100<0,100,0.1>Mix (%)
+slider4:0<0,11,1{C,C#,D,D#,E,F,F#,G,G#,A,A#,B}>Root
+slider5:0<0,10,1{Major,Natural Minor,Dorian,Phrygian,Lydian,Mixolydian,Locrian,Harmonic Minor,Melodic Minor,Pentatonic Major,Pentatonic Minor}>Scale
+slider6:0<0,1,1{Manual,Auto Major/Minor}>Key Source
+slider7:0<0,3,1{Plus/Minus,In-Key Boost,Out-Key Cut,Invert}>Harmonic Mode
+slider8:60<0,100,0.1>Harmonic Amount (%)
+slider9:3.0<0,12,0.1>In-Key Boost (dB)
+slider10:4.5<0,24,0.1>Out-Key Cut (dB)
+slider11:60<20,20000,1>Min Frequency (Hz)
+slider12:12000<20,20000,1>Max Frequency (Hz)
+slider13:62<20,140,1>Note Width (ct)
+slider14:100<0,200,1>Stereo Width (%)
+slider15:120<20,300,1>Bass Mono (Hz)
+slider16:-1<-12,0,0.1>Safety Ceiling (dB)
+slider17:1<0,2,1{1024,2048,4096}>FFT Size
+slider18:100<50,150,1>UI Scale (%)
+slider19:0<0,3,1{Custom,Subtle,Balanced,Aggressive}>Profile
+
+@init
+
+ext_noinit = 1;
+
+LOG2 = log(2);
+LOG10 = log(10);
+DB_TO_LOG = 8.685889638;
+EPS = 0.000001;
+MIN_FREQ = 20;
+MAX_FREQ = 20000;
+MAX_FFT_SIZE = 4096;
+MAX_BIN_COUNT = 2049;
+COMPLEX_FFT_MEM = MAX_FFT_SIZE * 2;
+FFT_SAMPLE_MEM = MAX_FFT_SIZE;
+BIN_MEM = MAX_BIN_COUNT;
+CHROMA_MEM = 12;
+MEM_GUARD = 256;
+
+MODE_PLUS_MINUS = 0;
+MODE_IN_BOOST = 1;
+MODE_OUT_CUT = 2;
+MODE_INVERT = 3;
+
+DRAG_NONE = 0;
+DRAG_INPUT = 1;
+DRAG_OUTPUT = 2;
+DRAG_MIX = 3;
+DRAG_ROOT = 4;
+DRAG_SCALE = 5;
+DRAG_KEY_SOURCE = 6;
+DRAG_MODE = 7;
+DRAG_AMOUNT = 8;
+DRAG_BOOST = 9;
+DRAG_CUT = 10;
+DRAG_MIN_FREQ = 11;
+DRAG_MAX_FREQ = 12;
+DRAG_FOCUS = 13;
+DRAG_WIDTH = 14;
+DRAG_BASS_MONO = 15;
+DRAG_CEILING = 16;
+DRAG_FFT = 17;
+DRAG_UI_SCALE = 18;
+DRAG_PROFILE = 19;
+
+fft_left_base = 0;
+input_ring_size = 8192;
+output_ring_size = 16384;
+dry_ring_size = 16384;
+
+fft_right_base = fft_left_base + COMPLEX_FFT_MEM + MEM_GUARD;
+window_base = fft_right_base + COMPLEX_FFT_MEM + MEM_GUARD;
+bin_frequency_base = window_base + FFT_SAMPLE_MEM + MEM_GUARD;
+bin_pitch_class_base = bin_frequency_base + BIN_MEM + MEM_GUARD;
+bin_pitch_weight_base = bin_pitch_class_base + BIN_MEM + MEM_GUARD;
+raw_gain_db_base = bin_pitch_weight_base + BIN_MEM + MEM_GUARD;
+freq_smoothed_gain_db_base = raw_gain_db_base + BIN_MEM + MEM_GUARD;
+target_gain_base = freq_smoothed_gain_db_base + BIN_MEM + MEM_GUARD;
+smoothed_gain_base = target_gain_base + BIN_MEM + MEM_GUARD;
+display_mag_db_base = smoothed_gain_base + BIN_MEM + MEM_GUARD;
+display_gain_db_base = display_mag_db_base + BIN_MEM + MEM_GUARD;
+frame_chroma_base = display_gain_db_base + BIN_MEM + MEM_GUARD;
+average_chroma_base = frame_chroma_base + CHROMA_MEM + MEM_GUARD;
+
+input_left_ring_base = average_chroma_base + CHROMA_MEM + MEM_GUARD;
+input_right_ring_base = input_left_ring_base + input_ring_size + MEM_GUARD;
+ola_left_ring_base = input_right_ring_base + input_ring_size + MEM_GUARD;
+ola_right_ring_base = ola_left_ring_base + output_ring_size + MEM_GUARD;
+dry_left_ring_base = ola_right_ring_base + output_ring_size + MEM_GUARD;
+dry_right_ring_base = dry_left_ring_base + dry_ring_size + MEM_GUARD;
+
+function clamp_value(v, lo, hi)
+(
+  v < lo ? lo : v > hi ? hi : v;
+);
+
+function absf(v)
+(
+  v < 0 ? -v : v;
+);
+
+function db_to_gain(db)
+(
+  exp(db / DB_TO_LOG);
+);
+
+function gain_to_db(g)
+(
+  DB_TO_LOG * log(max(g, EPS));
+);
+
+function map_fft_size(selector)
+(
+  selector < 0.5 ? 1024 : selector < 1.5 ? 2048 : 4096;
+);
+
+function wrap12(v) local(r)
+(
+  r = v % 12;
+  r < 0 ? r += 12;
+  r;
+);
+
+function root_name(root_i)
+(
+  root_i == 0 ? sprintf(#root_txt, "C") :
+  root_i == 1 ? sprintf(#root_txt, "C#") :
+  root_i == 2 ? sprintf(#root_txt, "D") :
+  root_i == 3 ? sprintf(#root_txt, "D#") :
+  root_i == 4 ? sprintf(#root_txt, "E") :
+  root_i == 5 ? sprintf(#root_txt, "F") :
+  root_i == 6 ? sprintf(#root_txt, "F#") :
+  root_i == 7 ? sprintf(#root_txt, "G") :
+  root_i == 8 ? sprintf(#root_txt, "G#") :
+  root_i == 9 ? sprintf(#root_txt, "A") :
+  root_i == 10 ? sprintf(#root_txt, "A#") :
+  sprintf(#root_txt, "B");
+);
+
+function scale_name(scale_i)
+(
+  scale_i == 0 ? sprintf(#scale_txt, "Major") :
+  scale_i == 1 ? sprintf(#scale_txt, "Natural Minor") :
+  scale_i == 2 ? sprintf(#scale_txt, "Dorian") :
+  scale_i == 3 ? sprintf(#scale_txt, "Phrygian") :
+  scale_i == 4 ? sprintf(#scale_txt, "Lydian") :
+  scale_i == 5 ? sprintf(#scale_txt, "Mixolydian") :
+  scale_i == 6 ? sprintf(#scale_txt, "Locrian") :
+  scale_i == 7 ? sprintf(#scale_txt, "Harmonic Minor") :
+  scale_i == 8 ? sprintf(#scale_txt, "Melodic Minor") :
+  scale_i == 9 ? sprintf(#scale_txt, "Pent Major") :
+  sprintf(#scale_txt, "Pent Minor");
+);
+
+function mode_name(mode_i)
+(
+  mode_i == MODE_PLUS_MINUS ? sprintf(#mode_txt, "Plus/Minus") :
+  mode_i == MODE_IN_BOOST ? sprintf(#mode_txt, "In-Key Boost") :
+  mode_i == MODE_OUT_CUT ? sprintf(#mode_txt, "Out-Key Cut") :
+  sprintf(#mode_txt, "Invert");
+);
+
+function profile_name(profile_i)
+(
+  profile_i == 1 ? sprintf(#profile_txt, "Subtle") :
+  profile_i == 2 ? sprintf(#profile_txt, "Balanced") :
+  profile_i == 3 ? sprintf(#profile_txt, "Aggressive") :
+  sprintf(#profile_txt, "Custom");
+);
+
+function interval_in_scale(scale_i, interval_i) local(found)
+(
+  interval_i = wrap12(interval_i);
+  found = 0;
+
+  scale_i == 0 ? (
+    found = interval_i == 0 || interval_i == 2 || interval_i == 4 || interval_i == 5 || interval_i == 7 || interval_i == 9 || interval_i == 11;
+  ) :
+  scale_i == 1 ? (
+    found = interval_i == 0 || interval_i == 2 || interval_i == 3 || interval_i == 5 || interval_i == 7 || interval_i == 8 || interval_i == 10;
+  ) :
+  scale_i == 2 ? (
+    found = interval_i == 0 || interval_i == 2 || interval_i == 3 || interval_i == 5 || interval_i == 7 || interval_i == 9 || interval_i == 10;
+  ) :
+  scale_i == 3 ? (
+    found = interval_i == 0 || interval_i == 1 || interval_i == 3 || interval_i == 5 || interval_i == 7 || interval_i == 8 || interval_i == 10;
+  ) :
+  scale_i == 4 ? (
+    found = interval_i == 0 || interval_i == 2 || interval_i == 4 || interval_i == 6 || interval_i == 7 || interval_i == 9 || interval_i == 11;
+  ) :
+  scale_i == 5 ? (
+    found = interval_i == 0 || interval_i == 2 || interval_i == 4 || interval_i == 5 || interval_i == 7 || interval_i == 9 || interval_i == 10;
+  ) :
+  scale_i == 6 ? (
+    found = interval_i == 0 || interval_i == 1 || interval_i == 3 || interval_i == 5 || interval_i == 6 || interval_i == 8 || interval_i == 10;
+  ) :
+  scale_i == 7 ? (
+    found = interval_i == 0 || interval_i == 2 || interval_i == 3 || interval_i == 5 || interval_i == 7 || interval_i == 8 || interval_i == 11;
+  ) :
+  scale_i == 8 ? (
+    found = interval_i == 0 || interval_i == 2 || interval_i == 3 || interval_i == 5 || interval_i == 7 || interval_i == 9 || interval_i == 11;
+  ) :
+  scale_i == 9 ? (
+    found = interval_i == 0 || interval_i == 2 || interval_i == 4 || interval_i == 7 || interval_i == 9;
+  ) : (
+    found = interval_i == 0 || interval_i == 3 || interval_i == 5 || interval_i == 7 || interval_i == 10;
+  );
+
+  found;
+);
+
+function pc_in_scale(pc_i, root_i, scale_i)
+(
+  interval_in_scale(scale_i, wrap12(pc_i - root_i));
+);
+
+function scale_interval_weight(scale_i, interval_i) local(weight_i)
+(
+  interval_i = wrap12(interval_i);
+  weight_i = interval_in_scale(scale_i, interval_i) ? 0.62 : -0.42;
+  interval_i == 0 ? weight_i = 1.35;
+  interval_i == 7 ? weight_i = 0.92;
+  (scale_i == 0 && interval_i == 4) || (scale_i == 1 && interval_i == 3) ? weight_i = 0.98;
+  (scale_i == 0 && interval_i == 11) || (scale_i == 1 && interval_i == 10) ? weight_i = 0.74;
+  weight_i;
+);
+
+function clear_memory_region(region_base, region_length) local(i)
+(
+  i = 0;
+  loop(region_length,
+    region_base[i] = 0;
+    i += 1;
+  );
+);
+
+function in_rect(mx, my, x, y, w, h)
+(
+  mx >= x && mx < (x + w) && my >= y && my < (y + h);
+);
+
+function round_to_step(v, step_i)
+(
+  floor(v / max(step_i, EPS) + 0.5) * max(step_i, EPS);
+);
+
+function detect_key_from_chroma() local(root_i, pc_i, score_major, score_minor, best_score, best_root, best_scale, current_score, chroma_total, value, best_margin)
+(
+  chroma_total = 0;
+  pc_i = 0;
+  loop(12,
+    chroma_total += average_chroma_base[pc_i];
+    pc_i += 1;
+  );
+
+  chroma_total <= 0.0001 ? (
+    pending_key_hits = 0;
+  ) : (
+  best_score = -999;
+  best_root = detected_root;
+  best_scale = detected_scale;
+  current_score = -999;
+
+  root_i = 0;
+  loop(12,
+    score_major = 0;
+    score_minor = 0;
+    pc_i = 0;
+    loop(12,
+      value = average_chroma_base[pc_i] / chroma_total;
+      score_major += value * scale_interval_weight(0, pc_i - root_i);
+      score_minor += value * scale_interval_weight(1, pc_i - root_i);
+      pc_i += 1;
+    );
+
+    score_major > best_score ? (
+      best_score = score_major;
+      best_root = root_i;
+      best_scale = 0;
+    );
+
+    score_minor > best_score ? (
+      best_score = score_minor;
+      best_root = root_i;
+      best_scale = 1;
+    );
+
+    root_i == detected_root ? (
+      detected_scale == 0 ? current_score = score_major;
+      detected_scale == 1 ? current_score = score_minor;
+    );
+
+    root_i += 1;
+  );
+
+  best_root == pending_key_root && best_scale == pending_key_scale ? (
+    pending_key_hits += 1;
+  ) : (
+    pending_key_root = best_root;
+    pending_key_scale = best_scale;
+    pending_key_hits = 1;
+  );
+
+  best_margin = best_score - current_score;
+  (pending_key_hits >= 3 && (best_margin > 0.040 || detected_key_confidence <= 0.0001)) ? (
+    detected_root = best_root;
+    detected_scale = best_scale;
+    detected_key_confidence = best_score;
+  ) : (
+    detected_key_confidence = detected_key_confidence * 0.92 + best_score * 0.08;
+  );
+  );
+);
+
+function rebuild_pitch_map() local(i, freq, midi_f, midi_i, cents, pc_i)
+(
+  i = 0;
+  loop(current_bin_count,
+    freq = bin_frequency_base[i];
+    freq >= MIN_FREQ ? (
+      midi_f = 69 + 12 * (log(freq / 440) / LOG2);
+      midi_i = floor(midi_f + 0.5);
+      cents = absf(midi_f - midi_i) * 100;
+      pc_i = wrap12(midi_i);
+      bin_pitch_class_base[i] = pc_i;
+      bin_pitch_weight_base[i] = exp(-1 * (cents * cents) / max(note_focus_cents * note_focus_cents, 1));
+    ) : (
+      bin_pitch_class_base[i] = -1;
+      bin_pitch_weight_base[i] = 0;
+    );
+    i += 1;
+  );
+);
+
+function rebuild_processing_engine() local(i, phase, raw_window, freq)
+(
+  current_fft_size = requested_fft_size;
+  current_hop_size = (current_fft_size / 4) | 0;
+  current_bin_count = (current_fft_size * 0.5) | 0;
+  current_bin_count += 1;
+  inverse_fft_size = 1 / current_fft_size;
+  overlap_gain_compensation = 0.5;
+
+  latency_samples = current_fft_size;
+  pdc_delay = latency_samples;
+  pdc_bot_ch = 0;
+  pdc_top_ch = 2;
+
+  input_write_index = 0;
+  ola_read_index = 0;
+  dry_write_index = 0;
+  hop_sample_counter = 0;
+
+  clear_memory_region(input_left_ring_base, input_ring_size);
+  clear_memory_region(input_right_ring_base, input_ring_size);
+  clear_memory_region(ola_left_ring_base, output_ring_size);
+  clear_memory_region(ola_right_ring_base, output_ring_size);
+  clear_memory_region(dry_left_ring_base, dry_ring_size);
+  clear_memory_region(dry_right_ring_base, dry_ring_size);
+
+  i = 0;
+  loop(current_fft_size,
+    phase = ($pi * 2) * i / max(current_fft_size - 1, 1);
+    raw_window = 0.5 - 0.5 * cos(phase);
+    raw_window < 0 ? raw_window = 0;
+    window_base[i] = sqrt(raw_window);
+    i += 1;
+  );
+
+  i = 0;
+  loop(current_bin_count,
+    freq = (i * srate) / current_fft_size;
+    bin_frequency_base[i] = freq;
+
+    target_gain_base[i] = 1;
+    smoothed_gain_base[i] = 1;
+    raw_gain_db_base[i] = 0;
+    freq_smoothed_gain_db_base[i] = 0;
+    display_mag_db_base[i] = -96;
+    display_gain_db_base[i] = 0;
+    i += 1;
+  );
+
+  rebuild_pitch_map();
+
+  i = 0;
+  loop(12,
+    frame_chroma_base[i] = 0;
+    average_chroma_base[i] = 0;
+    i += 1;
+  );
+
+  wet_rebuild_fade_gain = 0;
+  wet_rebuild_fade_step = 1 / max(srate * 0.050, 1);
+);
+
+function process_stft_frame() local(i, source_i, output_i, complex_i,
+      left_real, left_imag, right_real, right_imag, magnitude, mag_db,
+      freq, pc_i, in_key, pitch_weight, amount, mode_i, target_db,
+      target_gain, coeff, final_gain, mirror_bin, mirror_i, chroma_norm,
+      frame_chroma_total, prev_1, prev_2, next_1, next_2, smooth_db)
+(
+  i = 0;
+  loop(12,
+    frame_chroma_base[i] = 0;
+    i += 1;
+  );
+
+  i = 0;
+  loop(current_fft_size,
+    source_i = input_write_index - current_fft_size + i;
+    source_i < 0 ? source_i += input_ring_size;
+    complex_i = i * 2;
+
+    fft_left_base[complex_i] = input_left_ring_base[source_i] * window_base[i];
+    fft_left_base[complex_i + 1] = 0;
+    fft_right_base[complex_i] = input_right_ring_base[source_i] * window_base[i];
+    fft_right_base[complex_i + 1] = 0;
+    i += 1;
+  );
+
+  fft(fft_left_base, current_fft_size);
+  fft(fft_right_base, current_fft_size);
+
+  amount = harmonic_amount * 0.01;
+  mode_i = harmonic_mode | 0;
+
+  i = 0;
+  loop(current_bin_count,
+    complex_i = i * 2;
+    left_real = fft_left_base[complex_i];
+    left_imag = fft_left_base[complex_i + 1];
+    right_real = fft_right_base[complex_i];
+    right_imag = fft_right_base[complex_i + 1];
+    magnitude = sqrt(max(left_real * left_real + left_imag * left_imag + right_real * right_real + right_imag * right_imag, 0));
+    mag_db = gain_to_db(magnitude * inverse_fft_size * 2);
+    display_mag_db_base[i] = display_mag_db_base[i] * 0.78 + clamp_value(mag_db, -96, 12) * 0.22;
+
+    freq = bin_frequency_base[i];
+    target_db = 0;
+
+    (i > 0) && (freq >= minimum_frequency_hz) && (freq <= maximum_frequency_hz) ? (
+      pc_i = bin_pitch_class_base[i] | 0;
+      pitch_weight = bin_pitch_weight_base[i];
+      in_key = pc_in_scale(pc_i, effective_root, effective_scale);
+
+      auto_key_enabled && freq >= 55 && freq <= 5000 ? (
+        frame_chroma_base[pc_i] += magnitude * sqrt(max(freq, 20) / 440);
+      );
+
+      mode_i == MODE_PLUS_MINUS ? (
+        target_db = in_key ? in_key_boost_db * amount * pitch_weight : -out_key_cut_db * amount * pitch_weight;
+      ) :
+      mode_i == MODE_IN_BOOST ? (
+        target_db = in_key ? in_key_boost_db * amount * pitch_weight : 0;
+      ) :
+      mode_i == MODE_OUT_CUT ? (
+        target_db = in_key ? 0 : -out_key_cut_db * amount * pitch_weight;
+      ) : (
+        target_db = in_key ? -out_key_cut_db * amount * pitch_weight : in_key_boost_db * amount * pitch_weight;
+      );
+    );
+
+    raw_gain_db_base[i] = target_db;
+    i += 1;
+  );
+
+  auto_key_enabled ? (
+    frame_chroma_total = 0;
+    i = 0;
+    loop(12,
+      frame_chroma_total += frame_chroma_base[i];
+      i += 1;
+    );
+
+    i = 0;
+    loop(12,
+      frame_chroma_total > EPS ? (
+        chroma_norm = frame_chroma_base[i] / frame_chroma_total;
+        average_chroma_base[i] = average_chroma_base[i] * 0.965 + chroma_norm * 0.035;
+      ) : (
+        average_chroma_base[i] *= 0.995;
+      );
+      i += 1;
+    );
+
+    key_detect_counter += 1;
+    key_detect_counter >= 24 ? (
+      key_detect_counter = 0;
+      detect_key_from_chroma();
+      effective_root = detected_root;
+      effective_scale = detected_scale;
+    );
+  );
+
+  i = 0;
+  loop(current_bin_count,
+    prev_1 = max(i - 1, 0);
+    prev_2 = max(i - 2, 0);
+    next_1 = min(i + 1, current_bin_count - 1);
+    next_2 = min(i + 2, current_bin_count - 1);
+    smooth_db =
+      raw_gain_db_base[prev_2] * 0.08 +
+      raw_gain_db_base[prev_1] * 0.18 +
+      raw_gain_db_base[i] * 0.48 +
+      raw_gain_db_base[next_1] * 0.18 +
+      raw_gain_db_base[next_2] * 0.08;
+    freq_smoothed_gain_db_base[i] = smooth_db;
+
+    target_gain = db_to_gain(smooth_db);
+    coeff = target_gain < smoothed_gain_base[i] ? gain_attack_coeff : gain_release_coeff;
+    smoothed_gain_base[i] = smoothed_gain_base[i] * coeff + target_gain * (1 - coeff);
+    target_gain_base[i] = smoothed_gain_base[i];
+    display_gain_db_base[i] = display_gain_db_base[i] * 0.86 + gain_to_db(smoothed_gain_base[i]) * 0.14;
+    i += 1;
+  );
+
+  i = 0;
+  loop(current_bin_count,
+    final_gain = target_gain_base[i];
+    complex_i = i * 2;
+    fft_left_base[complex_i] *= final_gain;
+    fft_left_base[complex_i + 1] *= final_gain;
+    fft_right_base[complex_i] *= final_gain;
+    fft_right_base[complex_i + 1] *= final_gain;
+
+    (i > 0) && (i < current_bin_count - 1) ? (
+      mirror_bin = current_fft_size - i;
+      mirror_i = mirror_bin * 2;
+      fft_left_base[mirror_i] *= final_gain;
+      fft_left_base[mirror_i + 1] *= final_gain;
+      fft_right_base[mirror_i] *= final_gain;
+      fft_right_base[mirror_i + 1] *= final_gain;
+    );
+    i += 1;
+  );
+
+  ifft(fft_left_base, current_fft_size);
+  ifft(fft_right_base, current_fft_size);
+
+  i = 0;
+  loop(current_fft_size,
+    complex_i = i * 2;
+    output_i = ola_read_index + i;
+    output_i >= output_ring_size ? output_i -= output_ring_size;
+
+    ola_left_ring_base[output_i] += fft_left_base[complex_i] * inverse_fft_size * window_base[i] * overlap_gain_compensation;
+    ola_right_ring_base[output_i] += fft_right_base[complex_i] * inverse_fft_size * window_base[i] * overlap_gain_compensation;
+    i += 1;
+  );
+);
+
+function soft_ceiling(x, ceiling) local(a, s, knee_start, knee_range, over, limited)
+(
+  a = absf(x);
+  s = x < 0 ? -1 : 1;
+  knee_start = ceiling * db_to_gain(-3);
+  a > knee_start ? (
+    knee_range = max(ceiling - knee_start, EPS);
+    over = a - knee_start;
+    limited = knee_start + knee_range * over / (over + knee_range);
+    x = s * limited;
+  );
+  x;
+);
+
+function set_profile_custom()
+(
+  !applying_profile && slider19 != 0 ? (
+    slider19 = 0;
+    profile_selection = 0;
+  );
+);
+
+function set_input_db(v)
+(
+  slider1 = clamp_value(round_to_step(v, 0.1), -24, 24);
+  input_gain_target = db_to_gain(slider1);
+);
+
+function set_output_db(v)
+(
+  slider2 = clamp_value(round_to_step(v, 0.1), -24, 24);
+  output_gain_target = db_to_gain(slider2);
+);
+
+function set_mix_pct(v)
+(
+  slider3 = clamp_value(round_to_step(v, 0.1), 0, 100);
+  mix_target = slider3 * 0.01;
+);
+
+function set_root(v)
+(
+  slider4 = clamp_value(round_to_step(v, 1), 0, 11);
+  manual_root = slider4 | 0;
+  !auto_key_enabled ? effective_root = manual_root;
+);
+
+function set_scale(v)
+(
+  slider5 = clamp_value(round_to_step(v, 1), 0, 10);
+  manual_scale = slider5 | 0;
+  !auto_key_enabled ? effective_scale = manual_scale;
+);
+
+function set_key_source(v)
+(
+  slider6 = clamp_value(round_to_step(v, 1), 0, 1);
+  auto_key_enabled = slider6 >= 0.5;
+  auto_key_enabled ? (
+    effective_root = detected_root;
+    effective_scale = detected_scale;
+  ) : (
+    effective_root = manual_root;
+    effective_scale = manual_scale;
+  );
+);
+
+function set_harmonic_mode(v)
+(
+  set_profile_custom();
+  slider7 = clamp_value(round_to_step(v, 1), 0, 3);
+  harmonic_mode = slider7 | 0;
+);
+
+function set_harmonic_amount(v)
+(
+  set_profile_custom();
+  slider8 = clamp_value(round_to_step(v, 0.1), 0, 100);
+  harmonic_amount = slider8;
+);
+
+function set_in_key_boost(v)
+(
+  set_profile_custom();
+  slider9 = clamp_value(round_to_step(v, 0.1), 0, 12);
+  in_key_boost_db = slider9;
+);
+
+function set_out_key_cut(v)
+(
+  set_profile_custom();
+  slider10 = clamp_value(round_to_step(v, 0.1), 0, 24);
+  out_key_cut_db = slider10;
+);
+
+function set_min_frequency(v)
+(
+  slider11 = clamp_value(round_to_step(v, 1), MIN_FREQ, MAX_FREQ);
+  slider11 > slider12 ? slider12 = slider11;
+  minimum_frequency_hz = slider11;
+  maximum_frequency_hz = slider12;
+);
+
+function set_max_frequency(v)
+(
+  slider12 = clamp_value(round_to_step(v, 1), MIN_FREQ, MAX_FREQ);
+  slider12 < slider11 ? slider11 = slider12;
+  minimum_frequency_hz = slider11;
+  maximum_frequency_hz = slider12;
+);
+
+function set_note_focus(v)
+(
+  set_profile_custom();
+  slider13 = clamp_value(round_to_step(v, 1), 20, 140);
+  slider13 != note_focus_cents ? (
+    note_focus_cents = slider13;
+    rebuild_pitch_map();
+  );
+);
+
+function set_stereo_width(v)
+(
+  slider14 = clamp_value(round_to_step(v, 1), 0, 200);
+  stereo_width_target = slider14 * 0.01;
+);
+
+function set_bass_mono(v)
+(
+  slider15 = clamp_value(round_to_step(v, 1), 20, 300);
+  bass_mono_hz = slider15;
+);
+
+function set_ceiling(v)
+(
+  slider16 = clamp_value(round_to_step(v, 0.1), -12, 0);
+  limiter_ceiling_gain = db_to_gain(slider16);
+);
+
+function set_fft_selector(v)
+(
+  slider17 = clamp_value(round_to_step(v, 1), 0, 2);
+  requested_fft_size = map_fft_size(slider17);
+  requested_fft_size != current_fft_size ? rebuild_processing_engine();
+);
+
+function set_ui_scale_pct(v)
+(
+  slider18 = clamp_value(round_to_step(v, 1), 50, 150);
+  ui_scale_pct = slider18;
+);
+
+function set_profile(v) local(profile_i)
+(
+  profile_i = clamp_value(round_to_step(v, 1), 0, 3);
+  slider19 = profile_i;
+  profile_selection = profile_i | 0;
+
+  applying_profile = 1;
+  profile_selection == 1 ? (
+    set_harmonic_mode(MODE_PLUS_MINUS);
+    set_harmonic_amount(35);
+    set_in_key_boost(1.5);
+    set_out_key_cut(2.5);
+    set_note_focus(85);
+  ) :
+  profile_selection == 2 ? (
+    set_harmonic_mode(MODE_PLUS_MINUS);
+    set_harmonic_amount(60);
+    set_in_key_boost(3.0);
+    set_out_key_cut(4.5);
+    set_note_focus(62);
+  ) :
+  profile_selection == 3 ? (
+    set_harmonic_mode(MODE_OUT_CUT);
+    set_harmonic_amount(85);
+    set_in_key_boost(2.0);
+    set_out_key_cut(8.0);
+    set_note_focus(45);
+  );
+  applying_profile = 0;
+);
+
+function set_control_value(param_i, value_i)
+(
+  param_i == DRAG_INPUT ? set_input_db(value_i) :
+  param_i == DRAG_OUTPUT ? set_output_db(value_i) :
+  param_i == DRAG_MIX ? set_mix_pct(value_i) :
+  param_i == DRAG_ROOT ? set_root(value_i) :
+  param_i == DRAG_SCALE ? set_scale(value_i) :
+  param_i == DRAG_KEY_SOURCE ? set_key_source(value_i) :
+  param_i == DRAG_MODE ? set_harmonic_mode(value_i) :
+  param_i == DRAG_AMOUNT ? set_harmonic_amount(value_i) :
+  param_i == DRAG_BOOST ? set_in_key_boost(value_i) :
+  param_i == DRAG_CUT ? set_out_key_cut(value_i) :
+  param_i == DRAG_MIN_FREQ ? set_min_frequency(value_i) :
+  param_i == DRAG_MAX_FREQ ? set_max_frequency(value_i) :
+  param_i == DRAG_FOCUS ? set_note_focus(value_i) :
+  param_i == DRAG_WIDTH ? set_stereo_width(value_i) :
+  param_i == DRAG_BASS_MONO ? set_bass_mono(value_i) :
+  param_i == DRAG_CEILING ? set_ceiling(value_i) :
+  param_i == DRAG_FFT ? set_fft_selector(value_i) :
+  param_i == DRAG_UI_SCALE ? set_ui_scale_pct(value_i) :
+  param_i == DRAG_PROFILE ? set_profile(value_i);
+);
+
+function start_control_drag(param_i, x_i, w_i, min_i, max_i, step_i)
+(
+  drag_param = param_i;
+  drag_x = x_i;
+  drag_w = max(w_i, 1);
+  drag_min = min_i;
+  drag_max = max_i;
+  drag_step = step_i;
+  drag_log = 0;
+  drag_last_value = -999999;
+);
+
+function start_control_drag_log(param_i, x_i, w_i, min_i, max_i, step_i)
+(
+  start_control_drag(param_i, x_i, w_i, min_i, max_i, step_i);
+  drag_log = 1;
+);
+
+function update_control_drag() local(norm_i, value_i)
+(
+  drag_param != DRAG_NONE ? (
+    norm_i = clamp_value((mouse_x - drag_x) / drag_w, 0, 1);
+    value_i = drag_log ? exp(log(drag_min) + norm_i * (log(drag_max) - log(drag_min))) : drag_min + norm_i * (drag_max - drag_min);
+    value_i = round_to_step(value_i, drag_step);
+    value_i != drag_last_value ? (
+      set_control_value(drag_param, value_i);
+      drag_last_value = value_i;
+    );
+  );
+);
+
+requested_fft_size = map_fft_size(slider17);
+current_fft_size = requested_fft_size;
+current_hop_size = (current_fft_size / 4) | 0;
+current_bin_count = (current_fft_size * 0.5) | 0;
+current_bin_count += 1;
+inverse_fft_size = 1 / current_fft_size;
+overlap_gain_compensation = 0.5;
+
+input_gain_target = db_to_gain(slider1);
+output_gain_target = db_to_gain(slider2);
+mix_target = clamp_value(slider3 * 0.01, 0, 1);
+input_gain_smoothed = input_gain_target;
+output_gain_smoothed = output_gain_target;
+mix_smoothed = mix_target;
+
+manual_root = slider4 | 0;
+manual_scale = slider5 | 0;
+auto_key_enabled = slider6 >= 0.5;
+harmonic_mode = slider7 | 0;
+harmonic_amount = slider8;
+in_key_boost_db = slider9;
+out_key_cut_db = slider10;
+minimum_frequency_hz = slider11;
+maximum_frequency_hz = slider12;
+note_focus_cents = slider13;
+stereo_width_target = slider14 * 0.01;
+bass_mono_hz = slider15;
+limiter_ceiling_gain = db_to_gain(slider16);
+ui_scale_pct = slider18;
+profile_selection = clamp_value(round_to_step(slider19, 1), 0, 3) | 0;
+slider19 = profile_selection;
+applying_profile = 0;
+last_profile_selection = profile_selection;
+last_profile_mode = slider7;
+last_profile_amount = slider8;
+last_profile_boost = slider9;
+last_profile_cut = slider10;
+last_profile_focus = slider13;
+
+detected_root = manual_root;
+detected_scale = manual_scale <= 1 ? manual_scale : 0;
+effective_root = manual_root;
+effective_scale = manual_scale;
+key_detect_counter = 0;
+pending_key_root = detected_root;
+pending_key_scale = detected_scale;
+pending_key_hits = 0;
+detected_key_confidence = 0;
+
+drag_param = DRAG_NONE;
+drag_x = 0;
+drag_w = 1;
+drag_min = 0;
+drag_max = 1;
+drag_step = 1;
+drag_log = 0;
+drag_last_value = -999999;
+last_mouse_down = 0;
+
+meter_in_l = 0;
+meter_in_r = 0;
+meter_out_l = 0;
+meter_out_r = 0;
+meter_in_peak = 0;
+meter_out_peak = 0;
+side_low = 0;
+wet_rebuild_fade_gain = 1;
+wet_rebuild_fade_step = 1 / max(srate * 0.050, 1);
+
+gain_attack_coeff = exp(-current_hop_size / max(srate * 0.030, 1));
+gain_release_coeff = exp(-current_hop_size / max(srate * 0.180, 1));
+param_smooth_coeff = 1 - exp(-1 / max(srate * 0.020, 1));
+meter_release_coeff = exp(-1 / max(srate * 0.220, 1));
+meter_peak_release_coeff = exp(-1 / max(srate * 1.400, 1));
+
+rebuild_processing_engine();
+profile_selection != 0 ? set_profile(profile_selection);
+last_profile_selection = slider19;
+last_profile_mode = slider7;
+last_profile_amount = slider8;
+last_profile_boost = slider9;
+last_profile_cut = slider10;
+last_profile_focus = slider13;
+slider_show(524287, 0);
+
+@slider
+
+slider19 = clamp_value(round_to_step(slider19, 1), 0, 3);
+slider19 != last_profile_selection ? (
+  set_profile(slider19);
+) : (
+  slider19 != 0 && (slider7 != last_profile_mode || slider8 != last_profile_amount || slider9 != last_profile_boost || slider10 != last_profile_cut || slider13 != last_profile_focus) ? (
+    slider19 = 0;
+    profile_selection = 0;
+  );
+);
+
+requested_fft_size = map_fft_size(slider17);
+note_focus_cents = clamp_value(slider13, 20, 140);
+note_focus_cents != last_note_focus_cents ? (
+  last_note_focus_cents = note_focus_cents;
+  rebuild_pitch_map();
+);
+
+requested_fft_size != current_fft_size ? (
+  rebuild_processing_engine();
+);
+
+input_gain_target = db_to_gain(slider1);
+output_gain_target = db_to_gain(slider2);
+mix_target = clamp_value(slider3 * 0.01, 0, 1);
+
+manual_root = slider4 | 0;
+manual_scale = slider5 | 0;
+auto_key_enabled = slider6 >= 0.5;
+harmonic_mode = slider7 | 0;
+harmonic_amount = clamp_value(slider8, 0, 100);
+in_key_boost_db = clamp_value(slider9, 0, 12);
+out_key_cut_db = clamp_value(slider10, 0, 24);
+minimum_frequency_hz = clamp_value(slider11, MIN_FREQ, MAX_FREQ);
+maximum_frequency_hz = clamp_value(slider12, MIN_FREQ, MAX_FREQ);
+minimum_frequency_hz > maximum_frequency_hz ? (
+  maximum_frequency_hz = minimum_frequency_hz;
+  slider12 = maximum_frequency_hz;
+);
+slider11 = minimum_frequency_hz;
+
+stereo_width_target = clamp_value(slider14 * 0.01, 0, 2);
+bass_mono_hz = clamp_value(slider15, 20, 300);
+limiter_ceiling_gain = db_to_gain(clamp_value(slider16, -12, 0));
+ui_scale_pct = clamp_value(slider18, 50, 150);
+profile_selection = slider19 | 0;
+
+auto_key_enabled ? (
+  effective_root = detected_root;
+  effective_scale = detected_scale;
+) : (
+  effective_root = manual_root;
+  effective_scale = manual_scale;
+);
+
+gain_attack_coeff = exp(-current_hop_size / max(srate * 0.030, 1));
+gain_release_coeff = exp(-current_hop_size / max(srate * 0.180, 1));
+param_smooth_coeff = 1 - exp(-1 / max(srate * 0.020, 1));
+meter_release_coeff = exp(-1 / max(srate * 0.220, 1));
+meter_peak_release_coeff = exp(-1 / max(srate * 1.400, 1));
+
+pdc_delay = latency_samples;
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+
+last_profile_selection = slider19;
+last_profile_mode = slider7;
+last_profile_amount = slider8;
+last_profile_boost = slider9;
+last_profile_cut = slider10;
+last_profile_focus = slider13;
+
+@sample
+
+in_l = spl0;
+in_r = spl1;
+
+input_gain_smoothed += (input_gain_target - input_gain_smoothed) * param_smooth_coeff;
+output_gain_smoothed += (output_gain_target - output_gain_smoothed) * param_smooth_coeff;
+mix_smoothed += (mix_target - mix_smoothed) * param_smooth_coeff;
+
+proc_in_l = in_l * input_gain_smoothed;
+proc_in_r = in_r * input_gain_smoothed;
+
+abs_in_l = absf(proc_in_l);
+abs_in_r = absf(proc_in_r);
+meter_in_l = max(abs_in_l, meter_in_l * meter_release_coeff);
+meter_in_r = max(abs_in_r, meter_in_r * meter_release_coeff);
+meter_in_peak = max(max(abs_in_l, abs_in_r), meter_in_peak * meter_peak_release_coeff);
+
+dry_read_index = dry_write_index - latency_samples;
+dry_read_index < 0 ? dry_read_index += dry_ring_size;
+
+delayed_dry_left = dry_left_ring_base[dry_read_index];
+delayed_dry_right = dry_right_ring_base[dry_read_index];
+
+dry_left_ring_base[dry_write_index] = proc_in_l;
+dry_right_ring_base[dry_write_index] = proc_in_r;
+dry_write_index += 1;
+dry_write_index >= dry_ring_size ? dry_write_index = 0;
+
+wet_left_sample = ola_left_ring_base[ola_read_index];
+wet_right_sample = ola_right_ring_base[ola_read_index];
+ola_left_ring_base[ola_read_index] = 0;
+ola_right_ring_base[ola_read_index] = 0;
+ola_read_index += 1;
+ola_read_index >= output_ring_size ? ola_read_index = 0;
+
+wet_rebuild_fade_gain < 1 ? (
+  wet_rebuild_fade_gain += wet_rebuild_fade_step;
+  wet_rebuild_fade_gain > 1 ? wet_rebuild_fade_gain = 1;
+);
+
+wet_mix = mix_smoothed * wet_rebuild_fade_gain;
+dry_mix = 1 - mix_smoothed;
+
+out_l = delayed_dry_left * dry_mix + wet_left_sample * wet_mix;
+out_r = delayed_dry_right * dry_mix + wet_right_sample * wet_mix;
+
+mid = (out_l + out_r) * 0.5;
+side = (out_l - out_r) * 0.5;
+
+bass_coeff = 1 - exp(-2 * $pi * bass_mono_hz / max(srate, 1));
+side_low += (side - side_low) * bass_coeff;
+side_high = side - side_low;
+side = side_high * stereo_width_target;
+
+out_l = mid + side;
+out_r = mid - side;
+
+out_l *= output_gain_smoothed;
+out_r *= output_gain_smoothed;
+
+out_l = soft_ceiling(out_l, limiter_ceiling_gain);
+out_r = soft_ceiling(out_r, limiter_ceiling_gain);
+
+abs_out_l = absf(out_l);
+abs_out_r = absf(out_r);
+meter_out_l = max(abs_out_l, meter_out_l * meter_release_coeff);
+meter_out_r = max(abs_out_r, meter_out_r * meter_release_coeff);
+meter_out_peak = max(max(abs_out_l, abs_out_r), meter_out_peak * meter_peak_release_coeff);
+
+spl0 = out_l;
+spl1 = out_r;
+
+input_left_ring_base[input_write_index] = proc_in_l;
+input_right_ring_base[input_write_index] = proc_in_r;
+input_write_index += 1;
+input_write_index >= input_ring_size ? input_write_index = 0;
+
+hop_sample_counter += 1;
+hop_sample_counter >= current_hop_size ? (
+  hop_sample_counter -= current_hop_size;
+  process_stft_frame();
+);
+
+@gfx 1100 720
+
+function gfx_fill(x, y, w, h, r, g, b, a) local(x0, y0, x1, y1)
+(
+  x0 = floor(x + 0.5);
+  y0 = floor(y + 0.5);
+  x1 = floor(x + w + 0.5);
+  y1 = floor(y + h + 0.5);
+  gfx_set(r, g, b, a);
+  gfx_rect(x0, y0, max(x1 - x0, 1), max(y1 - y0, 1), 1);
+);
+
+function gfx_frame(x, y, w, h, r, g, b, a) local(x0, y0, x1, y1)
+(
+  x0 = floor(x + 0.5);
+  y0 = floor(y + 0.5);
+  x1 = floor(x + w + 0.5);
+  y1 = floor(y + h + 0.5);
+  gfx_set(r, g, b, a);
+  gfx_rect(x0, y0, max(x1 - x0, 1), max(y1 - y0, 1), 0);
+);
+
+function gfx_text(x, y, r, g, b, a, txt)
+(
+  gfx_set(r, g, b, a);
+  gfx_x = x;
+  gfx_y = y;
+  gfx_drawstr(txt);
+);
+
+function gfx_center_text(x, y, w, r, g, b, a, txt, char_w)
+(
+  gfx_text(x + max((w - max(strlen(txt), 1) * char_w * ui_scale) * 0.5, 0), y, r, g, b, a, txt);
+);
+
+function freq_to_x(freq, x, w) local(t)
+(
+  t = (log(clamp_value(freq, MIN_FREQ, MAX_FREQ)) - log_min_freq) / log_freq_span;
+  x + clamp_value(t, 0, 1) * w;
+);
+
+function bin_for_freq(freq)
+(
+  clamp_value((freq * current_fft_size / max(srate, 1)) | 0, 0, current_bin_count - 1);
+);
+
+function db_to_y(db, y, h, min_db, max_db) local(t)
+(
+  t = (db - min_db) / max(max_db - min_db, EPS);
+  y + (1 - clamp_value(t, 0, 1)) * h;
+);
+
+function draw_badge(x, y, w, h, label, value, r, g, b) local(value_w, value_font, inner_w)
+(
+  gfx_fill(x, y, w, h, 0.065, 0.078, 0.095, 0.96);
+  gfx_fill(x, y, w, 2 * ui_scale, r, g, b, 0.95);
+  gfx_frame(x, y, w, h, 0.22, 0.26, 0.31, 1);
+  gfx_setfont(3, "Verdana", floor(10 * ui_scale));
+  gfx_text(x + 10 * ui_scale, y + 7 * ui_scale, 0.52, 0.60, 0.68, 1, label);
+  inner_w = w - 20 * ui_scale;
+  value_font = 14 * ui_scale;
+  value_w = max(strlen(value), 1) * 7.2 * ui_scale;
+  value_w > inner_w ? (
+    value_font = 12 * ui_scale;
+    value_w = max(strlen(value), 1) * 6.3 * ui_scale;
+  );
+  value_w > inner_w ? (
+    value_font = 10 * ui_scale;
+  );
+  gfx_setfont(2, "Verdana", floor(value_font));
+  gfx_text(x + 10 * ui_scale, y + 22 * ui_scale, 0.92, 0.96, 1, 1, value);
+);
+
+function control_label(param_i)
+(
+  param_i == DRAG_INPUT ? sprintf(#control_label_txt, "INPUT") :
+  param_i == DRAG_OUTPUT ? sprintf(#control_label_txt, "OUTPUT") :
+  param_i == DRAG_MIX ? sprintf(#control_label_txt, "MIX") :
+  param_i == DRAG_ROOT ? sprintf(#control_label_txt, "ROOT") :
+  param_i == DRAG_SCALE ? sprintf(#control_label_txt, "SCALE") :
+  param_i == DRAG_KEY_SOURCE ? sprintf(#control_label_txt, "KEY SRC") :
+  param_i == DRAG_MODE ? sprintf(#control_label_txt, "MODE") :
+  param_i == DRAG_AMOUNT ? sprintf(#control_label_txt, "AMOUNT") :
+  param_i == DRAG_BOOST ? sprintf(#control_label_txt, "BOOST") :
+  param_i == DRAG_CUT ? sprintf(#control_label_txt, "CUT") :
+  param_i == DRAG_MIN_FREQ ? sprintf(#control_label_txt, "MIN") :
+  param_i == DRAG_MAX_FREQ ? sprintf(#control_label_txt, "MAX") :
+  param_i == DRAG_FOCUS ? sprintf(#control_label_txt, "NOTE WIDTH") :
+  param_i == DRAG_WIDTH ? sprintf(#control_label_txt, "WIDTH") :
+  param_i == DRAG_BASS_MONO ? sprintf(#control_label_txt, "MONO") :
+  param_i == DRAG_CEILING ? sprintf(#control_label_txt, "CEILING") :
+  param_i == DRAG_FFT ? sprintf(#control_label_txt, "FFT") :
+  param_i == DRAG_PROFILE ? sprintf(#control_label_txt, "PROFILE") :
+  sprintf(#control_label_txt, "UI");
+);
+
+function control_value_text(param_i)
+(
+  param_i == DRAG_INPUT ? sprintf(#control_value_txt, "%+.1f dB", slider1) :
+  param_i == DRAG_OUTPUT ? sprintf(#control_value_txt, "%+.1f dB", slider2) :
+  param_i == DRAG_MIX ? sprintf(#control_value_txt, "%d%%", slider3 | 0) :
+  param_i == DRAG_ROOT ? (
+    root_name(slider4 | 0);
+    sprintf(#control_value_txt, "%s", #root_txt);
+  ) :
+  param_i == DRAG_SCALE ? (
+    scale_name(slider5 | 0);
+    sprintf(#control_value_txt, "%s", #scale_txt);
+  ) :
+  param_i == DRAG_KEY_SOURCE ? (slider6 >= 0.5 ? sprintf(#control_value_txt, "Auto") : sprintf(#control_value_txt, "Manual")) :
+  param_i == DRAG_MODE ? (
+    mode_name(slider7 | 0);
+    sprintf(#control_value_txt, "%s", #mode_txt);
+  ) :
+  param_i == DRAG_AMOUNT ? sprintf(#control_value_txt, "%d%%", slider8 | 0) :
+  param_i == DRAG_BOOST ? sprintf(#control_value_txt, "+%.1f", slider9) :
+  param_i == DRAG_CUT ? sprintf(#control_value_txt, "-%.1f", slider10) :
+  param_i == DRAG_MIN_FREQ ? sprintf(#control_value_txt, "%d Hz", slider11 | 0) :
+  param_i == DRAG_MAX_FREQ ? sprintf(#control_value_txt, "%d Hz", slider12 | 0) :
+  param_i == DRAG_FOCUS ? sprintf(#control_value_txt, "%d ct", slider13 | 0) :
+  param_i == DRAG_WIDTH ? sprintf(#control_value_txt, "%d%%", slider14 | 0) :
+  param_i == DRAG_BASS_MONO ? sprintf(#control_value_txt, "%d Hz", slider15 | 0) :
+  param_i == DRAG_CEILING ? sprintf(#control_value_txt, "%.1f", slider16) :
+  param_i == DRAG_FFT ? sprintf(#control_value_txt, "%d", map_fft_size(slider17) | 0) :
+  param_i == DRAG_PROFILE ? (
+    profile_name(slider19 | 0);
+    sprintf(#control_value_txt, "%s", #profile_txt);
+  ) :
+  sprintf(#control_value_txt, "%d%%", slider18 | 0);
+);
+
+function control_norm(param_i) local(norm_i)
+(
+  param_i == DRAG_INPUT ? norm_i = (slider1 + 24) / 48 :
+  param_i == DRAG_OUTPUT ? norm_i = (slider2 + 24) / 48 :
+  param_i == DRAG_MIX ? norm_i = slider3 / 100 :
+  param_i == DRAG_ROOT ? norm_i = slider4 / 11 :
+  param_i == DRAG_SCALE ? norm_i = slider5 / 10 :
+  param_i == DRAG_KEY_SOURCE ? norm_i = slider6 :
+  param_i == DRAG_MODE ? norm_i = slider7 / 3 :
+  param_i == DRAG_AMOUNT ? norm_i = slider8 / 100 :
+  param_i == DRAG_BOOST ? norm_i = slider9 / 12 :
+  param_i == DRAG_CUT ? norm_i = slider10 / 24 :
+  param_i == DRAG_MIN_FREQ ? norm_i = (log(slider11) - log_min_freq) / log_freq_span :
+  param_i == DRAG_MAX_FREQ ? norm_i = (log(slider12) - log_min_freq) / log_freq_span :
+  param_i == DRAG_FOCUS ? norm_i = (slider13 - 20) / 120 :
+  param_i == DRAG_WIDTH ? norm_i = slider14 / 200 :
+  param_i == DRAG_BASS_MONO ? norm_i = (slider15 - 20) / 280 :
+  param_i == DRAG_CEILING ? norm_i = (slider16 + 12) / 12 :
+  param_i == DRAG_FFT ? norm_i = slider17 / 2 :
+  param_i == DRAG_PROFILE ? norm_i = slider19 / 3 :
+  norm_i = (slider18 - 50) / 100;
+  clamp_value(norm_i, 0, 1);
+);
+
+function draw_control_cell(param_i, x, y, w, h) local(norm_i, fill_w, active_i, accent_r, accent_g, accent_b)
+(
+  active_i = drag_param == param_i;
+  norm_i = control_norm(param_i);
+  control_label(param_i);
+  control_value_text(param_i);
+  accent_r = param_i == DRAG_CUT || param_i == DRAG_CEILING ? 0.86 : param_i == DRAG_BOOST || param_i == DRAG_MODE ? 0.92 : 0.24;
+  accent_g = param_i == DRAG_CUT || param_i == DRAG_CEILING ? 0.38 : param_i == DRAG_BOOST || param_i == DRAG_MODE ? 0.62 : 0.72;
+  accent_b = param_i == DRAG_CUT || param_i == DRAG_CEILING ? 0.30 : param_i == DRAG_BOOST || param_i == DRAG_MODE ? 0.27 : 0.70;
+
+  gfx_fill(x, y, w, h, active_i ? 0.080 : 0.050, active_i ? 0.098 : 0.060, active_i ? 0.116 : 0.074, 1);
+  gfx_frame(x, y, w, h, active_i ? accent_r : 0.17, active_i ? accent_g : 0.21, active_i ? accent_b : 0.26, 1);
+  fill_w = max(2 * ui_scale, (w - 8 * ui_scale) * norm_i);
+  gfx_fill(x + 4 * ui_scale, y + h - 6 * ui_scale, fill_w, 3 * ui_scale, accent_r, accent_g, accent_b, 0.88);
+
+  gfx_setfont(3, "Verdana", floor(9 * ui_scale));
+  gfx_text(x + 7 * ui_scale, y + 5 * ui_scale, 0.48, 0.56, 0.64, 1, #control_label_txt);
+  gfx_setfont(2, "Verdana", floor(12 * ui_scale));
+  gfx_text(x + 7 * ui_scale, y + 22 * ui_scale, 0.91, 0.95, 1, 1, #control_value_txt);
+);
+
+function handle_control_hit(param_i, x, y, w, h, min_i, max_i, step_i) local(norm_i)
+(
+  in_rect(mouse_x, mouse_y, x, y, w, h) ? (
+    start_control_drag(param_i, x, w, min_i, max_i, step_i);
+    update_control_drag();
+  );
+);
+
+function handle_control_hit_log(param_i, x, y, w, h, min_i, max_i, step_i)
+(
+  in_rect(mouse_x, mouse_y, x, y, w, h) ? (
+    start_control_drag_log(param_i, x, w, min_i, max_i, step_i);
+    update_control_drag();
+  );
+);
+
+function draw_meter(x, y, w, h, value, peak_value, label, r, g, b) local(db, fill_h, tick_i, tick_db, tick_y, peak_db, peak_y)
+(
+  gfx_fill(x, y, w, h, 0.045, 0.052, 0.065, 1);
+  gfx_frame(x, y, w, h, 0.18, 0.22, 0.27, 1);
+  db = gain_to_db(value);
+  fill_h = h * clamp_value((db + 60) / 60, 0, 1);
+  gfx_fill(x + 2 * ui_scale, y + h - fill_h, w - 4 * ui_scale, fill_h, r, g, b, 0.82);
+
+  tick_i = 0;
+  loop(7,
+    tick_db = tick_i == 0 ? -60 :
+              tick_i == 1 ? -48 :
+              tick_i == 2 ? -36 :
+              tick_i == 3 ? -24 :
+              tick_i == 4 ? -12 :
+              tick_i == 5 ? -6 : 0;
+    tick_y = y + h - h * ((tick_db + 60) / 60);
+    gfx_set(0.70, 0.77, 0.84, tick_db == 0 ? 0.46 : 0.24);
+    gfx_line(x + 3 * ui_scale, tick_y, x + w - 3 * ui_scale, tick_y, 1);
+    tick_i += 1;
+  );
+
+  peak_db = clamp_value(gain_to_db(peak_value), -60, 0);
+  peak_y = y + h - h * ((peak_db + 60) / 60);
+  gfx_set(1.00, 0.92, 0.68, 0.92);
+  gfx_line(x + 2 * ui_scale, peak_y, x + w - 2 * ui_scale, peak_y, 1);
+
+  gfx_setfont(3, "Verdana", floor(9 * ui_scale));
+  gfx_center_text(x, y + h - 27 * ui_scale, w, 0.78, 0.84, 0.92, 1, label, 5.2);
+  sprintf(#meter_peak_txt, "%d", peak_db | 0);
+  gfx_setfont(3, "Verdana", floor(8 * ui_scale));
+  gfx_center_text(x, y + h - 14 * ui_scale, w, 0.80, 0.86, 0.94, 1, #meter_peak_txt, 4.6);
+);
+
+function draw_spectrum_panel(x, y, w, h) local(i, col_count, x0, x1, freq, bin_i, mag_db, gain_db, bar_y, bar_h, pc_i, in_key, note_i, note_freq, note_x, last_x, last_y, curve_x, curve_y, grid_f, grid_x, mid_y)
+(
+  gfx_fill(x, y, w, h, 0.035, 0.043, 0.056, 1);
+  gfx_fill(x, y, w, h * 0.42, 0.06, 0.085, 0.11, 0.72);
+  gfx_frame(x, y, w, h, 0.18, 0.23, 0.29, 1);
+
+  grid_f = 50;
+  loop(8,
+    grid_x = freq_to_x(grid_f, x, w);
+    gfx_set(0.18, 0.22, 0.27, 0.45);
+    gfx_line(grid_x, y + 8 * ui_scale, grid_x, y + h - 18 * ui_scale, 1);
+    sprintf(#freq_txt, "%d", grid_f);
+    gfx_setfont(3, "Verdana", floor(9 * ui_scale));
+    gfx_text(grid_x + 4 * ui_scale, y + h - 15 * ui_scale, 0.42, 0.49, 0.57, 1, #freq_txt);
+    grid_f == 50 ? grid_f = 100 :
+    grid_f == 100 ? grid_f = 200 :
+    grid_f == 200 ? grid_f = 500 :
+    grid_f == 500 ? grid_f = 1000 :
+    grid_f == 1000 ? grid_f = 2000 :
+    grid_f == 2000 ? grid_f = 5000 :
+    grid_f == 5000 ? grid_f = 10000 :
+    grid_f = 20000;
+  );
+
+  mid_y = db_to_y(0, y + 18 * ui_scale, h - 42 * ui_scale, -18, 18);
+  gfx_set(0.32, 0.38, 0.45, 0.65);
+  gfx_line(x + 8 * ui_scale, mid_y, x + w - 8 * ui_scale, mid_y, 1);
+
+  note_i = 24;
+  loop(85,
+    note_freq = 440 * exp((note_i - 69) * LOG2 / 12);
+    note_freq >= MIN_FREQ && note_freq <= MAX_FREQ ? (
+      pc_i = wrap12(note_i);
+      in_key = pc_in_scale(pc_i, effective_root, effective_scale);
+      note_x = freq_to_x(note_freq, x, w);
+      in_key ? gfx_set(0.20, 0.75, 0.66, 0.18) : gfx_set(0.75, 0.37, 0.30, 0.07);
+      gfx_line(note_x, y + 8 * ui_scale, note_x, y + h - 23 * ui_scale, 1);
+    );
+    note_i += 1;
+  );
+
+  col_count = (min(max(w / (3 * ui_scale), 90), 260)) | 0;
+  i = 0;
+  loop(col_count,
+    x0 = x + i * w / col_count;
+    x1 = x + (i + 1) * w / col_count;
+    freq = exp(log_min_freq + ((i + 0.5) / col_count) * log_freq_span);
+    bin_i = bin_for_freq(freq);
+    mag_db = display_mag_db_base[bin_i];
+    gain_db = display_gain_db_base[bin_i];
+    pc_i = bin_pitch_class_base[bin_i] | 0;
+    in_key = pc_in_scale(pc_i, effective_root, effective_scale);
+
+    bar_y = db_to_y(mag_db, y + 18 * ui_scale, h - 48 * ui_scale, -84, 6);
+    bar_h = y + h - 24 * ui_scale - bar_y;
+    in_key ? (
+      gfx_fill(x0, bar_y, max(x1 - x0 - 1, 1), bar_h, 0.15 + max(gain_db, 0) * 0.025, 0.55, 0.62, 0.50);
+    ) : (
+      gfx_fill(x0, bar_y, max(x1 - x0 - 1, 1), bar_h, 0.64, 0.30, 0.25, 0.34);
+    );
+
+    i += 1;
+  );
+
+  last_x = x;
+  last_y = mid_y;
+  i = 0;
+  loop(col_count,
+    freq = exp(log_min_freq + (i / max(col_count - 1, 1)) * log_freq_span);
+    bin_i = bin_for_freq(freq);
+    gain_db = display_gain_db_base[bin_i];
+    curve_x = freq_to_x(freq, x, w);
+    curve_y = db_to_y(gain_db, y + 18 * ui_scale, h - 48 * ui_scale, -18, 18);
+    i > 0 ? (
+      gain_db >= 0 ? gfx_set(0.94, 0.70, 0.32, 0.95) : gfx_set(0.30, 0.82, 0.75, 0.95);
+      gfx_line(last_x, last_y, curve_x, curve_y, 1);
+      gfx_line(last_x, last_y + 1, curve_x, curve_y + 1, 1);
+    );
+    last_x = curve_x;
+    last_y = curve_y;
+    i += 1;
+  );
+
+  gfx_setfont(3, "Verdana", floor(10 * ui_scale));
+  gfx_text(x + 12 * ui_scale, y + 10 * ui_scale, 0.73, 0.80, 0.88, 1, "scale lanes");
+  gfx_text(x + w - 122 * ui_scale, y + 10 * ui_scale, 0.73, 0.80, 0.88, 1, "spectral response");
+);
+
+function draw_chroma(x, y, w, h) local(i, bx, bw, pc_i, in_key, energy, fill_h)
+(
+  gfx_fill(x, y, w, h, 0.050, 0.060, 0.075, 1);
+  gfx_frame(x, y, w, h, 0.18, 0.23, 0.29, 1);
+  bw = w / 12;
+  i = 0;
+  loop(12,
+    bx = x + i * bw;
+    pc_i = i;
+    in_key = pc_in_scale(pc_i, effective_root, effective_scale);
+    energy = average_chroma_base[pc_i];
+    fill_h = h * clamp_value(gain_to_db(energy + EPS) / 48 + 1, 0.05, 1);
+    in_key ? gfx_fill(bx + 2 * ui_scale, y + h - fill_h, bw - 4 * ui_scale, fill_h, 0.18, 0.66, 0.60, 0.82)
+           : gfx_fill(bx + 2 * ui_scale, y + h - fill_h, bw - 4 * ui_scale, fill_h, 0.55, 0.25, 0.24, 0.42);
+    gfx_frame(bx + 2 * ui_scale, y + 4 * ui_scale, bw - 4 * ui_scale, h - 8 * ui_scale, 0.14, 0.17, 0.21, 1);
+    root_name(pc_i);
+    gfx_setfont(3, "Verdana", floor(9 * ui_scale));
+    gfx_center_text(bx, y + h - 14 * ui_scale, bw, 0.78, 0.84, 0.91, 1, #root_txt, 5.5);
+    i += 1;
+  );
+);
+
+ui_scale = clamp_value(slider18 * 0.015 * min(gfx_w / 1100, gfx_h / 720), 0.62, 2.25);
+log_min_freq = log(MIN_FREQ);
+log_max_freq = log(MAX_FREQ);
+log_freq_span = log_max_freq - log_min_freq;
+
+gfx_fill(0, 0, gfx_w, gfx_h, 0.025, 0.030, 0.040, 1);
+gfx_fill(0, 0, gfx_w, 98 * ui_scale, 0.040, 0.054, 0.070, 1);
+gfx_fill(0, 0, gfx_w, 3 * ui_scale, 0.90, 0.62, 0.25, 1);
+
+pad = 18 * ui_scale;
+top_h = 78 * ui_scale;
+meter_w = 22 * ui_scale;
+panel_x = pad + 58 * ui_scale;
+panel_y = top_h + pad;
+panel_w = gfx_w - panel_x - pad;
+control_gap = 8 * ui_scale;
+control_row_h = 47 * ui_scale;
+control_footer_h = 18 * ui_scale;
+control_y = gfx_h - pad - control_footer_h - control_row_h * 3 - control_gap * 2;
+chroma_h = 54 * ui_scale;
+chroma_y = control_y - 14 * ui_scale - chroma_h;
+panel_h = chroma_y - panel_y - 14 * ui_scale;
+panel_h < 220 * ui_scale ? panel_h = 220 * ui_scale;
+control_col_w = (panel_w - control_gap * 5) / 6;
+
+mouse_down = mouse_cap & 1;
+click = mouse_down && !last_mouse_down;
+click ? (
+  y0 = control_y;
+  y1 = control_y + control_row_h + control_gap;
+  y2 = control_y + (control_row_h + control_gap) * 2;
+  handle_control_hit(DRAG_INPUT, panel_x, y0, control_col_w, control_row_h, -24, 24, 0.1);
+  handle_control_hit(DRAG_OUTPUT, panel_x + (control_col_w + control_gap), y0, control_col_w, control_row_h, -24, 24, 0.1);
+  handle_control_hit(DRAG_MIX, panel_x + (control_col_w + control_gap) * 2, y0, control_col_w, control_row_h, 0, 100, 0.1);
+  handle_control_hit(DRAG_ROOT, panel_x + (control_col_w + control_gap) * 3, y0, control_col_w, control_row_h, 0, 11, 1);
+  handle_control_hit(DRAG_SCALE, panel_x + (control_col_w + control_gap) * 4, y0, control_col_w, control_row_h, 0, 10, 1);
+  handle_control_hit(DRAG_KEY_SOURCE, panel_x + (control_col_w + control_gap) * 5, y0, control_col_w, control_row_h, 0, 1, 1);
+
+  handle_control_hit(DRAG_MODE, panel_x, y1, control_col_w, control_row_h, 0, 3, 1);
+  handle_control_hit(DRAG_AMOUNT, panel_x + (control_col_w + control_gap), y1, control_col_w, control_row_h, 0, 100, 0.1);
+  handle_control_hit(DRAG_BOOST, panel_x + (control_col_w + control_gap) * 2, y1, control_col_w, control_row_h, 0, 12, 0.1);
+  handle_control_hit(DRAG_CUT, panel_x + (control_col_w + control_gap) * 3, y1, control_col_w, control_row_h, 0, 24, 0.1);
+  handle_control_hit_log(DRAG_MIN_FREQ, panel_x + (control_col_w + control_gap) * 4, y1, control_col_w, control_row_h, MIN_FREQ, MAX_FREQ, 1);
+  handle_control_hit_log(DRAG_MAX_FREQ, panel_x + (control_col_w + control_gap) * 5, y1, control_col_w, control_row_h, MIN_FREQ, MAX_FREQ, 1);
+
+  handle_control_hit(DRAG_FOCUS, panel_x, y2, control_col_w, control_row_h, 20, 140, 1);
+  handle_control_hit(DRAG_WIDTH, panel_x + (control_col_w + control_gap), y2, control_col_w, control_row_h, 0, 200, 1);
+  handle_control_hit(DRAG_BASS_MONO, panel_x + (control_col_w + control_gap) * 2, y2, control_col_w, control_row_h, 20, 300, 1);
+  handle_control_hit(DRAG_CEILING, panel_x + (control_col_w + control_gap) * 3, y2, control_col_w, control_row_h, -12, 0, 0.1);
+  handle_control_hit(DRAG_FFT, panel_x + (control_col_w + control_gap) * 4, y2, control_col_w, control_row_h, 0, 2, 1);
+  handle_control_hit(DRAG_UI_SCALE, panel_x + (control_col_w + control_gap) * 5, y2, control_col_w, control_row_h, 50, 150, 1);
+);
+
+mouse_down && drag_param != DRAG_NONE ? (
+  update_control_drag();
+) : (
+  !mouse_down && drag_param != DRAG_NONE ? (
+    sliderchange(drag_param);
+    drag_param = DRAG_NONE;
+    drag_log = 0;
+  );
+);
+
+gfx_setfont(1, "Verdana", floor(26 * ui_scale));
+gfx_text(pad, 20 * ui_scale, 0.96, 0.98, 1, 1, "OpenScaleEQ");
+gfx_setfont(2, "Verdana", floor(12 * ui_scale));
+gfx_text(pad, 52 * ui_scale, 0.56, 0.64, 0.74, 1, "scale-aware spectral EQ for REAPER JSFX");
+
+root_name(effective_root);
+scale_name(effective_scale);
+mode_name(harmonic_mode);
+profile_name(profile_selection);
+sprintf(#key_value, "%s %s", #root_txt, #scale_txt);
+sprintf(#amount_value, "%d%%", harmonic_amount | 0);
+sprintf(#mix_value, "%d%%", slider3 | 0);
+sprintf(#fft_value, "%d", current_fft_size | 0);
+
+badge_y = 16 * ui_scale;
+badge_h = 48 * ui_scale;
+badge_gap = 8 * ui_scale;
+badge_x = max(pad + 270 * ui_scale, gfx_w * 0.34);
+badge_total_w = gfx_w - pad - badge_x;
+badge_box_w = max(badge_total_w - badge_gap * 5, 1);
+badge_key_w = badge_box_w * 0.23;
+badge_profile_w = badge_box_w * 0.18;
+badge_mode_w = badge_box_w * 0.22;
+badge_amount_w = badge_box_w * 0.14;
+badge_mix_w = badge_box_w * 0.12;
+badge_fft_w = badge_box_w - badge_key_w - badge_profile_w - badge_mode_w - badge_amount_w - badge_mix_w;
+badge_profile_x = badge_x + badge_key_w + badge_gap;
+badge_mode_x = badge_profile_x + badge_profile_w + badge_gap;
+badge_amount_x = badge_mode_x + badge_mode_w + badge_gap;
+badge_mix_x = badge_amount_x + badge_amount_w + badge_gap;
+badge_fft_x = badge_mix_x + badge_mix_w + badge_gap;
+
+click ? (
+  in_rect(mouse_x, mouse_y, badge_x, badge_y, badge_key_w * 0.42, badge_h) ? (
+    start_control_drag(DRAG_ROOT, badge_x, badge_key_w * 0.42, 0, 11, 1);
+    update_control_drag();
+  );
+  in_rect(mouse_x, mouse_y, badge_x + badge_key_w * 0.42, badge_y, badge_key_w * 0.58, badge_h) ? (
+    start_control_drag(DRAG_SCALE, badge_x + badge_key_w * 0.42, badge_key_w * 0.58, 0, 10, 1);
+    update_control_drag();
+  );
+  handle_control_hit(DRAG_PROFILE, badge_profile_x, badge_y, badge_profile_w, badge_h, 0, 3, 1);
+  handle_control_hit(DRAG_MODE, badge_mode_x, badge_y, badge_mode_w, badge_h, 0, 3, 1);
+  handle_control_hit(DRAG_AMOUNT, badge_amount_x, badge_y, badge_amount_w, badge_h, 0, 100, 0.1);
+  handle_control_hit(DRAG_MIX, badge_mix_x, badge_y, badge_mix_w, badge_h, 0, 100, 0.1);
+  handle_control_hit(DRAG_FFT, badge_fft_x, badge_y, badge_fft_w, badge_h, 0, 2, 1);
+);
+
+draw_badge(badge_x, badge_y, badge_key_w, badge_h, "KEY", #key_value, 0.20, 0.75, 0.66);
+draw_badge(badge_profile_x, badge_y, badge_profile_w, badge_h, "PROFILE", #profile_txt, 0.38, 0.68, 0.92);
+draw_badge(badge_mode_x, badge_y, badge_mode_w, badge_h, "MODE", #mode_txt, 0.90, 0.62, 0.25);
+draw_badge(badge_amount_x, badge_y, badge_amount_w, badge_h, "AMOUNT", #amount_value, 0.65, 0.40, 0.88);
+draw_badge(badge_mix_x, badge_y, badge_mix_w, badge_h, "MIX", #mix_value, 0.30, 0.56, 0.86);
+draw_badge(badge_fft_x, badge_y, badge_fft_w, badge_h, "FFT", #fft_value, 0.54, 0.62, 0.72);
+
+draw_meter(pad, panel_y, meter_w, panel_h, max(meter_in_l, meter_in_r), meter_in_peak, "IN", 0.24, 0.78, 0.68);
+draw_meter(pad + 28 * ui_scale, panel_y, meter_w, panel_h, max(meter_out_l, meter_out_r), meter_out_peak, "OUT", 0.94, 0.66, 0.28);
+
+draw_spectrum_panel(panel_x, panel_y, panel_w, panel_h);
+
+draw_chroma(panel_x, chroma_y, panel_w, chroma_h);
+
+y0 = control_y;
+y1 = control_y + control_row_h + control_gap;
+y2 = control_y + (control_row_h + control_gap) * 2;
+draw_control_cell(DRAG_INPUT, panel_x, y0, control_col_w, control_row_h);
+draw_control_cell(DRAG_OUTPUT, panel_x + (control_col_w + control_gap), y0, control_col_w, control_row_h);
+draw_control_cell(DRAG_MIX, panel_x + (control_col_w + control_gap) * 2, y0, control_col_w, control_row_h);
+draw_control_cell(DRAG_ROOT, panel_x + (control_col_w + control_gap) * 3, y0, control_col_w, control_row_h);
+draw_control_cell(DRAG_SCALE, panel_x + (control_col_w + control_gap) * 4, y0, control_col_w, control_row_h);
+draw_control_cell(DRAG_KEY_SOURCE, panel_x + (control_col_w + control_gap) * 5, y0, control_col_w, control_row_h);
+
+draw_control_cell(DRAG_MODE, panel_x, y1, control_col_w, control_row_h);
+draw_control_cell(DRAG_AMOUNT, panel_x + (control_col_w + control_gap), y1, control_col_w, control_row_h);
+draw_control_cell(DRAG_BOOST, panel_x + (control_col_w + control_gap) * 2, y1, control_col_w, control_row_h);
+draw_control_cell(DRAG_CUT, panel_x + (control_col_w + control_gap) * 3, y1, control_col_w, control_row_h);
+draw_control_cell(DRAG_MIN_FREQ, panel_x + (control_col_w + control_gap) * 4, y1, control_col_w, control_row_h);
+draw_control_cell(DRAG_MAX_FREQ, panel_x + (control_col_w + control_gap) * 5, y1, control_col_w, control_row_h);
+
+draw_control_cell(DRAG_FOCUS, panel_x, y2, control_col_w, control_row_h);
+draw_control_cell(DRAG_WIDTH, panel_x + (control_col_w + control_gap), y2, control_col_w, control_row_h);
+draw_control_cell(DRAG_BASS_MONO, panel_x + (control_col_w + control_gap) * 2, y2, control_col_w, control_row_h);
+draw_control_cell(DRAG_CEILING, panel_x + (control_col_w + control_gap) * 3, y2, control_col_w, control_row_h);
+draw_control_cell(DRAG_FFT, panel_x + (control_col_w + control_gap) * 4, y2, control_col_w, control_row_h);
+draw_control_cell(DRAG_UI_SCALE, panel_x + (control_col_w + control_gap) * 5, y2, control_col_w, control_row_h);
+
+gfx_setfont(3, "Verdana", floor(10 * ui_scale));
+auto_key_enabled ? (
+  gfx_text(panel_x, gfx_h - pad - 12 * ui_scale, 0.50, 0.58, 0.67, 1, "Auto key follows detected major/minor chroma");
+) : (
+  gfx_text(panel_x, gfx_h - pad - 12 * ui_scale, 0.50, 0.58, 0.67, 1, "Manual key from Root and Scale sliders");
+);
+gfx_text(panel_x + panel_w - 300 * ui_scale, gfx_h - pad - 12 * ui_scale, 0.50, 0.58, 0.67, 1, "MIT licensed original JSFX, not affiliated with Scaler Music");
+
+last_mouse_down = mouse_down;
