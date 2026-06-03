@@ -1725,6 +1725,7 @@ redraw_cache ? (
 
 gfx_x = 0;
 gfx_y = 0;
+gfx_set(1, 1, 1, 1);
 gfx_blit(IMG_CACHE, 1, 0);
 
 last_mouse_down = mouse_down;

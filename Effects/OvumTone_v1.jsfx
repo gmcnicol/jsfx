@@ -1,0 +1,1196 @@
+desc:OvumTone v1 - five oscillator tone generator
+tags:instrument synth midi generator drone oscillator tone
+options:no_meter
+
+in_pin:none
+out_pin:Out L
+out_pin:Out R
+
+slider1:ui_scale_pct=115<75,200,1>-UI Scale
+slider2:play_mode=0<0,1,1{Drone,MIDI Gate}>-Play Mode
+slider3:master_level_norm=0.78<0,1,0.001>-Master
+
+slider4:osc1_enable=1<0,1,1{Off,On}>-Osc 1 Enable
+slider5:osc1_freq_norm=0.42<0,1,0.001>-Osc 1 Frequency
+slider6:osc1_wave_norm=0.10<0,1,0.001>-Osc 1 Wave
+slider7:osc1_cutoff_norm=0.92<0,1,0.001>-Osc 1 LP
+slider8:osc1_trim_norm=0<0,1,0.001>-Osc 1 Trim
+slider9:osc1_pan=0<-1,1,0.001>-Osc 1 Pan
+
+slider10:osc2_enable=1<0,1,1{Off,On}>-Osc 2 Enable
+slider11:osc2_freq_norm=0.49<0,1,0.001>-Osc 2 Frequency
+slider12:osc2_wave_norm=0.35<0,1,0.001>-Osc 2 Wave
+slider13:osc2_cutoff_norm=0.88<0,1,0.001>-Osc 2 LP
+slider14:osc2_trim_norm=0<0,1,0.001>-Osc 2 Trim
+slider15:osc2_pan=-0.38<-1,1,0.001>-Osc 2 Pan
+
+slider16:osc3_enable=1<0,1,1{Off,On}>-Osc 3 Enable
+slider17:osc3_freq_norm=0.56<0,1,0.001>-Osc 3 Frequency
+slider18:osc3_wave_norm=0.55<0,1,0.001>-Osc 3 Wave
+slider19:osc3_cutoff_norm=0.84<0,1,0.001>-Osc 3 LP
+slider20:osc3_trim_norm=0<0,1,0.001>-Osc 3 Trim
+slider21:osc3_pan=0.38<-1,1,0.001>-Osc 3 Pan
+
+slider22:osc4_enable=1<0,1,1{Off,On}>-Osc 4 Enable
+slider23:osc4_freq_norm=0.64<0,1,0.001>-Osc 4 Frequency
+slider24:osc4_wave_norm=0.72<0,1,0.001>-Osc 4 Wave
+slider25:osc4_cutoff_norm=0.79<0,1,0.001>-Osc 4 LP
+slider26:osc4_trim_norm=0<0,1,0.001>-Osc 4 Trim
+slider27:osc4_pan=-0.68<-1,1,0.001>-Osc 4 Pan
+
+slider28:osc5_enable=1<0,1,1{Off,On}>-Osc 5 Enable
+slider29:osc5_freq_norm=0.72<0,1,0.001>-Osc 5 Frequency
+slider30:osc5_wave_norm=0.90<0,1,0.001>-Osc 5 Wave
+slider31:osc5_cutoff_norm=0.75<0,1,0.001>-Osc 5 LP
+slider32:osc5_trim_norm=0<0,1,0.001>-Osc 5 Trim
+slider33:osc5_pan=0.68<-1,1,0.001>-Osc 5 Pan
+
+@init
+
+ext_noinit = 1;
+ext_nodenorm = 1;
+
+NUM_OSC = 5;
+MIN_FREQ = 20;
+MAX_FREQ = 1174.66;
+MIN_CUTOFF = 20;
+MAX_CUTOFF = 20000;
+MIN_GAIN_DB = -60;
+MAX_GAIN_DB = 0;
+PI2 = 2 * $pi;
+EPS = 0.000001;
+DENORM_CUT = 0.000000000001;
+HARMONIC_CAP = 12;
+
+DRAG_NONE = 0;
+DRAG_MASTER = 2;
+DRAG_FREQ = 4;
+DRAG_WAVE = 5;
+DRAG_CUTOFF = 6;
+DRAG_TRIM = 7;
+DRAG_PAN = 8;
+DRAG_UI_SCALE = 9;
+PARAM_FREQ = 1;
+PARAM_WAVE = 2;
+PARAM_CUTOFF = 3;
+PARAM_PAN = 4;
+PARAM_TRIM = 5;
+
+MEM_BASE = 10000;
+phase_base = MEM_BASE;
+freq_smooth_base = MEM_BASE + 16;
+wave_smooth_base = MEM_BASE + 32;
+cutoff_smooth_base = MEM_BASE + 48;
+trim_smooth_base = MEM_BASE + 64;
+pan_smooth_base = MEM_BASE + 80;
+lp_state_base = MEM_BASE + 96;
+pan_l_smooth_base = MEM_BASE + 112;
+pan_r_smooth_base = MEM_BASE + 120;
+osc_enable_ui_base = MEM_BASE + 128;
+osc_freq_ui_base = MEM_BASE + 144;
+osc_wave_ui_base = MEM_BASE + 160;
+osc_cutoff_ui_base = MEM_BASE + 176;
+osc_trim_ui_base = MEM_BASE + 192;
+osc_pan_ui_base = MEM_BASE + 208;
+
+gate_target = 1;
+gate_smooth = 1;
+held_count = 0;
+play_mode_ui = play_mode;
+master_level_ui = master_level_norm;
+ui_scale_ui = ui_scale_pct;
+IMG_CACHE = 1;
+cache_ready = 0;
+layout_dirty = 1;
+bg_dirty = 1;
+header_dirty = 1;
+osc_dirty_base = MEM_BASE + 224;
+osc_param_dirty_base = MEM_BASE + 240;
+freq_target_base = MEM_BASE + 256;
+cutoff_coeff_target_base = MEM_BASE + 272;
+wave_target_base = MEM_BASE + 288;
+trim_target_base = MEM_BASE + 304;
+pan_l_target_base = MEM_BASE + 320;
+pan_r_target_base = MEM_BASE + 336;
+last_layout_scale_ui = -1;
+last_audio_srate = -1;
+smooth_fast = 0;
+smooth_slow = 0;
+smooth_gain = 0;
+gate_coeff = 0;
+master_gain_target = 0;
+
+drag_param = DRAG_NONE;
+drag_osc = -1;
+drag_x = 0;
+drag_y = 0;
+drag_w = 1;
+drag_h = 1;
+drag_last_value = -999999;
+last_mouse_down = 0;
+last_layout_w = 0;
+last_layout_h = 0;
+dc_in_prev_l = 0;
+dc_out_prev_l = 0;
+dc_in_prev_r = 0;
+dc_out_prev_r = 0;
+
+function clamp_value(v, lo, hi)
+(
+  v < lo ? lo : v > hi ? hi : v;
+);
+
+function round_to_step(v, step_i)
+(
+  floor(v / max(step_i, EPS) + 0.5) * max(step_i, EPS);
+);
+
+function wrap01(v)
+(
+  v - floor(v);
+);
+
+function db_to_gain(db)
+(
+  exp(db * log(10) / 20);
+);
+
+function norm_to_log(norm_i, min_i, max_i)
+(
+  exp(log(min_i) + clamp_value(norm_i, 0, 1) * (log(max_i) - log(min_i)));
+);
+
+function log_to_norm(value_i, min_i, max_i)
+(
+  (log(clamp_value(value_i, min_i, max_i)) - log(min_i)) / (log(max_i) - log(min_i));
+);
+
+function norm_to_gain(norm_i) local(db_i)
+(
+  norm_i <= 0 ? 0 : (
+    db_i = MIN_GAIN_DB + clamp_value(norm_i, 0, 1) * (MAX_GAIN_DB - MIN_GAIN_DB);
+    db_to_gain(db_i);
+  );
+);
+
+function absf(v)
+(
+  v < 0 ? -v : v;
+);
+
+function soft_limit(v)
+(
+  v / (1 + absf(v));
+);
+
+function denorm_zero(v)
+(
+  absf(v) < DENORM_CUT ? 0 : v;
+);
+
+function sine_wave(phase_i)
+(
+  sin(phase_i * PI2);
+);
+
+function triangle_wave(phase_i)
+(
+  phase_i < 0.25 ? phase_i * 4 :
+  phase_i < 0.75 ? 2 - phase_i * 4 :
+  phase_i * 4 - 4;
+);
+
+function saw_wave(phase_i, phase_inc_i) local(max_h_i, n_i, sum_i, norm_i, weight_i)
+(
+  max_h_i = floor(0.45 / max(phase_inc_i, EPS));
+  max_h_i = min(max_h_i, HARMONIC_CAP);
+  max_h_i < 1 ? max_h_i = 1;
+  n_i = 1;
+  sum_i = 0;
+  norm_i = 0;
+  loop(max_h_i,
+    weight_i = 1 / (n_i * n_i);
+    sum_i += sin(PI2 * phase_i * n_i) * weight_i;
+    norm_i += weight_i;
+    n_i += 1;
+  );
+  norm_i > 0 ? -sum_i / norm_i : 0;
+);
+
+function square_wave(phase_i, phase_inc_i) local(max_h_i, n_i, h_i, sum_i, norm_i, weight_i)
+(
+  max_h_i = floor(0.45 / max(phase_inc_i, EPS));
+  max_h_i = min(max_h_i, HARMONIC_CAP);
+  max_h_i < 1 ? max_h_i = 1;
+  n_i = 1;
+  h_i = 1;
+  sum_i = 0;
+  norm_i = 0;
+  loop(floor((max_h_i + 1) * 0.5),
+    weight_i = 1 / (h_i * h_i);
+    sum_i += sin(PI2 * phase_i * h_i) * weight_i;
+    norm_i += weight_i;
+    n_i += 1;
+    h_i = n_i * 2 - 1;
+  );
+  norm_i > 0 ? sum_i / norm_i : 0;
+);
+
+function osc_wave(phase_i, morph_i, phase_inc_i) local(pos_i, idx_i, frac_i, a_i, b_i)
+(
+  pos_i = clamp_value(morph_i, 0, 1) * 3;
+  idx_i = floor(pos_i);
+  frac_i = pos_i - idx_i;
+  idx_i >= 3 ? (
+    idx_i = 2;
+    frac_i = 1;
+  );
+
+  idx_i == 0 ? (
+    a_i = sine_wave(phase_i);
+    b_i = triangle_wave(phase_i);
+  ) :
+  idx_i == 1 ? (
+    a_i = triangle_wave(phase_i);
+    b_i = saw_wave(phase_i, phase_inc_i);
+  ) : (
+    a_i = saw_wave(phase_i, phase_inc_i);
+    b_i = square_wave(phase_i, phase_inc_i);
+  );
+
+  a_i + (b_i - a_i) * frac_i;
+);
+
+function onepole_coeff(freq_i)
+(
+  1 - exp((-PI2 * clamp_value(freq_i, MIN_CUTOFF, min(MAX_CUTOFF, srate * 0.45))) / max(srate, 1));
+);
+
+function equal_power_left(pan_i)
+(
+  cos((clamp_value(pan_i, -1, 1) + 1) * $pi * 0.25);
+);
+
+function equal_power_right(pan_i)
+(
+  sin((clamp_value(pan_i, -1, 1) + 1) * $pi * 0.25);
+);
+
+function slider_osc_enable(osc_i)
+(
+  osc_i == 0 ? floor(osc1_enable + 0.5) :
+  osc_i == 1 ? floor(osc2_enable + 0.5) :
+  osc_i == 2 ? floor(osc3_enable + 0.5) :
+  osc_i == 3 ? floor(osc4_enable + 0.5) :
+  floor(osc5_enable + 0.5);
+);
+
+function slider_osc_freq_norm(osc_i)
+(
+  osc_i == 0 ? osc1_freq_norm :
+  osc_i == 1 ? osc2_freq_norm :
+  osc_i == 2 ? osc3_freq_norm :
+  osc_i == 3 ? osc4_freq_norm :
+  osc5_freq_norm;
+);
+
+function slider_osc_wave_norm(osc_i)
+(
+  osc_i == 0 ? osc1_wave_norm :
+  osc_i == 1 ? osc2_wave_norm :
+  osc_i == 2 ? osc3_wave_norm :
+  osc_i == 3 ? osc4_wave_norm :
+  osc5_wave_norm;
+);
+
+function slider_osc_cutoff_norm(osc_i)
+(
+  osc_i == 0 ? osc1_cutoff_norm :
+  osc_i == 1 ? osc2_cutoff_norm :
+  osc_i == 2 ? osc3_cutoff_norm :
+  osc_i == 3 ? osc4_cutoff_norm :
+  osc5_cutoff_norm;
+);
+
+function slider_osc_trim_norm(osc_i)
+(
+  osc_i == 0 ? osc1_trim_norm :
+  osc_i == 1 ? osc2_trim_norm :
+  osc_i == 2 ? osc3_trim_norm :
+  osc_i == 3 ? osc4_trim_norm :
+  osc5_trim_norm;
+);
+
+function slider_osc_pan_value(osc_i)
+(
+  osc_i == 0 ? osc1_pan :
+  osc_i == 1 ? osc2_pan :
+  osc_i == 2 ? osc3_pan :
+  osc_i == 3 ? osc4_pan :
+  osc5_pan;
+);
+
+function osc_enable(osc_i)
+(
+  floor(osc_enable_ui_base[osc_i] + 0.5);
+);
+
+function osc_freq_norm(osc_i)
+(
+  osc_freq_ui_base[osc_i];
+);
+
+function osc_wave_norm(osc_i)
+(
+  osc_wave_ui_base[osc_i];
+);
+
+function osc_cutoff_norm(osc_i)
+(
+  osc_cutoff_ui_base[osc_i];
+);
+
+function osc_trim_norm(osc_i)
+(
+  osc_trim_ui_base[osc_i];
+);
+
+function osc_pan_value(osc_i)
+(
+  osc_pan_ui_base[osc_i];
+);
+
+function refresh_osc_audio_target(osc_i)
+(
+  freq_target_base[osc_i] = norm_to_log(osc_freq_norm(osc_i), MIN_FREQ, MAX_FREQ);
+  cutoff_coeff_target_base[osc_i] = onepole_coeff(norm_to_log(osc_cutoff_norm(osc_i), MIN_CUTOFF, min(MAX_CUTOFF, srate * 0.45)));
+  wave_target_base[osc_i] = osc_wave_norm(osc_i);
+  trim_target_base[osc_i] = osc_enable(osc_i) ? norm_to_gain(osc_trim_norm(osc_i)) : 0;
+  pan_l_target_base[osc_i] = equal_power_left(osc_pan_value(osc_i));
+  pan_r_target_base[osc_i] = equal_power_right(osc_pan_value(osc_i));
+);
+
+function refresh_all_audio_targets() local(i)
+(
+  master_gain_target = norm_to_gain(master_level_ui);
+  i = 0;
+  loop(NUM_OSC,
+    refresh_osc_audio_target(i);
+    i += 1;
+  );
+);
+
+function write_osc_enable_slider(osc_i, value_i)
+(
+  value_i = value_i >= 0.5 ? 1 : 0;
+  osc_i == 0 ? osc1_enable = value_i :
+  osc_i == 1 ? osc2_enable = value_i :
+  osc_i == 2 ? osc3_enable = value_i :
+  osc_i == 3 ? osc4_enable = value_i :
+  osc5_enable = value_i;
+);
+
+function write_osc_freq_slider(osc_i, value_i)
+(
+  value_i = clamp_value(value_i, 0, 1);
+  osc_i == 0 ? osc1_freq_norm = value_i :
+  osc_i == 1 ? osc2_freq_norm = value_i :
+  osc_i == 2 ? osc3_freq_norm = value_i :
+  osc_i == 3 ? osc4_freq_norm = value_i :
+  osc5_freq_norm = value_i;
+);
+
+function write_osc_wave_slider(osc_i, value_i)
+(
+  value_i = clamp_value(value_i, 0, 1);
+  osc_i == 0 ? osc1_wave_norm = value_i :
+  osc_i == 1 ? osc2_wave_norm = value_i :
+  osc_i == 2 ? osc3_wave_norm = value_i :
+  osc_i == 3 ? osc4_wave_norm = value_i :
+  osc5_wave_norm = value_i;
+);
+
+function write_osc_cutoff_slider(osc_i, value_i)
+(
+  value_i = clamp_value(value_i, 0, 1);
+  osc_i == 0 ? osc1_cutoff_norm = value_i :
+  osc_i == 1 ? osc2_cutoff_norm = value_i :
+  osc_i == 2 ? osc3_cutoff_norm = value_i :
+  osc_i == 3 ? osc4_cutoff_norm = value_i :
+  osc5_cutoff_norm = value_i;
+);
+
+function write_osc_trim_slider(osc_i, value_i)
+(
+  value_i = clamp_value(value_i, 0, 1);
+  osc_i == 0 ? osc1_trim_norm = value_i :
+  osc_i == 1 ? osc2_trim_norm = value_i :
+  osc_i == 2 ? osc3_trim_norm = value_i :
+  osc_i == 3 ? osc4_trim_norm = value_i :
+  osc5_trim_norm = value_i;
+);
+
+function write_osc_pan_slider(osc_i, value_i)
+(
+  value_i = clamp_value(value_i, -1, 1);
+  osc_i == 0 ? osc1_pan = value_i :
+  osc_i == 1 ? osc2_pan = value_i :
+  osc_i == 2 ? osc3_pan = value_i :
+  osc_i == 3 ? osc4_pan = value_i :
+  osc5_pan = value_i;
+);
+
+function mark_all_osc_dirty() local(i)
+(
+  i = 0;
+  loop(NUM_OSC,
+    osc_dirty_base[i] = 1;
+    osc_param_dirty_base[i] = 0;
+    i += 1;
+  );
+);
+
+function mark_osc_param_dirty(osc_i, param_i)
+(
+  osc_dirty_base[osc_i] ? (
+    osc_param_dirty_base[osc_i] = 0;
+  ) :
+  osc_param_dirty_base[osc_i] == 0 ? (
+    osc_param_dirty_base[osc_i] = param_i;
+  ) :
+  osc_param_dirty_base[osc_i] != param_i ? (
+    osc_dirty_base[osc_i] = 1;
+    osc_param_dirty_base[osc_i] = 0;
+  );
+);
+
+function set_osc_enable(osc_i, value_i)
+(
+  value_i = value_i >= 0.5 ? 1 : 0;
+  osc_enable_ui_base[osc_i] != value_i ? (
+    osc_enable_ui_base[osc_i] = value_i;
+    drag_param == DRAG_NONE ? write_osc_enable_slider(osc_i, value_i);
+    refresh_osc_audio_target(osc_i);
+    osc_dirty_base[osc_i] = 1;
+    osc_param_dirty_base[osc_i] = 0;
+  );
+);
+
+function set_osc_freq_norm(osc_i, value_i)
+(
+  value_i = clamp_value(value_i, 0, 1);
+  absf(osc_freq_ui_base[osc_i] - value_i) > EPS ? (
+    osc_freq_ui_base[osc_i] = value_i;
+    drag_param == DRAG_NONE ? write_osc_freq_slider(osc_i, value_i);
+    refresh_osc_audio_target(osc_i);
+    mark_osc_param_dirty(osc_i, PARAM_FREQ);
+  );
+);
+
+function set_osc_wave_norm(osc_i, value_i)
+(
+  value_i = clamp_value(value_i, 0, 1);
+  absf(osc_wave_ui_base[osc_i] - value_i) > EPS ? (
+    osc_wave_ui_base[osc_i] = value_i;
+    drag_param == DRAG_NONE ? write_osc_wave_slider(osc_i, value_i);
+    refresh_osc_audio_target(osc_i);
+    mark_osc_param_dirty(osc_i, PARAM_WAVE);
+  );
+);
+
+function set_osc_cutoff_norm(osc_i, value_i)
+(
+  value_i = clamp_value(value_i, 0, 1);
+  absf(osc_cutoff_ui_base[osc_i] - value_i) > EPS ? (
+    osc_cutoff_ui_base[osc_i] = value_i;
+    drag_param == DRAG_NONE ? write_osc_cutoff_slider(osc_i, value_i);
+    refresh_osc_audio_target(osc_i);
+    mark_osc_param_dirty(osc_i, PARAM_CUTOFF);
+  );
+);
+
+function set_osc_trim_norm(osc_i, value_i)
+(
+  value_i = clamp_value(value_i, 0, 1);
+  absf(osc_trim_ui_base[osc_i] - value_i) > EPS ? (
+    osc_trim_ui_base[osc_i] = value_i;
+    drag_param == DRAG_NONE ? write_osc_trim_slider(osc_i, value_i);
+    refresh_osc_audio_target(osc_i);
+    mark_osc_param_dirty(osc_i, PARAM_TRIM);
+  );
+);
+
+function set_osc_pan(osc_i, value_i)
+(
+  value_i = clamp_value(value_i, -1, 1);
+  absf(osc_pan_ui_base[osc_i] - value_i) > EPS ? (
+    osc_pan_ui_base[osc_i] = value_i;
+    drag_param == DRAG_NONE ? write_osc_pan_slider(osc_i, value_i);
+    refresh_osc_audio_target(osc_i);
+    mark_osc_param_dirty(osc_i, PARAM_PAN);
+  );
+);
+
+function commit_osc_slider_state(osc_i)
+(
+  write_osc_enable_slider(osc_i, osc_enable(osc_i));
+  write_osc_freq_slider(osc_i, osc_freq_norm(osc_i));
+  write_osc_wave_slider(osc_i, osc_wave_norm(osc_i));
+  write_osc_cutoff_slider(osc_i, osc_cutoff_norm(osc_i));
+  write_osc_trim_slider(osc_i, osc_trim_norm(osc_i));
+  write_osc_pan_slider(osc_i, osc_pan_value(osc_i));
+);
+
+function set_drag_value(value_i)
+(
+  drag_param == DRAG_MASTER ? (
+    master_level_ui = clamp_value(value_i, 0, 1);
+    master_gain_target = norm_to_gain(master_level_ui);
+    header_dirty = 1;
+  ) :
+  drag_param == DRAG_UI_SCALE ? (
+    ui_scale_ui = clamp_value(round_to_step(value_i, 1), 75, 200);
+    layout_dirty = 1;
+  ) :
+  drag_param == DRAG_FREQ ? set_osc_freq_norm(drag_osc, value_i) :
+  drag_param == DRAG_WAVE ? set_osc_wave_norm(drag_osc, value_i) :
+  drag_param == DRAG_CUTOFF ? set_osc_cutoff_norm(drag_osc, value_i) :
+  drag_param == DRAG_TRIM ? set_osc_trim_norm(drag_osc, value_i) :
+  drag_param == DRAG_PAN ? set_osc_pan(drag_osc, value_i);
+);
+
+function start_drag(param_i, osc_i, x_i, y_i, w_i, h_i)
+(
+  drag_param = param_i;
+  drag_osc = osc_i;
+  drag_x = x_i;
+  drag_y = y_i;
+  drag_w = max(w_i, 1);
+  drag_h = max(h_i, 1);
+  drag_last_value = -999999;
+);
+
+function update_drag() local(norm_i, value_i, step_i)
+(
+  drag_param != DRAG_NONE ? (
+    drag_param == DRAG_TRIM || drag_param == DRAG_MASTER ? (
+      norm_i = 1 - clamp_value((mouse_y - drag_y) / drag_h, 0, 1);
+      value_i = norm_i;
+      step_i = 1 / drag_h;
+    ) :
+    drag_param == DRAG_PAN ? (
+      norm_i = clamp_value((mouse_x - drag_x) / drag_w, 0, 1);
+      value_i = norm_i * 2 - 1;
+      step_i = 2 / drag_w;
+    ) :
+    drag_param == DRAG_UI_SCALE ? (
+      norm_i = clamp_value((mouse_x - drag_x) / drag_w, 0, 1);
+      value_i = 75 + norm_i * 125;
+      step_i = 1;
+    ) : (
+      norm_i = clamp_value((mouse_x - drag_x) / drag_w, 0, 1);
+      value_i = norm_i;
+      step_i = 1 / drag_w;
+    );
+
+    value_i = drag_param == DRAG_UI_SCALE ? round_to_step(value_i, 1) : round_to_step(value_i, max(step_i, 0.001));
+    value_i != drag_last_value ? (
+      set_drag_value(value_i);
+      drag_last_value = value_i;
+    );
+  );
+);
+
+function sanitize_slider_backing()
+(
+  play_mode = floor(play_mode + 0.5);
+  play_mode = clamp_value(play_mode, 0, 1);
+  master_level_norm = clamp_value(master_level_norm, 0, 1);
+  ui_scale_pct = clamp_value(ui_scale_pct, 75, 200);
+
+  osc_i = 0;
+  loop(NUM_OSC,
+    write_osc_enable_slider(osc_i, slider_osc_enable(osc_i));
+    write_osc_freq_slider(osc_i, slider_osc_freq_norm(osc_i));
+    write_osc_wave_slider(osc_i, slider_osc_wave_norm(osc_i));
+    write_osc_cutoff_slider(osc_i, slider_osc_cutoff_norm(osc_i));
+    write_osc_trim_slider(osc_i, slider_osc_trim_norm(osc_i));
+    write_osc_pan_slider(osc_i, slider_osc_pan_value(osc_i));
+    osc_i += 1;
+  );
+);
+
+function sync_osc_slider_state(osc_i, enable_i, freq_i, wave_i, cutoff_i, trim_i, pan_i) local(dirty_i)
+(
+  dirty_i = 0;
+  enable_i = enable_i >= 0.5 ? 1 : 0;
+  freq_i = clamp_value(freq_i, 0, 1);
+  wave_i = clamp_value(wave_i, 0, 1);
+  cutoff_i = clamp_value(cutoff_i, 0, 1);
+  trim_i = clamp_value(trim_i, 0, 1);
+  pan_i = clamp_value(pan_i, -1, 1);
+
+  osc_enable_ui_base[osc_i] != enable_i ? (
+    osc_enable_ui_base[osc_i] = enable_i;
+    refresh_osc_audio_target(osc_i);
+    osc_dirty_base[osc_i] = 1;
+    osc_param_dirty_base[osc_i] = 0;
+  );
+
+  !(drag_param == DRAG_FREQ && drag_osc == osc_i) && absf(osc_freq_ui_base[osc_i] - freq_i) > 0.0001 ? (
+    osc_freq_ui_base[osc_i] = freq_i;
+    refresh_osc_audio_target(osc_i);
+    dirty_i == 0 ? dirty_i = PARAM_FREQ : dirty_i != PARAM_FREQ ? osc_dirty_base[osc_i] = 1;
+  );
+
+  !(drag_param == DRAG_WAVE && drag_osc == osc_i) && absf(osc_wave_ui_base[osc_i] - wave_i) > 0.0001 ? (
+    osc_wave_ui_base[osc_i] = wave_i;
+    refresh_osc_audio_target(osc_i);
+    dirty_i == 0 ? dirty_i = PARAM_WAVE : dirty_i != PARAM_WAVE ? osc_dirty_base[osc_i] = 1;
+  );
+
+  !(drag_param == DRAG_CUTOFF && drag_osc == osc_i) && absf(osc_cutoff_ui_base[osc_i] - cutoff_i) > 0.0001 ? (
+    osc_cutoff_ui_base[osc_i] = cutoff_i;
+    refresh_osc_audio_target(osc_i);
+    dirty_i == 0 ? dirty_i = PARAM_CUTOFF : dirty_i != PARAM_CUTOFF ? osc_dirty_base[osc_i] = 1;
+  );
+
+  !(drag_param == DRAG_TRIM && drag_osc == osc_i) && absf(osc_trim_ui_base[osc_i] - trim_i) > 0.0001 ? (
+    osc_trim_ui_base[osc_i] = trim_i;
+    refresh_osc_audio_target(osc_i);
+    dirty_i == 0 ? dirty_i = PARAM_TRIM : dirty_i != PARAM_TRIM ? osc_dirty_base[osc_i] = 1;
+  );
+
+  !(drag_param == DRAG_PAN && drag_osc == osc_i) && absf(osc_pan_ui_base[osc_i] - pan_i) > 0.0001 ? (
+    osc_pan_ui_base[osc_i] = pan_i;
+    refresh_osc_audio_target(osc_i);
+    dirty_i == 0 ? dirty_i = PARAM_PAN : dirty_i != PARAM_PAN ? osc_dirty_base[osc_i] = 1;
+  );
+
+  dirty_i ? mark_osc_param_dirty(osc_i, dirty_i);
+);
+
+function sync_ui_from_sliders()
+(
+  !(drag_param == DRAG_UI_SCALE) && absf(ui_scale_ui - ui_scale_pct) > 0.0001 ? (
+    ui_scale_ui = ui_scale_pct;
+    layout_dirty = 1;
+  );
+  !(drag_param == DRAG_MASTER) && absf(master_level_ui - master_level_norm) > 0.0001 ? (
+    master_level_ui = master_level_norm;
+    master_gain_target = norm_to_gain(master_level_ui);
+    header_dirty = 1;
+  );
+  play_mode_ui != play_mode ? (
+    play_mode_ui = play_mode;
+    header_dirty = 1;
+  );
+
+  sync_osc_slider_state(0, osc1_enable, osc1_freq_norm, osc1_wave_norm, osc1_cutoff_norm, osc1_trim_norm, osc1_pan);
+  sync_osc_slider_state(1, osc2_enable, osc2_freq_norm, osc2_wave_norm, osc2_cutoff_norm, osc2_trim_norm, osc2_pan);
+  sync_osc_slider_state(2, osc3_enable, osc3_freq_norm, osc3_wave_norm, osc3_cutoff_norm, osc3_trim_norm, osc3_pan);
+  sync_osc_slider_state(3, osc4_enable, osc4_freq_norm, osc4_wave_norm, osc4_cutoff_norm, osc4_trim_norm, osc4_pan);
+  sync_osc_slider_state(4, osc5_enable, osc5_freq_norm, osc5_wave_norm, osc5_cutoff_norm, osc5_trim_norm, osc5_pan);
+);
+
+function refresh_gate_target()
+(
+  gate_target = play_mode_ui < 0.5 ? 1 : held_count > 0 ? 1 : 0;
+);
+
+function in_rect(mx, my, x, y, w, h)
+(
+  mx >= x && mx < x + w && my >= y && my < y + h;
+);
+
+function gfx_fill(x, y, w, h, r, g, b, a) local(x0, y0, x1, y1)
+(
+  x0 = floor(x + 0.5);
+  y0 = floor(y + 0.5);
+  x1 = floor(x + w + 0.5);
+  y1 = floor(y + h + 0.5);
+  gfx_set(r, g, b, a);
+  gfx_rect(x0, y0, max(x1 - x0, 1), max(y1 - y0, 1), 1);
+);
+
+function gfx_frame(x, y, w, h, r, g, b, a) local(x0, y0, x1, y1)
+(
+  x0 = floor(x + 0.5);
+  y0 = floor(y + 0.5);
+  x1 = floor(x + w + 0.5);
+  y1 = floor(y + h + 0.5);
+  gfx_set(r, g, b, a);
+  gfx_rect(x0, y0, max(x1 - x0, 1), max(y1 - y0, 1), 0);
+);
+
+function gfx_text(x, y, r, g, b, a, txt)
+(
+  gfx_set(r, g, b, a);
+  gfx_x = x;
+  gfx_y = y;
+  gfx_drawstr(txt);
+);
+
+function gfx_center_text(x, y, w, h, r, g, b, a, txt) local(str_w, str_h)
+(
+  gfx_measurestr(txt, str_w, str_h);
+  gfx_text(x + (w - str_w) * 0.5, y + (h - str_h) * 0.5, r, g, b, a, txt);
+);
+
+function compute_layout()
+(
+  ui_scale = clamp_value(ui_scale_ui * 0.01 * min(gfx_w / 1060, gfx_h / 560), 0.66, 1.85);
+  pad = floor(18 * ui_scale + 0.5);
+  gap = floor(10 * ui_scale + 0.5);
+  header_h = floor(64 * ui_scale + 0.5);
+  footer_h = floor(52 * ui_scale + 0.5);
+  panel_y = header_h + floor(12 * ui_scale + 0.5);
+  panel_h = gfx_h - panel_y - footer_h - floor(14 * ui_scale + 0.5);
+  panel_h < floor(340 * ui_scale + 0.5) ? panel_h = floor(340 * ui_scale + 0.5);
+  panel_w = floor((gfx_w - pad * 2 - gap * 4) / 5);
+  panel_w < floor(132 * ui_scale + 0.5) ? panel_w = floor(132 * ui_scale + 0.5);
+
+  gfx_setimgdim(IMG_CACHE, gfx_w, gfx_h);
+  last_layout_w = gfx_w;
+  last_layout_h = gfx_h;
+  last_layout_scale_ui = ui_scale_ui;
+  bg_dirty = 1;
+  header_dirty = 1;
+  mark_all_osc_dirty();
+  cache_ready = 1;
+  layout_dirty = 0;
+);
+
+function draw_track(x, y, w, norm_i, active_i, r, g, b) local(track_y, knob_x, knob_w, knob_h, knob_y)
+(
+  norm_i = clamp_value(norm_i, 0, 1);
+  track_y = y + 12 * ui_scale;
+  knob_w = 11 * ui_scale;
+  knob_h = 18 * ui_scale;
+  knob_x = x + norm_i * w;
+  knob_y = track_y - knob_h * 0.5;
+
+  gfx_set(0.11, 0.14, 0.17, 1);
+  gfx_line(x, track_y + 1, x + w, track_y + 1, 1);
+  gfx_set(0.30, 0.36, 0.41, 0.85);
+  gfx_line(x, track_y, x + w, track_y, 1);
+  gfx_fill(knob_x - knob_w * 0.5 + 1 * ui_scale, knob_y + 1 * ui_scale, knob_w, knob_h, 0.020, 0.026, 0.032, 0.72);
+  gfx_fill(knob_x - knob_w * 0.5, knob_y, knob_w, knob_h, r * 0.70, g * 0.70, b * 0.70, 1);
+  gfx_fill(knob_x - knob_w * 0.5 + 2 * ui_scale, knob_y + 2 * ui_scale, max(knob_w - 4 * ui_scale, 1), 2 * ui_scale, min(r * 1.20, 1), min(g * 1.20, 1), min(b * 1.20, 1), 0.85);
+  gfx_fill(knob_x - 1 * ui_scale, knob_y + 4 * ui_scale, 2 * ui_scale, max(knob_h - 8 * ui_scale, 1), 0.96, 0.98, 0.96, 0.45);
+);
+
+function draw_bipolar_track(x, y, w, value_i, active_i, r, g, b) local(mid_x, track_y, knob_x, knob_w, knob_h, knob_y)
+(
+  value_i = clamp_value(value_i, -1, 1);
+  track_y = y + 12 * ui_scale;
+  mid_x = x + w * 0.5;
+  knob_w = 11 * ui_scale;
+  knob_h = 18 * ui_scale;
+  knob_x = x + (value_i + 1) * 0.5 * w;
+  knob_y = track_y - knob_h * 0.5;
+
+  gfx_set(0.11, 0.14, 0.17, 1);
+  gfx_line(x, track_y + 1, x + w, track_y + 1, 1);
+  gfx_set(0.30, 0.36, 0.41, 0.85);
+  gfx_line(x, track_y, x + w, track_y, 1);
+  gfx_set(0.48, 0.55, 0.60, 0.65);
+  gfx_line(mid_x, track_y - 5 * ui_scale, mid_x, track_y + 5 * ui_scale, 1);
+  gfx_fill(knob_x - knob_w * 0.5 + 1 * ui_scale, knob_y + 1 * ui_scale, knob_w, knob_h, 0.020, 0.026, 0.032, 0.72);
+  gfx_fill(knob_x - knob_w * 0.5, knob_y, knob_w, knob_h, r * 0.70, g * 0.70, b * 0.70, 1);
+  gfx_fill(knob_x - knob_w * 0.5 + 2 * ui_scale, knob_y + 2 * ui_scale, max(knob_w - 4 * ui_scale, 1), 2 * ui_scale, min(r * 1.20, 1), min(g * 1.20, 1), min(b * 1.20, 1), 0.85);
+  gfx_fill(knob_x - 1 * ui_scale, knob_y + 4 * ui_scale, 2 * ui_scale, max(knob_h - 8 * ui_scale, 1), 0.96, 0.98, 0.96, 0.45);
+);
+
+function draw_vertical_fader(x, y, w, h, norm_i, active_i, r, g, b) local(track_x, knob_y, knob_w, knob_h, knob_x)
+(
+  norm_i = clamp_value(norm_i, 0, 1);
+  track_x = x + w * 0.5;
+  knob_w = min(30 * ui_scale, max(16 * ui_scale, w * 0.42));
+  knob_h = 11 * ui_scale;
+  knob_y = y + (1 - norm_i) * h;
+  knob_x = track_x - knob_w * 0.5;
+
+  gfx_set(0.11, 0.14, 0.17, 1);
+  gfx_line(track_x + 1, y, track_x + 1, y + h, 1);
+  gfx_set(0.30, 0.36, 0.41, 0.85);
+  gfx_line(track_x, y, track_x, y + h, 1);
+  gfx_fill(knob_x + 1 * ui_scale, knob_y - knob_h * 0.5 + 1 * ui_scale, knob_w, knob_h, 0.020, 0.026, 0.032, 0.72);
+  gfx_fill(knob_x, knob_y - knob_h * 0.5, knob_w, knob_h, r * 0.70, g * 0.70, b * 0.70, 1);
+  gfx_fill(knob_x + 2 * ui_scale, knob_y - knob_h * 0.5 + 2 * ui_scale, max(knob_w - 4 * ui_scale, 1), 2 * ui_scale, min(r * 1.20, 1), min(g * 1.20, 1), min(b * 1.20, 1), 0.85);
+  gfx_fill(knob_x + 4 * ui_scale, knob_y - 1 * ui_scale, max(knob_w - 8 * ui_scale, 1), 2 * ui_scale, 0.96, 0.98, 0.96, 0.45);
+);
+
+function render_bg()
+(
+  gfx_fill(0, 0, gfx_w, gfx_h, 0.025, 0.030, 0.038, 1);
+  gfx_fill(0, 0, gfx_w, 3 * ui_scale, 0.88, 0.55, 0.24, 1);
+  gfx_setfont(3, "Verdana", floor(9 * ui_scale));
+  gfx_text(pad, gfx_h - 24 * ui_scale, 0.43, 0.51, 0.58, 1, "frequency range follows standard guitar high string reach");
+  bg_dirty = 0;
+);
+
+function render_header()
+(
+  gfx_fill(0, 0, gfx_w, header_h, 0.045, 0.058, 0.070, 1);
+  gfx_fill(0, 0, gfx_w, 3 * ui_scale, 0.88, 0.55, 0.24, 1);
+  gfx_setfont(1, "Verdana", floor(24 * ui_scale));
+  gfx_text(pad, 17 * ui_scale, 0.94, 0.97, 0.98, 1, "OvumTone");
+  gfx_setfont(3, "Verdana", floor(11 * ui_scale));
+  gfx_text(pad + 156 * ui_scale, 27 * ui_scale, 0.46, 0.55, 0.62, 1, "five oscillator tone generator");
+  draw_track(gfx_w - pad - 312 * ui_scale, 19 * ui_scale, 112 * ui_scale, (ui_scale_ui - 75) / 125, drag_param == DRAG_UI_SCALE, 0.88, 0.55, 0.24);
+  draw_vertical_fader(gfx_w - pad - 40 * ui_scale, 12 * ui_scale, 26 * ui_scale, 42 * ui_scale, master_level_ui, drag_param == DRAG_MASTER, 0.88, 0.55, 0.24);
+  gfx_fill(gfx_w - pad - 176 * ui_scale, 19 * ui_scale, 114 * ui_scale, 24 * ui_scale, play_mode_ui < 0.5 ? 0.16 : 0.10, play_mode_ui < 0.5 ? 0.42 : 0.30, play_mode_ui < 0.5 ? 0.35 : 0.52, 1);
+  gfx_frame(gfx_w - pad - 176 * ui_scale, 19 * ui_scale, 114 * ui_scale, 24 * ui_scale, 0.28, 0.36, 0.42, 1);
+  gfx_setfont(3, "Verdana", floor(10 * ui_scale));
+  gfx_center_text(gfx_w - pad - 176 * ui_scale, 19 * ui_scale, 114 * ui_scale, 24 * ui_scale, 0.90, 0.95, 0.96, 1, play_mode_ui < 0.5 ? "DRONE" : "MIDI GATE");
+  header_dirty = 0;
+);
+
+function render_osc_panel(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, accent_g, accent_b, label_y, track_x, track_w, row_y, trim_x, trim_y, trim_w, trim_h)
+(
+  x = pad + osc_i * (panel_w + gap);
+  y = panel_y;
+  w = panel_w;
+  h = panel_h;
+  pad_i = 12 * ui_scale;
+  enabled_i = osc_enable(osc_i);
+  accent_r = osc_i == 0 ? 0.24 : osc_i == 1 ? 0.84 : osc_i == 2 ? 0.34 : osc_i == 3 ? 0.92 : 0.46;
+  accent_g = osc_i == 0 ? 0.72 : osc_i == 1 ? 0.55 : osc_i == 2 ? 0.66 : osc_i == 3 ? 0.70 : 0.56;
+  accent_b = osc_i == 0 ? 0.70 : osc_i == 1 ? 0.36 : osc_i == 2 ? 0.92 : osc_i == 3 ? 0.30 : 0.86;
+
+  gfx_fill(x, y, w, h, enabled_i ? 0.062 : 0.044, enabled_i ? 0.076 : 0.052, enabled_i ? 0.088 : 0.064, 1);
+  gfx_fill(x, y, w, 3 * ui_scale, accent_r, accent_g, accent_b, enabled_i ? 0.95 : 0.35);
+  gfx_frame(x, y, w, h, 0.16, 0.20, 0.24, 1);
+
+  gfx_setfont(2, "Verdana", floor(13 * ui_scale));
+  osc_i == 0 ? sprintf(#osc_title, "OSC A") :
+  osc_i == 1 ? sprintf(#osc_title, "OSC B") :
+  osc_i == 2 ? sprintf(#osc_title, "OSC C") :
+  osc_i == 3 ? sprintf(#osc_title, "OSC D") :
+  sprintf(#osc_title, "OSC E");
+  gfx_text(x + pad_i, y + 12 * ui_scale, 0.90, 0.94, 0.95, enabled_i ? 1 : 0.45, #osc_title);
+  gfx_fill(x + w - pad_i - 42 * ui_scale, y + 10 * ui_scale, 42 * ui_scale, 20 * ui_scale, enabled_i ? accent_r : 0.16, enabled_i ? accent_g : 0.19, enabled_i ? accent_b : 0.22, enabled_i ? 0.95 : 1);
+  gfx_setfont(3, "Verdana", floor(9 * ui_scale));
+  gfx_center_text(x + w - pad_i - 42 * ui_scale, y + 10 * ui_scale, 42 * ui_scale, 20 * ui_scale, 0.92, 0.96, 0.96, 1, enabled_i ? "ON" : "OFF");
+
+  track_x = x + pad_i;
+  track_w = w - pad_i * 2;
+  label_y = y + 48 * ui_scale;
+  gfx_setfont(3, "Verdana", floor(9 * ui_scale));
+  gfx_text(track_x, label_y, 0.48, 0.56, 0.62, 1, "FREQ");
+  row_y = label_y + 12 * ui_scale;
+  draw_track(track_x, row_y, track_w, log_to_norm(norm_to_log(osc_freq_norm(osc_i), MIN_FREQ, MAX_FREQ), MIN_FREQ, MAX_FREQ), drag_param == DRAG_FREQ && drag_osc == osc_i, accent_r, accent_g, accent_b);
+  gfx_text(track_x, row_y + 33 * ui_scale, 0.48, 0.56, 0.62, 1, "WAVE");
+  row_y += 45 * ui_scale;
+  draw_track(track_x, row_y, track_w, osc_wave_norm(osc_i), drag_param == DRAG_WAVE && drag_osc == osc_i, accent_r, accent_g, accent_b);
+  gfx_text(track_x, row_y + 33 * ui_scale, 0.48, 0.56, 0.62, 1, "LP");
+  row_y += 45 * ui_scale;
+  draw_track(track_x, row_y, track_w, log_to_norm(norm_to_log(osc_cutoff_norm(osc_i), MIN_CUTOFF, MAX_CUTOFF), MIN_CUTOFF, MAX_CUTOFF), drag_param == DRAG_CUTOFF && drag_osc == osc_i, accent_r, accent_g, accent_b);
+  gfx_text(track_x, row_y + 33 * ui_scale, 0.48, 0.56, 0.62, 1, "PAN");
+  row_y += 45 * ui_scale;
+  draw_bipolar_track(track_x, row_y, track_w, osc_pan_value(osc_i), drag_param == DRAG_PAN && drag_osc == osc_i, accent_r, accent_g, accent_b);
+  trim_x = x + pad_i + 10 * ui_scale;
+  trim_y = row_y + 56 * ui_scale;
+  trim_w = w - pad_i * 2 - 20 * ui_scale;
+  trim_h = h - (trim_y - y) - 28 * ui_scale;
+  gfx_text(track_x, trim_y - 18 * ui_scale, 0.48, 0.56, 0.62, 1, "TRIM");
+  draw_vertical_fader(trim_x, trim_y, trim_w, trim_h, osc_trim_norm(osc_i), drag_param == DRAG_TRIM && drag_osc == osc_i, accent_r, accent_g, accent_b);
+  osc_dirty_base[osc_i] = 0;
+  osc_param_dirty_base[osc_i] = 0;
+);
+
+function render_osc_param(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, accent_g, accent_b, track_x, track_w, label_y, row_y, trim_x, trim_y, trim_w, trim_h, param_i, bg_r, bg_g, bg_b)
+(
+  param_i = osc_param_dirty_base[osc_i];
+  param_i > 0 ? (
+    x = pad + osc_i * (panel_w + gap);
+    y = panel_y;
+    w = panel_w;
+    h = panel_h;
+    pad_i = 12 * ui_scale;
+    enabled_i = osc_enable(osc_i);
+    bg_r = enabled_i ? 0.062 : 0.044;
+    bg_g = enabled_i ? 0.076 : 0.052;
+    bg_b = enabled_i ? 0.088 : 0.064;
+
+    accent_r = osc_i == 0 ? 0.24 : osc_i == 1 ? 0.84 : osc_i == 2 ? 0.34 : osc_i == 3 ? 0.92 : 0.46;
+    accent_g = osc_i == 0 ? 0.72 : osc_i == 1 ? 0.55 : osc_i == 2 ? 0.66 : osc_i == 3 ? 0.70 : 0.56;
+    accent_b = osc_i == 0 ? 0.70 : osc_i == 1 ? 0.36 : osc_i == 2 ? 0.92 : osc_i == 3 ? 0.30 : 0.86;
+
+    track_x = x + pad_i;
+    track_w = w - pad_i * 2;
+    label_y = y + 48 * ui_scale;
+    row_y = label_y + 12 * ui_scale;
+    gfx_setfont(3, "Verdana", floor(9 * ui_scale));
+
+    param_i == PARAM_FREQ ? (
+      gfx_fill(track_x - 10 * ui_scale, label_y - 2 * ui_scale, track_w + 20 * ui_scale, 42 * ui_scale, bg_r, bg_g, bg_b, 1);
+      gfx_text(track_x, label_y, 0.48, 0.56, 0.62, 1, "FREQ");
+      draw_track(track_x, row_y, track_w, log_to_norm(norm_to_log(osc_freq_norm(osc_i), MIN_FREQ, MAX_FREQ), MIN_FREQ, MAX_FREQ), 0, accent_r, accent_g, accent_b);
+    ) :
+    param_i == PARAM_WAVE ? (
+      row_y += 45 * ui_scale;
+      gfx_fill(track_x - 10 * ui_scale, label_y + 43 * ui_scale, track_w + 20 * ui_scale, 42 * ui_scale, bg_r, bg_g, bg_b, 1);
+      gfx_text(track_x, row_y - 12 * ui_scale, 0.48, 0.56, 0.62, 1, "WAVE");
+      draw_track(track_x, row_y, track_w, osc_wave_norm(osc_i), 0, accent_r, accent_g, accent_b);
+    ) :
+    param_i == PARAM_CUTOFF ? (
+      row_y += 90 * ui_scale;
+      gfx_fill(track_x - 10 * ui_scale, label_y + 88 * ui_scale, track_w + 20 * ui_scale, 42 * ui_scale, bg_r, bg_g, bg_b, 1);
+      gfx_text(track_x, row_y - 12 * ui_scale, 0.48, 0.56, 0.62, 1, "LP");
+      draw_track(track_x, row_y, track_w, log_to_norm(norm_to_log(osc_cutoff_norm(osc_i), MIN_CUTOFF, MAX_CUTOFF), MIN_CUTOFF, MAX_CUTOFF), 0, accent_r, accent_g, accent_b);
+    ) :
+    param_i == PARAM_PAN ? (
+      row_y += 135 * ui_scale;
+      gfx_fill(track_x - 10 * ui_scale, label_y + 133 * ui_scale, track_w + 20 * ui_scale, 42 * ui_scale, bg_r, bg_g, bg_b, 1);
+      gfx_text(track_x, row_y - 12 * ui_scale, 0.48, 0.56, 0.62, 1, "PAN");
+      draw_bipolar_track(track_x, row_y, track_w, osc_pan_value(osc_i), 0, accent_r, accent_g, accent_b);
+    ) :
+    param_i == PARAM_TRIM ? (
+      row_y += 135 * ui_scale;
+      trim_x = x + pad_i + 10 * ui_scale;
+      trim_y = row_y + 56 * ui_scale;
+      trim_w = w - pad_i * 2 - 20 * ui_scale;
+      trim_h = h - (trim_y - y) - 28 * ui_scale;
+      gfx_fill(track_x - 10 * ui_scale, trim_y - 22 * ui_scale, track_w + 20 * ui_scale, trim_h + 26 * ui_scale, bg_r, bg_g, bg_b, 1);
+      gfx_text(track_x, trim_y - 18 * ui_scale, 0.48, 0.56, 0.62, 1, "TRIM");
+      draw_vertical_fader(trim_x, trim_y, trim_w, trim_h, osc_trim_norm(osc_i), 0, accent_r, accent_g, accent_b);
+    );
+
+    osc_param_dirty_base[osc_i] = 0;
+  );
+);
+
+function handle_osc_hit(osc_i) local(x, y, w, h, pad_i, track_x, track_w, label_y, row_y, trim_x, trim_y, trim_w, trim_h)
+(
+  x = pad + osc_i * (panel_w + gap);
+  y = panel_y;
+  w = panel_w;
+  h = panel_h;
+  pad_i = 12 * ui_scale;
+  track_x = x + pad_i;
+  track_w = w - pad_i * 2;
+  label_y = y + 48 * ui_scale;
+  row_y = label_y + 12 * ui_scale;
+
+  in_rect(mouse_x, mouse_y, x + w - pad_i - 42 * ui_scale, y + 10 * ui_scale, 42 * ui_scale, 20 * ui_scale) ? (
+    set_osc_enable(osc_i, 1 - osc_enable(osc_i));
+  ) :
+  in_rect(mouse_x, mouse_y, track_x, row_y, track_w, 26 * ui_scale) ? (
+    start_drag(DRAG_FREQ, osc_i, track_x, row_y, track_w, 26 * ui_scale);
+    update_drag();
+  ) :
+  in_rect(mouse_x, mouse_y, track_x, row_y + 45 * ui_scale, track_w, 26 * ui_scale) ? (
+    start_drag(DRAG_WAVE, osc_i, track_x, row_y + 45 * ui_scale, track_w, 26 * ui_scale);
+    update_drag();
+  ) :
+  in_rect(mouse_x, mouse_y, track_x, row_y + 90 * ui_scale, track_w, 26 * ui_scale) ? (
+    start_drag(DRAG_CUTOFF, osc_i, track_x, row_y + 90 * ui_scale, track_w, 26 * ui_scale);
+    update_drag();
+  ) :
+  in_rect(mouse_x, mouse_y, track_x, row_y + 135 * ui_scale, track_w, 26 * ui_scale) ? (
+    start_drag(DRAG_PAN, osc_i, track_x, row_y + 135 * ui_scale, track_w, 26 * ui_scale);
+    update_drag();
+  ) : (
+    trim_x = x + pad_i + 10 * ui_scale;
+    trim_y = row_y + 191 * ui_scale;
+    trim_w = w - pad_i * 2 - 20 * ui_scale;
+    trim_h = h - (trim_y - y) - 28 * ui_scale;
+    in_rect(mouse_x, mouse_y, trim_x, trim_y, trim_w, trim_h) ? (
+      start_drag(DRAG_TRIM, osc_i, trim_x, trim_y, trim_w, trim_h);
+      update_drag();
+    );
+  );
+);
+
+function process_audio_sample() local(audio_master_gain, audio_sum_l, audio_sum_r, audio_osc_i, audio_phase_inc, audio_phase, audio_sample, audio_filtered, audio_out_l, audio_out_r)
+(
+  srate != last_audio_srate ? (
+    smooth_fast = 1 - exp(-1 / max(srate * 0.012, 1));
+    smooth_slow = 1 - exp(-1 / max(srate * 0.030, 1));
+    smooth_gain = 1 - exp(-1 / max(srate * 0.050, 1));
+    gate_coeff = 1 - exp(-1 / max(srate * 0.010, 1));
+    last_audio_srate = srate;
+    refresh_all_audio_targets();
+  );
+
+  gate_smooth += (gate_target - gate_smooth) * gate_coeff;
+  audio_master_gain = master_gain_target;
+
+  audio_sum_l = 0;
+  audio_sum_r = 0;
+
+  audio_osc_i = 0;
+  loop(NUM_OSC,
+    audio_phase_inc = freq_smooth_base[audio_osc_i] / max(srate, 1);
+    audio_phase = wrap01(phase_base[audio_osc_i] + audio_phase_inc);
+    phase_base[audio_osc_i] = audio_phase;
+
+    (trim_target_base[audio_osc_i] > 0 || trim_smooth_base[audio_osc_i] > 0.0000001) ? (
+      freq_smooth_base[audio_osc_i] += (freq_target_base[audio_osc_i] - freq_smooth_base[audio_osc_i]) * smooth_slow;
+      cutoff_smooth_base[audio_osc_i] += (cutoff_coeff_target_base[audio_osc_i] - cutoff_smooth_base[audio_osc_i]) * smooth_slow;
+      wave_smooth_base[audio_osc_i] += (wave_target_base[audio_osc_i] - wave_smooth_base[audio_osc_i]) * smooth_fast;
+      trim_smooth_base[audio_osc_i] += (trim_target_base[audio_osc_i] - trim_smooth_base[audio_osc_i]) * smooth_gain;
+      pan_l_smooth_base[audio_osc_i] += (pan_l_target_base[audio_osc_i] - pan_l_smooth_base[audio_osc_i]) * smooth_fast;
+      pan_r_smooth_base[audio_osc_i] += (pan_r_target_base[audio_osc_i] - pan_r_smooth_base[audio_osc_i]) * smooth_fast;
+
+      freq_smooth_base[audio_osc_i] = denorm_zero(freq_smooth_base[audio_osc_i]);
+      cutoff_smooth_base[audio_osc_i] = denorm_zero(cutoff_smooth_base[audio_osc_i]);
+      wave_smooth_base[audio_osc_i] = denorm_zero(wave_smooth_base[audio_osc_i]);
+      trim_smooth_base[audio_osc_i] = denorm_zero(trim_smooth_base[audio_osc_i]);
+      pan_l_smooth_base[audio_osc_i] = denorm_zero(pan_l_smooth_base[audio_osc_i]);
+      pan_r_smooth_base[audio_osc_i] = denorm_zero(pan_r_smooth_base[audio_osc_i]);
+
+      audio_sample = osc_wave(audio_phase, wave_smooth_base[audio_osc_i], audio_phase_inc);
+      lp_state_base[audio_osc_i] += (audio_sample - lp_state_base[audio_osc_i]) * cutoff_smooth_base[audio_osc_i];
+      lp_state_base[audio_osc_i] = denorm_zero(lp_state_base[audio_osc_i]);
+      audio_filtered = denorm_zero(lp_state_base[audio_osc_i] * trim_smooth_base[audio_osc_i]);
+
+      audio_sum_l += audio_filtered * pan_l_smooth_base[audio_osc_i];
+      audio_sum_r += audio_filtered * pan_r_smooth_base[audio_osc_i];
+    ) : (
+      trim_smooth_base[audio_osc_i] = 0;
+      lp_state_base[audio_osc_i] = 0;
+    );
+
+    audio_osc_i += 1;
+  );
+
+  audio_out_l = soft_limit(audio_sum_l * audio_master_gain * gate_smooth * 0.72);
+  audio_out_r = soft_limit(audio_sum_r * audio_master_gain * gate_smooth * 0.72);
+
+  spl0 = denorm_zero(audio_out_l);
+  spl1 = denorm_zero(audio_out_r);
+);
+
+sanitize_slider_backing();
+sync_ui_from_sliders();
+
+osc_i = 0;
+loop(NUM_OSC,
+  phase_base[osc_i] = rand(1);
+  freq_smooth_base[osc_i] = norm_to_log(osc_freq_norm(osc_i), MIN_FREQ, MAX_FREQ);
+  wave_smooth_base[osc_i] = osc_wave_norm(osc_i);
+  cutoff_smooth_base[osc_i] = onepole_coeff(norm_to_log(osc_cutoff_norm(osc_i), MIN_CUTOFF, min(MAX_CUTOFF, srate * 0.45)));
+  trim_smooth_base[osc_i] = norm_to_gain(osc_trim_norm(osc_i));
+  pan_smooth_base[osc_i] = osc_pan_value(osc_i);
+  pan_l_smooth_base[osc_i] = equal_power_left(osc_pan_value(osc_i));
+  pan_r_smooth_base[osc_i] = equal_power_right(osc_pan_value(osc_i));
+  lp_state_base[osc_i] = 0;
+  osc_i += 1;
+);
+
+refresh_all_audio_targets();
+refresh_gate_target();
+gate_smooth = gate_target;
+
+@slider
+
+sanitize_slider_backing();
+sync_ui_from_sliders();
+refresh_gate_target();
+
+@block
+
+while (midirecv(offset, message1, message23)) (
+  status = message1 & 240;
+  velocity_value = (message23 >> 8) & 127;
+
+  (status == 144) && velocity_value > 0 ? (
+    held_count += 1;
+  ) :
+  ((status == 128) || ((status == 144) && velocity_value == 0)) ? (
+    held_count -= 1;
+    held_count < 0 ? held_count = 0;
+  );
+);
+
+refresh_gate_target();
+
+@sample
+
+process_audio_sample();
+
+@gfx 1060 560
+
+sync_ui_from_sliders();
+
+(layout_dirty || gfx_w != last_layout_w || gfx_h != last_layout_h || absf(ui_scale_ui - last_layout_scale_ui) > 0.0001 || !cache_ready) ? compute_layout();
+
+mouse_down = mouse_cap & 1;
+click = mouse_down && !last_mouse_down;
+
+click ? (
+  in_rect(mouse_x, mouse_y, gfx_w - pad - 176 * ui_scale, 19 * ui_scale, 114 * ui_scale, 24 * ui_scale) ? (
+    play_mode_ui = play_mode_ui < 0.5 ? 1 : 0;
+    play_mode = play_mode_ui;
+    refresh_gate_target();
+    header_dirty = 1;
+  ) :
+  in_rect(mouse_x, mouse_y, gfx_w - pad - 40 * ui_scale, 12 * ui_scale, 26 * ui_scale, 42 * ui_scale) ? (
+    start_drag(DRAG_MASTER, -1, gfx_w - pad - 40 * ui_scale, 12 * ui_scale, 26 * ui_scale, 42 * ui_scale);
+    update_drag();
+  ) :
+  in_rect(mouse_x, mouse_y, gfx_w - pad - 312 * ui_scale, 19 * ui_scale, 112 * ui_scale, 24 * ui_scale) ? (
+    start_drag(DRAG_UI_SCALE, -1, gfx_w - pad - 312 * ui_scale, 19 * ui_scale, 112 * ui_scale, 24 * ui_scale);
+    update_drag();
+  ) : (
+    osc_i = 0;
+    loop(NUM_OSC,
+      handle_osc_hit(osc_i);
+      osc_i += 1;
+    );
+  );
+);
+
+mouse_down && (drag_param != DRAG_NONE) ? (
+  update_drag();
+) : (
+  !mouse_down ? (
+    drag_param != DRAG_NONE && drag_osc >= 0 ? commit_osc_slider_state(drag_osc);
+    drag_param == DRAG_MASTER ? (
+      master_level_norm = master_level_ui;
+      header_dirty = 1;
+    ) :
+    drag_param == DRAG_UI_SCALE ? (
+      ui_scale_pct = ui_scale_ui;
+      layout_dirty = 1;
+    ) :
+    drag_param == DRAG_FREQ && drag_osc >= 0 ? mark_osc_param_dirty(drag_osc, PARAM_FREQ) :
+    drag_param == DRAG_WAVE && drag_osc >= 0 ? mark_osc_param_dirty(drag_osc, PARAM_WAVE) :
+    drag_param == DRAG_CUTOFF && drag_osc >= 0 ? mark_osc_param_dirty(drag_osc, PARAM_CUTOFF) :
+    drag_param == DRAG_PAN && drag_osc >= 0 ? mark_osc_param_dirty(drag_osc, PARAM_PAN) :
+    drag_param == DRAG_TRIM && drag_osc >= 0 ? mark_osc_param_dirty(drag_osc, PARAM_TRIM);
+    drag_param = DRAG_NONE;
+    drag_osc = -1;
+  );
+);
+
+(layout_dirty || gfx_w != last_layout_w || gfx_h != last_layout_h || absf(ui_scale_ui - last_layout_scale_ui) > 0.0001 || !cache_ready) ? compute_layout();
+
+redraw_cache = bg_dirty || header_dirty;
+osc_i = 0;
+loop(NUM_OSC,
+  redraw_cache = redraw_cache || osc_dirty_base[osc_i] || osc_param_dirty_base[osc_i];
+  osc_i += 1;
+);
+
+redraw_cache ? (
+  gfx_dest = IMG_CACHE;
+  bg_dirty ? render_bg();
+  header_dirty ? render_header();
+  osc_i = 0;
+  loop(NUM_OSC,
+    osc_dirty_base[osc_i] ? render_osc_panel(osc_i) : osc_param_dirty_base[osc_i] ? render_osc_param(osc_i);
+    osc_i += 1;
+  );
+  gfx_dest = -1;
+);
+
+gfx_x = 0;
+gfx_y = 0;
+gfx_set(1, 1, 1, 1);
+gfx_blit(IMG_CACHE, 1, 0);
+
+last_mouse_down = mouse_down;

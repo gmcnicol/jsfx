@@ -7,6 +7,7 @@ JSFX Scripts that I've written for Cockos Reaper.
 * `DanseWerk_v1.jsfx` structured EBM / industrial MIDI drum generator with Command / Contamination / Punishment layers and a form-aware `@gfx` editor.
 * `MetalWerk_v1.jsfx` structured metal drum MIDI generator with layered Precision / Riff / Tribal identities and a form-aware `@gfx` editor.
 * `OpenScaleEQ_v1.jsfx` original MIT-licensed scale-aware spectral EQ with in-key boosts, out-of-key cuts, auto major/minor key estimation, M/S width utilities, safety ceiling, and a custom spectral display.
+* `OvumTone_v1.jsfx` five-oscillator stereo tone generator with continuous guitar-range frequency controls, wave morphing, per-oscillator low-pass filtering, trim, pan, and drone/MIDI-gated modes.
 * `ScaleLane_v1.jsfx` lean 4-lane scale-aware melodic MIDI sequencer with per-lane patterns, chain playback, and a stopped-only `@gfx` step editor.
 * `UndertowWerk_v1.jsfx` structured quiet/loud post-rock / math-rock MIDI drum generator with Anchor, Nerve, and Surge layers plus a form-aware `@gfx` editor.
 * `WaterSplash_ModeGravity.jsfx` version 1 poc of an idea that a midi note is like a pebble hitting a water surface - causing splashes of midi notes like water droplets.
@@ -19,6 +20,8 @@ JSFX Scripts that I've written for Cockos Reaper.
 # UI Editing Rules
 * Do not change control interaction behavior unless explicitly requested. Preserve existing step size, drag sensitivity, click semantics, and reachable values.
 * For `@gfx` controls, avoid self-referential interaction math where changing a value also changes that control's drag resolution mid-gesture.
+* For custom JSFX editors, follow `Docs/JSFX_GFX_NOTES.md`: `Effects/ParallelTap_v1.jsfx` is the reference loop for non-flickering graphics and non-clicking live parameter/audio state.
+* Never share scratch/global variables between `@gfx` and `@sample`; wrap per-sample DSP in `@init` functions with `local(...)` scratch variables so graphics redraws cannot corrupt audio.
 * If a UI behavior change is necessary, treat it as a deliberate UX change and call it out clearly rather than slipping it in with unrelated fixes.
 
 # REAPER Voice Dataset Tooling
