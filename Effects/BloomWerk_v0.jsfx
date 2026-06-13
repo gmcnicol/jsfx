@@ -81,6 +81,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   write_pos = 0;
   written = 0;
   spawn_counter = 0;
+  audio_bloom_step = 0;
   midi_abs = 0;
   rng_state = 1;
   last_seed = -1;
@@ -221,6 +222,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     write_pos = 0;
     written = 0;
     spawn_counter = 0;
+    audio_bloom_step = 0;
     input_env = 0;
     input_peak = 0;
     slewL = 0;
@@ -431,17 +433,21 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     best_i;
   );
 
-  function spawn_pad_voice() local(v, pc, base_pc, semi, note_i, len_i, fade_i, back_i, start_i, amp_i, pan_i, rate_i, life_i)
+  function fold_audio_semi(semi)
+  (
+    while (semi > 18) ( semi -= 12; );
+    while (semi < -12) ( semi += 12; );
+    semi;
+  );
+
+  function spawn_pad_voice_at(semi_in, amp_scale) local(v, pc, semi, note_i, len_i, fade_i, back_i, start_i, amp_i, pan_i, rate_i, life_i)
   (
     written > srate * 0.35 ? (
       v = alloc_voice();
       v >= 0 ? (
-        base_pc = ui_root_note % 12;
-        pc = pick_field_pc();
-        note_i = ui_root_note + wrap12(pc - base_pc);
-        semi = note_i - ui_root_note;
-        semi > 6 ? semi -= 12;
-        semi += interval_at(floor(ui_interval_set + 0.5), floor(rand01() * interval_count(floor(ui_interval_set + 0.5))));
+        semi = fold_audio_semi(semi_in);
+        note_i = semi;
+        pc = wrap12(semi);
         semi += (rand01() - 0.5) * ui_drift * 0.04;
         rate_i = exp(LOG2 * semi / 12);
 
@@ -453,7 +459,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
         start_i + len_i >= BUF_SIZE ? start_i = BUF_SIZE - len_i - 2;
         start_i < 0 ? start_i = 0;
 
-        amp_i = (0.070 + ui_amount * 0.0020) * (0.75 + min(input_env * 7.0, 1.35));
+        amp_i = (0.070 + ui_amount * 0.0020) * (0.75 + min(input_env * 7.0, 1.35)) * amp_scale;
         pan_i = clamp((pc - 5.5) / 7 + (rand01() - 0.5) * ui_chaos * 0.01, -0.9, 0.9);
         life_i = floor(srate * (1.2 + ui_memory * 0.055 + rand01() * 2.0));
 
@@ -471,6 +477,44 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
         mem[v_note + v] = note_i;
       );
     );
+  );
+
+  function spawn_pad_voice() local(pc, base_pc, semi, set_i)
+  (
+    base_pc = ui_root_note % 12;
+    pc = pick_field_pc();
+    semi = wrap12(pc - base_pc);
+    semi > 6 ? semi -= 12;
+    set_i = floor(ui_interval_set + 0.5);
+    semi += interval_at(set_i, floor(rand01() * interval_count(set_i)));
+    spawn_pad_voice_at(semi, 1);
+  );
+
+  function spawn_audio_bloom_cluster(amount_i) local(set_i, count_i, step_i, idx_a, idx_b, idx_c, semi_a, semi_b, semi_c, semi_d)
+  (
+    set_i = floor(ui_interval_set + 0.5);
+    count_i = interval_count(set_i);
+    step_i = floor(audio_bloom_step);
+
+    idx_a = step_i % count_i;
+    idx_b = (step_i + 1 + floor(ui_vines / 34)) % count_i;
+    idx_c = (step_i + 2 + floor(ui_chaos / 40)) % count_i;
+
+    semi_a = interval_at(set_i, idx_a);
+    semi_b = interval_at(set_i, idx_b);
+    semi_c = fold_audio_semi(semi_b + interval_at(set_i, idx_c));
+    semi_d = fold_audio_semi(semi_a + interval_at(set_i, (idx_c + 1) % count_i));
+
+    excite_pc(semi_a, amount_i);
+    excite_pc(semi_b, amount_i * 0.85);
+    excite_pc(semi_c, amount_i * 0.62);
+
+    spawn_pad_voice_at(semi_a, 1);
+    spawn_pad_voice_at(semi_b, 0.86);
+    ui_vines > 25 ? spawn_pad_voice_at(semi_c, 0.66);
+    (ui_vines > 60 || ui_density > 74) ? spawn_pad_voice_at(semi_d, 0.50);
+
+    audio_bloom_step += 1;
   );
 
   function process_audio_sample() local(inL, inR, mono, a, energy, interval_samps, wetL, wetR, i, pos, start_i, len_i, fade_i, age_i, life_i, env_i, rel_i, amp_i, pan_i, sL, sR, mid_i, gL, gR, outL, outR, target_wet, target_out, max_delta, dL, dR, pc_i)
@@ -516,9 +560,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
       spawn_counter += 1;
       input_env > 0.0035 && spawn_counter >= interval_samps ? (
         spawn_counter = 0;
-        excite_pc(ui_root_note % 12, clamp(input_env * ui_bloom * 0.30, 0, 1.5));
-        spawn_pad_voice();
-        ui_vines > 35 ? spawn_pad_voice();
+        spawn_audio_bloom_cluster(clamp(input_env * ui_bloom * 0.30, 0, 1.5));
       );
     );
 
