@@ -15,12 +15,12 @@ slider5:memory=70<0,100,1>-Memory
 slider6:vines=45<0,100,1>-Vines
 slider7:chaos=18<0,100,1>-Chaos
 slider8:drift=10<0,100,1>-Drift
-slider9:grain_density=34<0,100,1>-Pad Density
-slider10:grain_amount=58<0,100,1>-Pad Amount
+slider9:grain_density=42<0,100,1>-Pad Density
+slider10:grain_amount=72<0,100,1>-Pad Amount
 slider11:loop_ms=900<180,2600,1>-Loop Length
 slider12:resonance=45<0,100,1>-Resonance
-slider13:wet=86<0,100,1>-Wet
-slider14:output_db=-9<-36,6,0.1>-Output
+slider13:wet=100<0,100,1>-Wet
+slider14:output_db=-3<-36,6,0.1>-Output
 slider15:freeze=0<0,1,1{Off,On}>-Freeze
 slider16:midi_thru=0<0,1,1{Off,On}>-MIDI Thru
 slider17:root_note=60<24,84,1>-Root Note
@@ -453,7 +453,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
         start_i + len_i >= BUF_SIZE ? start_i = BUF_SIZE - len_i - 2;
         start_i < 0 ? start_i = 0;
 
-        amp_i = (0.025 + ui_amount * 0.00085) * (0.55 + input_env * 3.0);
+        amp_i = (0.070 + ui_amount * 0.0020) * (0.75 + min(input_env * 7.0, 1.35));
         pan_i = clamp((pc - 5.5) / 7 + (rand01() - 0.5) * ui_chaos * 0.01, -0.9, 0.9);
         life_i = floor(srate * (1.2 + ui_memory * 0.055 + rand01() * 2.0));
 
@@ -514,7 +514,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     (ui_mode != 1 && ui_freeze < 0.5) ? (
       interval_samps = floor(srate / max(1, 2 + ui_density * 0.24));
       spawn_counter += 1;
-      input_env > 0.010 && spawn_counter >= interval_samps ? (
+      input_env > 0.0035 && spawn_counter >= interval_samps ? (
         spawn_counter = 0;
         excite_pc(ui_root_note % 12, clamp(input_env * ui_bloom * 0.30, 0, 1.5));
         spawn_pad_voice();
@@ -567,8 +567,8 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     wet_s += (target_wet - wet_s) * a;
     out_s += (target_out - out_s) * a;
 
-    wetL *= wet_s * out_s * (0.65 + ui_resonance * 0.004);
-    wetR *= wet_s * out_s * (0.65 + ui_resonance * 0.004);
+    wetL *= wet_s * out_s * (0.92 + ui_resonance * 0.006);
+    wetR *= wet_s * out_s * (0.92 + ui_resonance * 0.006);
 
     outL = soft_limit(wetL);
     outR = soft_limit(wetR);
