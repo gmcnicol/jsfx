@@ -8,7 +8,7 @@ JSFX Scripts that I've written for Cockos Reaper.
 * `MetalWerk_v1.jsfx` structured metal drum MIDI generator with layered Precision / Riff / Tribal identities and a form-aware `@gfx` editor.
 * `OpenScaleEQ_v1.jsfx` original MIT-licensed scale-aware spectral EQ with in-key boosts, out-of-key cuts, auto major/minor key estimation, M/S width utilities, safety ceiling, and a custom spectral display.
 * `OvumTone_v1.jsfx` five-oscillator stereo tone generator with continuous guitar-range frequency controls, wave morphing, per-oscillator low-pass filtering, trim, pan, and drone/MIDI-gated modes.
-* `BloomWerk_v1.jsfx` deterministic harmonic-cloud send/instrument effect with audio chroma, MIDI field control, Hybrid Mode, Vines harmonic coupling, resonators, captured-input grains, Freeze/Memory performance controls, and a pitch-class debug view.
+* `BloomWerk_v0.jsfx` custom-GFX harmonic pad-loop effect with wet captured-audio bloom and generational MIDI chord bloom for downstream VST instruments.
 * `ScaleLane_v1.jsfx` lean 4-lane scale-aware melodic MIDI sequencer with per-lane patterns, chain playback, and a stopped-only `@gfx` step editor.
 * `UndertowWerk_v1.jsfx` structured quiet/loud post-rock / math-rock MIDI drum generator with Anchor, Nerve, and Surge layers plus a form-aware `@gfx` editor.
 * `WaterSplash_ModeGravity.jsfx` version 1 poc of an idea that a midi note is like a pebble hitting a water surface - causing splashes of midi notes like water droplets.
@@ -29,6 +29,6 @@ JSFX Scripts that I've written for Cockos Reaper.
 * Voice dataset ReaScripts for XTTS-style phrase import and render/export are documented in `Docs/VoiceDatasetREADME.md`.
 * Example input CSV lives at `Docs/VoiceDatasetExample.csv`.
 
-# BloomWerk MIDI Control
-* BloomWerk routing and mode notes live in `Docs/BloomWerkREADME.md`.
+# BloomWerk
+* BloomWerk v0 routing and mode notes live in `Docs/BloomWerk_v0_README.md`.
 * To control BloomWerk from WaterSplash/WaterWerk-style MIDI, put the MIDI generator on a separate REAPER track, send its MIDI to the BloomWerk track, and set BloomWerk to MIDI or Hybrid mode.

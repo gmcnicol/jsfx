@@ -1,0 +1,798 @@
+desc:BloomWerk v0 - harmonic pad bloom
+tags:effect instrument midi audio granular pad bloom chords harmonic custom-gfx
+options:no_meter
+
+in_pin:Input Left
+in_pin:Input Right
+out_pin:Output Left
+out_pin:Output Right
+
+slider1:mode=2<0,2,1{Audio,MIDI,Hybrid}>-Mode
+slider2:interval_set=0<0,5,1{Major,Minor,Sixth,Sus,Power,Cluster}>-Intervals
+slider3:depth=2<1,3,1>-Bloom Depth
+slider4:bloom=64<0,100,1>-Bloom
+slider5:memory=70<0,100,1>-Memory
+slider6:vines=45<0,100,1>-Vines
+slider7:chaos=18<0,100,1>-Chaos
+slider8:drift=10<0,100,1>-Drift
+slider9:grain_density=34<0,100,1>-Pad Density
+slider10:grain_amount=58<0,100,1>-Pad Amount
+slider11:loop_ms=900<180,2600,1>-Loop Length
+slider12:resonance=45<0,100,1>-Resonance
+slider13:wet=86<0,100,1>-Wet
+slider14:output_db=-9<-36,6,0.1>-Output
+slider15:freeze=0<0,1,1{Off,On}>-Freeze
+slider16:midi_thru=0<0,1,1{Off,On}>-MIDI Thru
+slider17:root_note=60<24,84,1>-Root Note
+slider18:seed=1979<0,999999,1>-Seed
+slider19:ui_scale_pct=110<75,180,1>-UI Scale
+slider20:reset=0<0,1,1{No,Yes}>-Reset
+
+@init
+  ext_noinit = 1;
+  ext_nodenorm = 1;
+
+  PI2 = 2 * $pi;
+  LOG2 = log(2);
+  DB_TO_LOG = 8.685889638;
+  EPS = 0.000001;
+  DENORM = 0.000000000001;
+
+  BUF_SIZE = 262144;
+  MAX_VOICES = 56;
+  MAX_OFFS = 1024;
+  CHROMA = 12;
+
+  DRAG_NONE = 0;
+  DRAG_BLOOM = 1;
+  DRAG_MEMORY = 2;
+  DRAG_VINES = 3;
+  DRAG_DENSITY = 4;
+  DRAG_AMOUNT = 5;
+  DRAG_RESONANCE = 6;
+  DRAG_WET = 7;
+  DRAG_OUTPUT = 8;
+  DRAG_LOOP = 9;
+  DRAG_CHAOS = 10;
+  DRAG_DRIFT = 11;
+
+  bufL = 0;
+  bufR = bufL + BUF_SIZE;
+  v_active = bufR + BUF_SIZE;
+  v_pos = v_active + MAX_VOICES;
+  v_rate = v_pos + MAX_VOICES;
+  v_start = v_rate + MAX_VOICES;
+  v_len = v_start + MAX_VOICES;
+  v_fade = v_len + MAX_VOICES;
+  v_age = v_fade + MAX_VOICES;
+  v_life = v_age + MAX_VOICES;
+  v_amp = v_life + MAX_VOICES;
+  v_pan = v_amp + MAX_VOICES;
+  v_state = v_pan + MAX_VOICES;
+  v_note = v_state + MAX_VOICES;
+  field = v_note + MAX_VOICES;
+  field_view = field + CHROMA;
+  off_active = field_view + CHROMA;
+  off_note = off_active + MAX_OFFS;
+  off_chan = off_note + MAX_OFFS;
+  off_time = off_chan + MAX_OFFS;
+  seen_notes = off_time + MAX_OFFS;
+
+  write_pos = 0;
+  written = 0;
+  spawn_counter = 0;
+  midi_abs = 0;
+  rng_state = 1;
+  last_seed = -1;
+  last_srate = -1;
+  reset_hold = 0;
+  input_env = 0;
+  input_peak = 0;
+  wet_s = wet * 0.01;
+  out_s = 1;
+  slewL = 0;
+  slewR = 0;
+  last_mouse_down = 0;
+  drag_param = DRAG_NONE;
+  drag_x = 0;
+  drag_w = 1;
+  cache_img = 1;
+
+  ui_mode = mode;
+  ui_interval_set = interval_set;
+  ui_depth = depth;
+  ui_bloom = bloom;
+  ui_memory = memory;
+  ui_vines = vines;
+  ui_chaos = chaos;
+  ui_drift = drift;
+  ui_density = grain_density;
+  ui_amount = grain_amount;
+  ui_loop_ms = loop_ms;
+  ui_resonance = resonance;
+  ui_wet = wet;
+  ui_output_db = output_db;
+  ui_freeze = freeze;
+  ui_midi_thru = midi_thru;
+  ui_root_note = root_note;
+  ui_scale_pct = ui_scale_pct;
+
+  function clamp(v, lo, hi)
+  (
+    v < lo ? lo : v > hi ? hi : v;
+  );
+
+  function absf(v)
+  (
+    v < 0 ? -v : v;
+  );
+
+  function denorm(v)
+  (
+    absf(v) < DENORM ? 0 : v;
+  );
+
+  function db_to_gain(db)
+  (
+    exp(db / DB_TO_LOG);
+  );
+
+  function soft_limit(x) local(a)
+  (
+    a = absf(x);
+    x / (1 + a);
+  );
+
+  function wrap12(v) local(r)
+  (
+    r = v % 12;
+    r < 0 ? r += 12;
+    r;
+  );
+
+  function rng_seed(v)
+  (
+    rng_state = floor(v) + 1;
+    rng_state <= 0 ? rng_state = 1;
+  );
+
+  function rand01()
+  (
+    rng_state = (rng_state * 1664525 + 1013904223) % 4294967296;
+    rng_state / 4294967296;
+  );
+
+  function interval_count(set_i)
+  (
+    set_i == 0 ? 3 :
+    set_i == 1 ? 3 :
+    set_i == 2 ? 4 :
+    set_i == 3 ? 4 :
+    set_i == 4 ? 3 :
+                 5;
+  );
+
+  function interval_at(set_i, idx_i)
+  (
+    set_i == 0 ? (idx_i == 0 ? 0 : idx_i == 1 ? 4 : 7) :
+    set_i == 1 ? (idx_i == 0 ? 0 : idx_i == 1 ? 3 : 7) :
+    set_i == 2 ? (idx_i == 0 ? 0 : idx_i == 1 ? 4 : idx_i == 2 ? 7 : 9) :
+    set_i == 3 ? (idx_i == 0 ? 0 : idx_i == 1 ? 5 : idx_i == 2 ? 7 : 10) :
+    set_i == 4 ? (idx_i == 0 ? 0 : idx_i == 1 ? 7 : 12) :
+                 (idx_i == 0 ? 0 : idx_i == 1 ? 2 : idx_i == 2 ? 4 : idx_i == 3 ? 7 : 11);
+  );
+
+  function interval_name(set_i)
+  (
+    set_i == 0 ? sprintf(#interval_txt, "MAJOR") :
+    set_i == 1 ? sprintf(#interval_txt, "MINOR") :
+    set_i == 2 ? sprintf(#interval_txt, "SIXTH") :
+    set_i == 3 ? sprintf(#interval_txt, "SUS") :
+    set_i == 4 ? sprintf(#interval_txt, "POWER") :
+                 sprintf(#interval_txt, "CLUSTER");
+    #interval_txt;
+  );
+
+  function mode_name(mode_i)
+  (
+    mode_i == 0 ? sprintf(#mode_txt, "AUDIO") :
+    mode_i == 1 ? sprintf(#mode_txt, "MIDI") :
+                  sprintf(#mode_txt, "HYBRID");
+    #mode_txt;
+  );
+
+  function clear_mem(base, count) local(i)
+  (
+    i = 0;
+    loop(count,
+      mem[base + i] = 0;
+      i += 1;
+    );
+  );
+
+  function reset_state()
+  (
+    clear_mem(bufL, BUF_SIZE);
+    clear_mem(bufR, BUF_SIZE);
+    clear_mem(v_active, MAX_VOICES);
+    clear_mem(field, CHROMA);
+    clear_mem(field_view, CHROMA);
+    clear_mem(off_active, MAX_OFFS);
+    write_pos = 0;
+    written = 0;
+    spawn_counter = 0;
+    input_env = 0;
+    input_peak = 0;
+    slewL = 0;
+    slewR = 0;
+    rng_seed(seed);
+  );
+
+  function sync_ui_from_sliders()
+  (
+    drag_param == DRAG_NONE ? (
+      ui_mode = mode;
+      ui_interval_set = interval_set;
+      ui_depth = depth;
+      ui_bloom = bloom;
+      ui_memory = memory;
+      ui_vines = vines;
+      ui_chaos = chaos;
+      ui_drift = drift;
+      ui_density = grain_density;
+      ui_amount = grain_amount;
+      ui_loop_ms = loop_ms;
+      ui_resonance = resonance;
+      ui_wet = wet;
+      ui_output_db = output_db;
+      ui_freeze = freeze;
+      ui_midi_thru = midi_thru;
+      ui_root_note = root_note;
+      ui_scale_pct = ui_scale_pct;
+    );
+  );
+
+  function commit_ui_to_sliders()
+  (
+    mode = ui_mode;
+    interval_set = ui_interval_set;
+    depth = ui_depth;
+    bloom = ui_bloom;
+    memory = ui_memory;
+    vines = ui_vines;
+    chaos = ui_chaos;
+    drift = ui_drift;
+    grain_density = ui_density;
+    grain_amount = ui_amount;
+    loop_ms = ui_loop_ms;
+    resonance = ui_resonance;
+    wet = ui_wet;
+    output_db = ui_output_db;
+    freeze = ui_freeze;
+    midi_thru = ui_midi_thru;
+    root_note = ui_root_note;
+    ui_scale_pct = ui_scale_pct;
+  );
+
+  function excite_pc(pc, amount)
+  (
+    pc = wrap12(pc);
+    mem[field + pc] = min(mem[field + pc] + amount, 4);
+  );
+
+  function schedule_note_off(note_i, chan_i, time_i) local(i, found)
+  (
+    found = -1;
+    i = 0;
+    loop(MAX_OFFS,
+      found < 0 && mem[off_active + i] < 0.5 ? found = i;
+      i += 1;
+    );
+    found >= 0 ? (
+      mem[off_active + found] = 1;
+      mem[off_note + found] = note_i;
+      mem[off_chan + found] = chan_i;
+      mem[off_time + found] = time_i;
+    );
+  );
+
+  function send_due_note_offs(block_start) local(i, due, offs, note_i, chan_i)
+  (
+    i = 0;
+    loop(MAX_OFFS,
+      mem[off_active + i] > 0.5 ? (
+        due = mem[off_time + i];
+        due < block_start + samplesblock ? (
+          offs = clamp(due - block_start, 0, samplesblock - 1);
+          note_i = mem[off_note + i] | 0;
+          chan_i = mem[off_chan + i] | 0;
+          midisend(offs, $x80 | chan_i, note_i);
+          mem[off_active + i] = 0;
+        );
+      );
+      i += 1;
+    );
+  );
+
+  function mark_seen(note_i)
+  (
+    note_i >= 0 && note_i < 128 ? mem[seen_notes + note_i] = 1;
+  );
+
+  function was_seen(note_i)
+  (
+    note_i >= 0 && note_i < 128 ? mem[seen_notes + note_i] : 1;
+  );
+
+  function clear_seen() local(i)
+  (
+    i = 0;
+    loop(128,
+      mem[seen_notes + i] = 0;
+      i += 1;
+    );
+  );
+
+  function emit_chord_bloom(offset_i, note_i, vel_i, chan_i) local(gen, roots_count, next_count, r_i, idx_i, root_i, chord_note, out_vel, dur, set_i, int_count, interval_i, roots_base, next_base, temp)
+  (
+    clear_seen();
+    roots_base = 900000;
+    next_base = roots_base + 64;
+    mem[roots_base] = note_i;
+    roots_count = 1;
+    gen = 0;
+    set_i = floor(ui_interval_set + 0.5);
+
+    loop(floor(ui_depth + 0.5),
+      next_count = 0;
+      r_i = 0;
+      loop(roots_count,
+        root_i = mem[roots_base + r_i] | 0;
+        int_count = interval_count(set_i);
+        idx_i = 0;
+        loop(int_count,
+          interval_i = interval_at(set_i, idx_i);
+          chord_note = root_i + interval_i;
+          chord_note >= 0 && chord_note <= 127 && !was_seen(chord_note) ? (
+            out_vel = floor(clamp(vel_i * (1 - gen * 0.22) * (0.72 + ui_bloom * 0.004), 1, 127));
+            midisend(offset_i, $x90 | chan_i, chord_note | (out_vel << 8));
+            dur = floor(srate * (0.65 + ui_memory * 0.025 + gen * 0.22));
+            schedule_note_off(chord_note, chan_i, midi_abs + offset_i + dur);
+            mark_seen(chord_note);
+            excite_pc(chord_note % 12, out_vel / 127);
+            next_count < 64 ? (
+              mem[next_base + next_count] = chord_note;
+              next_count += 1;
+            );
+          );
+          idx_i += 1;
+        );
+        r_i += 1;
+      );
+
+      temp = roots_base;
+      roots_base = next_base;
+      next_base = temp;
+      roots_count = next_count;
+      gen += 1;
+    );
+  );
+
+  function alloc_voice() local(i, found)
+  (
+    found = -1;
+    i = 0;
+    loop(MAX_VOICES,
+      found < 0 && mem[v_active + i] < 0.5 ? found = i;
+      i += 1;
+    );
+    found;
+  );
+
+  function read_linear(base, pos) local(i0, i1, fr)
+  (
+    i0 = floor(pos);
+    fr = pos - i0;
+    i0 = i0 % BUF_SIZE;
+    i0 < 0 ? i0 += BUF_SIZE;
+    i1 = i0 + 1;
+    i1 >= BUF_SIZE ? i1 = 0;
+    mem[base + i0] * (1 - fr) + mem[base + i1] * fr;
+  );
+
+  function read_looped(base, pos, start_i, len_i, fade_i) local(raw, alt, dist_end, alt_pos, x)
+  (
+    raw = read_linear(base, pos);
+    dist_end = start_i + len_i - pos;
+    dist_end < 0 ? dist_end += len_i;
+    dist_end < fade_i ? (
+      alt_pos = start_i + (fade_i - dist_end);
+      alt_pos >= start_i + len_i ? alt_pos -= len_i;
+      alt = read_linear(base, alt_pos);
+      x = clamp(dist_end / max(fade_i, 1), 0, 1);
+      raw = raw * x + alt * (1 - x);
+    );
+    raw;
+  );
+
+  function pick_field_pc() local(i, best_i, best_v, v)
+  (
+    best_i = ui_root_note % 12;
+    best_v = -1;
+    i = 0;
+    loop(CHROMA,
+      v = mem[field + i] + rand01() * ui_chaos * 0.004;
+      v > best_v ? (
+        best_v = v;
+        best_i = i;
+      );
+      i += 1;
+    );
+    best_i;
+  );
+
+  function spawn_pad_voice() local(v, pc, base_pc, semi, note_i, len_i, fade_i, back_i, start_i, amp_i, pan_i, rate_i, life_i)
+  (
+    written > srate * 0.35 ? (
+      v = alloc_voice();
+      v >= 0 ? (
+        base_pc = ui_root_note % 12;
+        pc = pick_field_pc();
+        note_i = ui_root_note + wrap12(pc - base_pc);
+        semi = note_i - ui_root_note;
+        semi > 6 ? semi -= 12;
+        semi += interval_at(floor(ui_interval_set + 0.5), floor(rand01() * interval_count(floor(ui_interval_set + 0.5))));
+        semi += (rand01() - 0.5) * ui_drift * 0.04;
+        rate_i = exp(LOG2 * semi / 12);
+
+        len_i = floor(clamp(ui_loop_ms * 0.001 * srate * (0.80 + rand01() * 0.45), 512, BUF_SIZE * 0.45));
+        fade_i = floor(clamp(len_i * 0.18, 128, srate * 0.18));
+        back_i = floor(clamp(srate * 0.10 + rand01() * min(written - len_i - 32, srate * 2.5), 64, max(written - len_i - 1, 64)));
+        start_i = write_pos - back_i;
+        while (start_i < 0) ( start_i += BUF_SIZE; );
+        start_i + len_i >= BUF_SIZE ? start_i = BUF_SIZE - len_i - 2;
+        start_i < 0 ? start_i = 0;
+
+        amp_i = (0.025 + ui_amount * 0.00085) * (0.55 + input_env * 3.0);
+        pan_i = clamp((pc - 5.5) / 7 + (rand01() - 0.5) * ui_chaos * 0.01, -0.9, 0.9);
+        life_i = floor(srate * (1.2 + ui_memory * 0.055 + rand01() * 2.0));
+
+        mem[v_active + v] = 1;
+        mem[v_state + v] = 1;
+        mem[v_pos + v] = start_i;
+        mem[v_rate + v] = rate_i;
+        mem[v_start + v] = start_i;
+        mem[v_len + v] = len_i;
+        mem[v_fade + v] = fade_i;
+        mem[v_age + v] = 0;
+        mem[v_life + v] = life_i;
+        mem[v_amp + v] = amp_i;
+        mem[v_pan + v] = pan_i;
+        mem[v_note + v] = note_i;
+      );
+    );
+  );
+
+  function process_audio_sample() local(inL, inR, mono, a, energy, interval_samps, wetL, wetR, i, pos, start_i, len_i, fade_i, age_i, life_i, env_i, rel_i, amp_i, pan_i, sL, sR, mid_i, gL, gR, outL, outR, target_wet, target_out, max_delta, dL, dR, pc_i)
+  (
+    last_seed != seed ? (
+      last_seed = seed;
+      rng_seed(seed);
+    );
+
+    reset > 0.5 && reset_hold < 0.5 ? (
+      reset_state();
+      reset_hold = 1;
+    );
+    reset <= 0.5 ? reset_hold = 0;
+
+    sync_ui_from_sliders();
+
+    inL = clamp(spl0, -4, 4);
+    inR = clamp(spl1, -4, 4);
+    mono = (inL + inR) * 0.5;
+    energy = absf(mono);
+    a = exp(-PI2 * 18 / max(srate, 1));
+    input_env = input_env * a + energy * (1 - a);
+    input_peak = max(input_peak * 0.999, input_env);
+
+    ui_freeze < 0.5 ? (
+      mem[bufL + write_pos] = inL;
+      mem[bufR + write_pos] = inR;
+      write_pos += 1;
+      write_pos >= BUF_SIZE ? write_pos = 0;
+      written = min(written + 1, BUF_SIZE);
+    );
+
+    pc_i = 0;
+    loop(CHROMA,
+      mem[field + pc_i] *= 0.9992 + ui_memory * 0.000006;
+      mem[field_view + pc_i] = mem[field + pc_i];
+      pc_i += 1;
+    );
+
+    (ui_mode != 1 && ui_freeze < 0.5) ? (
+      interval_samps = floor(srate / max(1, 2 + ui_density * 0.24));
+      spawn_counter += 1;
+      input_env > 0.010 && spawn_counter >= interval_samps ? (
+        spawn_counter = 0;
+        excite_pc(ui_root_note % 12, clamp(input_env * ui_bloom * 0.30, 0, 1.5));
+        spawn_pad_voice();
+        ui_vines > 35 ? spawn_pad_voice();
+      );
+    );
+
+    wetL = 0;
+    wetR = 0;
+    i = 0;
+    loop(MAX_VOICES,
+      mem[v_active + i] > 0.5 ? (
+        pos = mem[v_pos + i];
+        start_i = mem[v_start + i];
+        len_i = mem[v_len + i];
+        fade_i = mem[v_fade + i];
+        age_i = mem[v_age + i];
+        life_i = mem[v_life + i];
+        amp_i = mem[v_amp + i];
+        pan_i = mem[v_pan + i];
+
+        env_i = min(age_i / max(srate * 0.35, 1), 1);
+        age_i > life_i ? (
+          rel_i = 1 - (age_i - life_i) / max(srate * 1.3, 1);
+          rel_i = clamp(rel_i, 0, 1);
+          env_i *= rel_i * rel_i;
+        );
+
+        sL = read_looped(bufL, pos, start_i, len_i, fade_i);
+        sR = read_looped(bufR, pos, start_i, len_i, fade_i);
+        mid_i = (sL + sR) * 0.70710678;
+        gL = 0.64 - pan_i * 0.28;
+        gR = 0.64 + pan_i * 0.28;
+        wetL += mid_i * amp_i * env_i * gL;
+        wetR += mid_i * amp_i * env_i * gR;
+
+        pos += mem[v_rate + i];
+        while (pos >= start_i + len_i) ( pos -= len_i; );
+        while (pos < start_i) ( pos += len_i; );
+        mem[v_pos + i] = pos;
+        mem[v_age + i] = age_i + 1;
+        env_i <= 0.0001 && age_i > life_i ? mem[v_active + i] = 0;
+      );
+      i += 1;
+    );
+
+    target_wet = ui_wet * 0.01;
+    target_out = db_to_gain(ui_output_db);
+    a = 1 - exp(-1 / max(srate * 0.030, 1));
+    wet_s += (target_wet - wet_s) * a;
+    out_s += (target_out - out_s) * a;
+
+    wetL *= wet_s * out_s * (0.65 + ui_resonance * 0.004);
+    wetR *= wet_s * out_s * (0.65 + ui_resonance * 0.004);
+
+    outL = soft_limit(wetL);
+    outR = soft_limit(wetR);
+    max_delta = 0.030;
+    dL = outL - slewL;
+    dR = outR - slewR;
+    dL > max_delta ? outL = slewL + max_delta;
+    dL < -max_delta ? outL = slewL - max_delta;
+    dR > max_delta ? outR = slewR + max_delta;
+    dR < -max_delta ? outR = slewR - max_delta;
+    slewL = outL;
+    slewR = outR;
+
+    spl0 = clamp(denorm(outL), -0.92, 0.92);
+    spl1 = clamp(denorm(outR), -0.92, 0.92);
+  );
+
+  function process_midi_block() local(offset, msg1, msg23, status, chan, note_i, vel_i)
+  (
+    send_due_note_offs(midi_abs);
+    while (midirecv(offset, msg1, msg23)) (
+      status = msg1 & $xF0;
+      chan = msg1 & $x0F;
+      note_i = msg23 & $x7F;
+      vel_i = (msg23 >> 8) & $x7F;
+
+      ui_midi_thru >= 0.5 ? midisend(offset, msg1, msg23);
+
+      status == $x90 && vel_i > 0 ? (
+        excite_pc(note_i % 12, vel_i / 64);
+        ui_mode != 0 ? emit_chord_bloom(offset, note_i, vel_i, chan);
+        ui_mode != 1 ? spawn_pad_voice();
+      );
+    );
+    midi_abs += samplesblock;
+  );
+
+  function draw_text(x, y, r, g, b, txt)
+  (
+    gfx_set(r, g, b, 1);
+    gfx_x = x;
+    gfx_y = y;
+    gfx_drawstr(txt);
+  );
+
+  function draw_panel(x, y, w, h, r, g, b)
+  (
+    gfx_set(0.030, 0.036, 0.042, 1);
+    gfx_rect(x, y, w, h);
+    gfx_set(r, g, b, 1);
+    gfx_rect(x, y, w, 3);
+    gfx_set(0.14, 0.17, 0.20, 1);
+    gfx_rect(x, y, w, h, 0);
+  );
+
+  function draw_track(id, x, y, w, label, value, r, g, b) local(knob_x)
+  (
+    draw_text(x, y - 16, 0.55, 0.62, 0.66, label);
+    gfx_set(0.10, 0.12, 0.14, 1);
+    gfx_line(x, y, x + w, y, 1);
+    gfx_set(r, g, b, 0.75);
+    gfx_line(x, y - 1, x + w * clamp(value, 0, 1), y - 1, 1);
+    knob_x = x + w * clamp(value, 0, 1);
+    gfx_set(r, g, b, 1);
+    gfx_rect(knob_x - 5, y - 9, 10, 18);
+  );
+
+  function param_norm(id)
+  (
+    id == DRAG_BLOOM ? ui_bloom / 100 :
+    id == DRAG_MEMORY ? ui_memory / 100 :
+    id == DRAG_VINES ? ui_vines / 100 :
+    id == DRAG_DENSITY ? ui_density / 100 :
+    id == DRAG_AMOUNT ? ui_amount / 100 :
+    id == DRAG_RESONANCE ? ui_resonance / 100 :
+    id == DRAG_WET ? ui_wet / 100 :
+    id == DRAG_OUTPUT ? (ui_output_db + 36) / 42 :
+    id == DRAG_LOOP ? (ui_loop_ms - 180) / 2420 :
+    id == DRAG_CHAOS ? ui_chaos / 100 :
+    id == DRAG_DRIFT ? ui_drift / 100 :
+    0;
+  );
+
+  function set_param_norm(id, n)
+  (
+    n = clamp(n, 0, 1);
+    id == DRAG_BLOOM ? ui_bloom = n * 100 :
+    id == DRAG_MEMORY ? ui_memory = n * 100 :
+    id == DRAG_VINES ? ui_vines = n * 100 :
+    id == DRAG_DENSITY ? ui_density = n * 100 :
+    id == DRAG_AMOUNT ? ui_amount = n * 100 :
+    id == DRAG_RESONANCE ? ui_resonance = n * 100 :
+    id == DRAG_WET ? ui_wet = n * 100 :
+    id == DRAG_OUTPUT ? ui_output_db = n * 42 - 36 :
+    id == DRAG_LOOP ? ui_loop_ms = 180 + n * 2420 :
+    id == DRAG_CHAOS ? ui_chaos = n * 100 :
+    id == DRAG_DRIFT ? ui_drift = n * 100;
+  );
+
+  function hit_track(id, x, y, w) local(hit)
+  (
+    hit = mouse_x >= x && mouse_x <= x + w && mouse_y >= y - 14 && mouse_y <= y + 14;
+    hit ? (
+      drag_param = id;
+      drag_x = x;
+      drag_w = w;
+      set_param_norm(id, (mouse_x - x) / w);
+    );
+    hit;
+  );
+
+  function draw_field(x, y, w, h) local(i, bw, v, bh)
+  (
+    bw = w / 12;
+    i = 0;
+    loop(12,
+      v = clamp(mem[field_view + i] * 0.5, 0, 1);
+      bh = h * v;
+      gfx_set(0.05, 0.06, 0.07, 1);
+      gfx_rect(x + i * bw + 2, y, bw - 4, h);
+      gfx_set(0.30 + i * 0.025, 0.68, 0.72, 0.90);
+      gfx_rect(x + i * bw + 2, y + h - bh, bw - 4, bh);
+      i += 1;
+    );
+  );
+
+  function render_gfx() local(sc, pad, x1, x2, y, w, mouse_down, click)
+  (
+    sync_ui_from_sliders();
+    sc = clamp(ui_scale_pct * 0.01 * min(gfx_w / 900, gfx_h / 520), 0.72, 1.6);
+    pad = 20 * sc;
+    gfx_setimgdim(cache_img, gfx_w, gfx_h);
+    gfx_dest = cache_img;
+    gfx_set(0.018, 0.022, 0.027, 1);
+    gfx_rect(0, 0, gfx_w, gfx_h);
+    gfx_setfont(1, "Verdana", floor(25 * sc));
+    draw_text(pad, 18 * sc, 0.92, 0.96, 0.95, "BloomWerk v0");
+    gfx_setfont(2, "Verdana", floor(12 * sc));
+    draw_text(pad + 190 * sc, 29 * sc, 0.52, 0.62, 0.67, "harmonic pad loops + MIDI chord bloom");
+
+    x1 = pad;
+    x2 = gfx_w * 0.52;
+    w = gfx_w * 0.38;
+    draw_panel(x1, 72 * sc, gfx_w - pad * 2, 132 * sc, 0.24, 0.72, 0.72);
+    gfx_setfont(2, "Verdana", floor(13 * sc));
+    draw_text(x1 + 16 * sc, 92 * sc, 0.80, 0.88, 0.88, mode_name(floor(ui_mode + 0.5)));
+    draw_text(x1 + 104 * sc, 92 * sc, 0.80, 0.88, 0.88, interval_name(floor(ui_interval_set + 0.5)));
+    draw_text(x1 + 212 * sc, 92 * sc, 0.80, 0.88, 0.88, ui_freeze >= 0.5 ? "FREEZE" : "FLOW");
+    draw_field(x1 + 16 * sc, 128 * sc, gfx_w - pad * 2 - 32 * sc, 48 * sc);
+
+    y = 250 * sc;
+    draw_track(DRAG_BLOOM, x1, y, w, "BLOOM", param_norm(DRAG_BLOOM), 0.30, 0.72, 0.72);
+    draw_track(DRAG_MEMORY, x2, y, w, "MEMORY", param_norm(DRAG_MEMORY), 0.76, 0.58, 0.36);
+    y += 52 * sc;
+    draw_track(DRAG_VINES, x1, y, w, "VINES", param_norm(DRAG_VINES), 0.52, 0.70, 0.42);
+    draw_track(DRAG_DENSITY, x2, y, w, "PAD DENSITY", param_norm(DRAG_DENSITY), 0.38, 0.58, 0.86);
+    y += 52 * sc;
+    draw_track(DRAG_AMOUNT, x1, y, w, "PAD AMOUNT", param_norm(DRAG_AMOUNT), 0.42, 0.68, 0.86);
+    draw_track(DRAG_LOOP, x2, y, w, "LOOP LENGTH", param_norm(DRAG_LOOP), 0.70, 0.54, 0.82);
+    y += 52 * sc;
+    draw_track(DRAG_RESONANCE, x1, y, w, "RESONANCE", param_norm(DRAG_RESONANCE), 0.72, 0.62, 0.34);
+    draw_track(DRAG_WET, x2, y, w, "WET", param_norm(DRAG_WET), 0.34, 0.78, 0.56);
+    y += 52 * sc;
+    draw_track(DRAG_CHAOS, x1, y, w, "CHAOS", param_norm(DRAG_CHAOS), 0.78, 0.44, 0.42);
+    draw_track(DRAG_DRIFT, x2, y, w, "DRIFT", param_norm(DRAG_DRIFT), 0.55, 0.60, 0.88);
+
+    mouse_down = mouse_cap & 1;
+    click = mouse_down && !last_mouse_down;
+    click ? (
+      mouse_y >= 84 * sc && mouse_y <= 118 * sc && mouse_x >= x1 + 12 * sc && mouse_x <= x1 + 88 * sc ? (
+        ui_mode += 1;
+        ui_mode > 2 ? ui_mode = 0;
+        commit_ui_to_sliders();
+      ) :
+      mouse_y >= 84 * sc && mouse_y <= 118 * sc && mouse_x >= x1 + 96 * sc && mouse_x <= x1 + 196 * sc ? (
+        ui_interval_set += 1;
+        ui_interval_set > 5 ? ui_interval_set = 0;
+        commit_ui_to_sliders();
+      ) :
+      mouse_y >= 84 * sc && mouse_y <= 118 * sc && mouse_x >= x1 + 204 * sc && mouse_x <= x1 + 292 * sc ? (
+        ui_freeze = ui_freeze >= 0.5 ? 0 : 1;
+        commit_ui_to_sliders();
+      ) :
+      (
+        hit_track(DRAG_BLOOM, x1, 250 * sc, w) ||
+        hit_track(DRAG_MEMORY, x2, 250 * sc, w) ||
+        hit_track(DRAG_VINES, x1, 302 * sc, w) ||
+        hit_track(DRAG_DENSITY, x2, 302 * sc, w) ||
+        hit_track(DRAG_AMOUNT, x1, 354 * sc, w) ||
+        hit_track(DRAG_LOOP, x2, 354 * sc, w) ||
+        hit_track(DRAG_RESONANCE, x1, 406 * sc, w) ||
+        hit_track(DRAG_WET, x2, 406 * sc, w) ||
+        hit_track(DRAG_CHAOS, x1, 458 * sc, w) ||
+        hit_track(DRAG_DRIFT, x2, 458 * sc, w);
+      );
+    );
+
+    mouse_down && drag_param != DRAG_NONE ? (
+      set_param_norm(drag_param, (mouse_x - drag_x) / drag_w);
+    );
+    !mouse_down && drag_param != DRAG_NONE ? (
+      commit_ui_to_sliders();
+      drag_param = DRAG_NONE;
+    );
+    last_mouse_down = mouse_down;
+
+    gfx_dest = -1;
+    gfx_x = 0;
+    gfx_y = 0;
+    gfx_set(1, 1, 1, 1);
+    gfx_blit(cache_img, 1, 0);
+  );
+
+  reset_state();
+
+@slider
+  sync_ui_from_sliders();
+  reset > 0.5 ? reset_state();
+
+@block
+  process_midi_block();
+
+@sample
+  process_audio_sample();
+
+@gfx 900 520
+  render_gfx();
