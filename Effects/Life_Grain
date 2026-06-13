@@ -1,25 +1,25 @@
-desc:LifeGrain (12x10) - POP-SAFE v3 (headroom + wet slew + hard ceiling)
+desc:LifeGrain (16x16) - POP-SAFE v3 (headroom + wet slew + hard ceiling)
 
 ////////////////////////////////////////////////////////////////////////////////
 // SLIDERS
 ////////////////////////////////////////////////////////////////////////////////
 
-slider1:step_idx=4<0,5,1{1/1,1/2,1/4,1/8,1/16,1/32}>Step (gen rate)
-slider2:grain_ms=90<10,350,1>Cell loop/release ms
-slider3:mix=70<0,100,1>Wet mix (%)
+slider1:step_idx=4<0,5,1{1/1,1/2,1/4,1/8,1/16,1/32}>Rate
+slider2:grain_ms=90<10,350,1>Grain shape
+slider3:mix=70<0,100,1>Wet level (%)
 slider4:freeze=0<0,1,1{Off,On}>Freeze buffer
 
-slider5:buf_sec=4<1,12,1>Buffer seconds
-slider6:scan_pct=35<1,100,1>Scan range (% of buffer behind head)
+slider5:buf_sec=4<1,12,1>Buffer
+slider6:scan_pct=35<1,100,1>Scan depth (%)
 
 slider7:wrap=1<0,1,1{Off,On}>Wrap edges
 slider8:density=25<0,100,1>Seed density (%)
 slider9:reseed=0<0,1,1{No,Yes}>Reseed now
 
-slider10:mojo=55<0,100,1>Mojo (tight -> lush)
-slider11:cap=24<1,120,1>Max grains per step
-slider12:hp=20<0,200,1>Grain HP (Hz) (0=off)
-slider13:dry=30<0,100,1>Dry mix (%)
+slider10:mojo=55<0,100,1>Shape / Pan
+slider11:cap=24<1,120,1>Grain cap
+slider12:hp=20<0,200,1>Cutoff Hz
+slider13:dry=30<0,100,1>Dry level (%)
 
 // NEW safety (master-bus friendly)
 slider14:slew=0.020<0.000,0.200,0.001>Wet slew limit (0=off)
@@ -30,31 +30,30 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
 ////////////////////////////////////////////////////////////////////////////////
 
 @init
-  GRID_W = 12;
-  GRID_H = 10;
+  GRID_W = 16;
+  GRID_H = 16;
   GRID_N = GRID_W*GRID_H;
 
   cur_base    = 0;
-  nxt_base    = 256;
-  energy_base = 512;
-  age_base    = 768;
+  nxt_base    = cur_base + GRID_N;
+  energy_base = nxt_base + GRID_N;
+  age_base    = energy_base + GRID_N;
+  cell_voice_base = age_base + GRID_N;
 
   MAX_VOICES = 128;
-  v_active_base = 1024;   // 0=off, 1=looping, 2=releasing
-  v_pos_base    = 1200;
-  v_step_base   = 1400;
-  v_age_base    = 1600;
-  v_amp_base    = 2000;
-  v_pan_base    = 2200;
-  v_loop_start_base = 2400;
-  v_loop_len_base   = 2600;
-  v_rel_pos_base    = 2800;
-  v_rel_len_base    = 3000;
-  v_cell_base       = 3200;
-  v_att_len_base    = 3400;
-  v_rel_pow_base    = 3600;
-
-  cell_voice_base   = 900;
+  v_active_base = cell_voice_base + GRID_N;   // 0=off, 1=looping, 2=releasing
+  v_pos_base    = v_active_base + MAX_VOICES;
+  v_step_base   = v_pos_base + MAX_VOICES;
+  v_age_base    = v_step_base + MAX_VOICES;
+  v_amp_base    = v_age_base + MAX_VOICES;
+  v_pan_base    = v_amp_base + MAX_VOICES;
+  v_loop_start_base = v_pan_base + MAX_VOICES;
+  v_loop_len_base   = v_loop_start_base + MAX_VOICES;
+  v_rel_pos_base    = v_loop_len_base + MAX_VOICES;
+  v_rel_len_base    = v_rel_pos_base + MAX_VOICES;
+  v_cell_base       = v_rel_len_base + MAX_VOICES;
+  v_att_len_base    = v_cell_base + MAX_VOICES;
+  v_rel_pow_base    = v_att_len_base + MAX_VOICES;
 
   buf_baseL = 4000;
   buf_baseR = 4000 + 200000;
@@ -68,11 +67,10 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
   buf_written = 0;
 
   next_step_beat = 0;
-  force_emit_init = 1;
   last_play_state = -1;
 
-  hp_xL = hp_yL = 0;
-  hp_xR = hp_yR = 0;
+  lp_yL = 0;
+  lp_yR = 0;
 
   // NEW: wet safety state
   wet_prevL = 0;
@@ -83,7 +81,7 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
   out_ceiling = 0.89; // ~ -1 dBFS ceiling to avoid full-scale pops
   mix_s = mix/100.0;
   dry_s = dry/100.0;
-  hp_s = hp;
+  lp_s = hp;
   slew_s = slew;
 
   pi2 = 2*$pi;
@@ -98,6 +96,14 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
   (
     a = absf(x);
     x / (1 + a);
+  );
+
+  function lp_slider_to_hz(lp_i) local(norm_i)
+  (
+    lp_i <= 0 ? 0 : (
+      norm_i = clamp(lp_i / 200, 0, 1);
+      exp(log(20000) + norm_i * (log(20) - log(20000)));
+    );
   );
 
   function step_beats_from_idx(i) local(sb)
@@ -193,8 +199,8 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
 
   function clear_audio_safety_state()
   (
-    hp_xL = hp_yL = 0;
-    hp_xR = hp_yR = 0;
+    lp_yL = 0;
+    lp_yR = 0;
     wet_prevL = 0;
     wet_prevR = 0;
     head_gain = 1.0;
@@ -208,7 +214,6 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
     buf_written = 0;
     reset_voices();
     clear_audio_safety_state();
-    force_emit_init = 1;
     next_step_beat = beat_position;
   );
 
@@ -279,7 +284,8 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
         primed, play_now, was_playing, cur_beat, max_steps, spawned,
         grid_x, grid_y, cell_i, alive, nei, next_alive, was_alive, is_alive,
         emit, base_semi, row_semi, pitch_semi, rate, voice_amp, fracx, fracy,
-        depth, span, off, voice_start, voice_pan)
+        grid_mid_x, grid_mid_y, grid_den_x, grid_den_y, depth, span, off,
+        voice_start, voice_pan)
   (
     update_buf_len();
 
@@ -308,6 +314,10 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
 
     width = 0.20 + 0.70*m;
     step_cap = clamp(cap, 1, MAX_VOICES);
+    grid_mid_x = (GRID_W - 1) * 0.5;
+    grid_mid_y = (GRID_H - 1) * 0.5;
+    grid_den_x = GRID_W - 1;
+    grid_den_y = GRID_H - 1;
 
     primed = (buf_written >= (safety + loop_samps_base + 2));
 
@@ -320,7 +330,6 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
         clear_audio_safety_state();
       );
       (!was_playing && play_now) ? (
-        force_emit_init = 1;
         next_step_beat = beat_position;
       );
     );
@@ -331,7 +340,6 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
     // Re-sync on timeline jumps/rewinds so scheduling can't stall silent.
     (play_now && (cur_beat + step_beats < next_step_beat)) ? (
       next_step_beat = cur_beat;
-      force_emit_init = 1;
     );
 
     play_now && primed ? (
@@ -377,18 +385,17 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
 
             emit = 0;
             (!was_alive && is_alive) ? emit = 1;
-            (force_emit_init && is_alive) ? emit = 1;
 
             (is_alive && emit && (spawned < step_cap) && (mem[cell_voice_base+cell_i] < 0)) ? (
-              base_semi = (grid_x - 6);
-              row_semi  = (grid_y - 4.5) * 1.0;
+              base_semi = (grid_x - grid_mid_x);
+              row_semi  = (grid_y - grid_mid_y) * 1.0;
               pitch_semi = (base_semi + 0.6*row_semi) * (0.55 + 0.45*m);
               rate = 2^(pitch_semi/12.0);
 
               voice_amp = 0.24 * (0.85 + 0.25*(nei/8.0));
 
-              fracx = grid_x/11.0;
-              fracy = grid_y/9.0;
+              fracx = grid_x/grid_den_x;
+              fracy = grid_y/grid_den_y;
               depth = (0.15 + 0.85*m);
               span = scan * depth;
 
@@ -418,14 +425,11 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
         );
 
         next_step_beat += step_beats;
-        force_emit_init = 0;
 
-        // If Life fully dies, reseed so fully-wet mode doesn't get stuck silent.
+        // True extinction reseeds the Life world, but does not force immediate grains.
         (density > 0 && (count_live_cells(cur_base) == 0)) ? (
           seed_world();
-          reset_voices();
-          force_emit_init = 1;
-          next_step_beat = cur_beat;
+          reset_cell_voices();
         );
       );
     );
@@ -437,8 +441,8 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
         rel_pos, rel_len, att_len, rel_pow, voice_amp, voice_pan, att_d, ph,
         env, rel_d, rp, rel_env, ip, fr, ip1, aL, bL, sL, aR, bR, sR, sm,
         gL, gR, loop_fade_samps, dist_start, dist_end, loop_win, target_gain,
-        head_a, bal_a, bal_mid, bal_trimL, bal_trimR, hp_a, dL, dR, wetMix,
-        dryMix, outL, outR, cid)
+        head_a, bal_a, bal_mid, bal_trimL, bal_trimR, lp_hz, lp_a, dL, dR,
+        wetMix, dryMix, outL, outR, cid)
   (
     inL = spl0;
     inR = spl1;
@@ -450,7 +454,7 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
     ctl_a = exp(-pi2*35/srate);
     mix_s = ctl_a*mix_s + (1.0-ctl_a)*clamp(mix/100.0, 0, 1);
     dry_s = ctl_a*dry_s + (1.0-ctl_a)*clamp(dry/100.0, 0, 1);
-    hp_s = ctl_a*hp_s + (1.0-ctl_a)*clamp(hp, 0, 200);
+    lp_s = ctl_a*lp_s + (1.0-ctl_a)*clamp(hp, 0, 200);
     slew_s = ctl_a*slew_s + (1.0-ctl_a)*clamp(slew, 0, 0.2);
 
     (!freeze) ? (
@@ -589,17 +593,17 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
       wetR *= bal_trimR;
     );
 
-    // Optional high-pass on wet output (1-pole), driven by the smoothed slider.
-    (hp_s > 0.01) ? (
-      hp_a = exp(-pi2*hp_s/srate);
-
-      hp_yL = hp_a*(hp_yL + wetL - hp_xL);
-      hp_xL = wetL;
-      wetL = hp_yL;
-
-      hp_yR = hp_a*(hp_yR + wetR - hp_xR);
-      hp_xR = wetR;
-      wetR = hp_yR;
+    // Optional low-pass on wet output, reverse-log amount: 0=open, 200=20 Hz.
+    lp_hz = lp_slider_to_hz(lp_s);
+    (lp_hz > 0.01) ? (
+      lp_a = 1.0 - exp(-pi2*lp_hz/srate);
+      lp_yL += lp_a*(wetL - lp_yL);
+      lp_yR += lp_a*(wetR - lp_yR);
+      wetL = lp_yL;
+      wetR = lp_yR;
+    ) : (
+      lp_yL = wetL;
+      lp_yR = wetR;
     );
 
     // Wet slew limiter: final de-click safety, after the loop-edge window.
@@ -650,7 +654,6 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
     seed_world();
     reset_voices();
     reseed=0; slider9=0;
-    force_emit_init = 1;
     next_step_beat = beat_position;
   );
 

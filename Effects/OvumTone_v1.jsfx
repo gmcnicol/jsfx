@@ -112,6 +112,9 @@ wave_target_base = MEM_BASE + 288;
 trim_target_base = MEM_BASE + 304;
 pan_l_target_base = MEM_BASE + 320;
 pan_r_target_base = MEM_BASE + 336;
+scope_latest_base = MEM_BASE + 352;
+scope_ring_base = MEM_BASE + 368;
+SCOPE_SIZE = 512;
 last_layout_scale_ui = -1;
 last_audio_srate = -1;
 smooth_fast = 0;
@@ -119,6 +122,9 @@ smooth_slow = 0;
 smooth_gain = 0;
 gate_coeff = 0;
 master_gain_target = 0;
+scope_write_pos = 0;
+scope_sample_count = 0;
+scope_sample_div = 4;
 
 drag_param = DRAG_NONE;
 drag_osc = -1;
@@ -703,6 +709,32 @@ function in_rect(mx, my, x, y, w, h)
   mx >= x && mx < x + w && my >= y && my < y + h;
 );
 
+function osc_accent_r(osc_i)
+(
+  osc_i == 0 ? 0.24 : osc_i == 1 ? 0.84 : osc_i == 2 ? 0.34 : osc_i == 3 ? 0.92 : 0.46;
+);
+
+function osc_accent_g(osc_i)
+(
+  osc_i == 0 ? 0.72 : osc_i == 1 ? 0.55 : osc_i == 2 ? 0.66 : osc_i == 3 ? 0.70 : 0.56;
+);
+
+function osc_accent_b(osc_i)
+(
+  osc_i == 0 ? 0.70 : osc_i == 1 ? 0.36 : osc_i == 2 ? 0.92 : osc_i == 3 ? 0.30 : 0.86;
+);
+
+function scope_sum_sample(ring_i) local(scope_sum_i, scope_osc_i)
+(
+  scope_sum_i = 0;
+  scope_osc_i = 0;
+  loop(NUM_OSC,
+    scope_sum_i += scope_ring_base[scope_osc_i * SCOPE_SIZE + ring_i];
+    scope_osc_i += 1;
+  );
+  soft_limit(scope_sum_i * 0.72);
+);
+
 function gfx_fill(x, y, w, h, r, g, b, a) local(x0, y0, x1, y1)
 (
   x0 = floor(x + 0.5);
@@ -847,7 +879,7 @@ function render_header()
   header_dirty = 0;
 );
 
-function render_osc_panel(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, accent_g, accent_b, label_y, track_x, track_w, row_y, trim_x, trim_y, trim_w, trim_h)
+function render_osc_panel(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, accent_g, accent_b, label_y, track_x, track_w, row_y, trim_x, trim_y, trim_w, trim_h, scope_h, scope_y)
 (
   x = pad + osc_i * (panel_w + gap);
   y = panel_y;
@@ -855,9 +887,9 @@ function render_osc_panel(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, a
   h = panel_h;
   pad_i = 12 * ui_scale;
   enabled_i = osc_enable(osc_i);
-  accent_r = osc_i == 0 ? 0.24 : osc_i == 1 ? 0.84 : osc_i == 2 ? 0.34 : osc_i == 3 ? 0.92 : 0.46;
-  accent_g = osc_i == 0 ? 0.72 : osc_i == 1 ? 0.55 : osc_i == 2 ? 0.66 : osc_i == 3 ? 0.70 : 0.56;
-  accent_b = osc_i == 0 ? 0.70 : osc_i == 1 ? 0.36 : osc_i == 2 ? 0.92 : osc_i == 3 ? 0.30 : 0.86;
+  accent_r = osc_accent_r(osc_i);
+  accent_g = osc_accent_g(osc_i);
+  accent_b = osc_accent_b(osc_i);
 
   gfx_fill(x, y, w, h, enabled_i ? 0.062 : 0.044, enabled_i ? 0.076 : 0.052, enabled_i ? 0.088 : 0.064, 1);
   gfx_fill(x, y, w, 3 * ui_scale, accent_r, accent_g, accent_b, enabled_i ? 0.95 : 0.35);
@@ -893,14 +925,16 @@ function render_osc_panel(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, a
   trim_x = x + pad_i + 10 * ui_scale;
   trim_y = row_y + 56 * ui_scale;
   trim_w = w - pad_i * 2 - 20 * ui_scale;
-  trim_h = h - (trim_y - y) - 28 * ui_scale;
+  scope_h = min(50 * ui_scale, max(34 * ui_scale, h * 0.12));
+  scope_y = y + h - 26 * ui_scale - scope_h;
+  trim_h = max(18 * ui_scale, scope_y - trim_y - 10 * ui_scale);
   gfx_text(track_x, trim_y - 18 * ui_scale, 0.48, 0.56, 0.62, 1, "TRIM");
   draw_vertical_fader(trim_x, trim_y, trim_w, trim_h, osc_trim_norm(osc_i), drag_param == DRAG_TRIM && drag_osc == osc_i, accent_r, accent_g, accent_b);
   osc_dirty_base[osc_i] = 0;
   osc_param_dirty_base[osc_i] = 0;
 );
 
-function render_osc_param(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, accent_g, accent_b, track_x, track_w, label_y, row_y, trim_x, trim_y, trim_w, trim_h, param_i, bg_r, bg_g, bg_b)
+function render_osc_param(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, accent_g, accent_b, track_x, track_w, label_y, row_y, trim_x, trim_y, trim_w, trim_h, param_i, bg_r, bg_g, bg_b, scope_h, scope_y)
 (
   param_i = osc_param_dirty_base[osc_i];
   param_i > 0 ? (
@@ -914,9 +948,9 @@ function render_osc_param(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, a
     bg_g = enabled_i ? 0.076 : 0.052;
     bg_b = enabled_i ? 0.088 : 0.064;
 
-    accent_r = osc_i == 0 ? 0.24 : osc_i == 1 ? 0.84 : osc_i == 2 ? 0.34 : osc_i == 3 ? 0.92 : 0.46;
-    accent_g = osc_i == 0 ? 0.72 : osc_i == 1 ? 0.55 : osc_i == 2 ? 0.66 : osc_i == 3 ? 0.70 : 0.56;
-    accent_b = osc_i == 0 ? 0.70 : osc_i == 1 ? 0.36 : osc_i == 2 ? 0.92 : osc_i == 3 ? 0.30 : 0.86;
+    accent_r = osc_accent_r(osc_i);
+    accent_g = osc_accent_g(osc_i);
+    accent_b = osc_accent_b(osc_i);
 
     track_x = x + pad_i;
     track_w = w - pad_i * 2;
@@ -952,7 +986,9 @@ function render_osc_param(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, a
       trim_x = x + pad_i + 10 * ui_scale;
       trim_y = row_y + 56 * ui_scale;
       trim_w = w - pad_i * 2 - 20 * ui_scale;
-      trim_h = h - (trim_y - y) - 28 * ui_scale;
+      scope_h = min(50 * ui_scale, max(34 * ui_scale, h * 0.12));
+      scope_y = y + h - 26 * ui_scale - scope_h;
+      trim_h = max(18 * ui_scale, scope_y - trim_y - 10 * ui_scale);
       gfx_fill(track_x - 10 * ui_scale, trim_y - 22 * ui_scale, track_w + 20 * ui_scale, trim_h + 26 * ui_scale, bg_r, bg_g, bg_b, 1);
       gfx_text(track_x, trim_y - 18 * ui_scale, 0.48, 0.56, 0.62, 1, "TRIM");
       draw_vertical_fader(trim_x, trim_y, trim_w, trim_h, osc_trim_norm(osc_i), 0, accent_r, accent_g, accent_b);
@@ -962,7 +998,84 @@ function render_osc_param(osc_i) local(x, y, w, h, pad_i, enabled_i, accent_r, a
   );
 );
 
-function handle_osc_hit(osc_i) local(x, y, w, h, pad_i, track_x, track_w, label_y, row_y, trim_x, trim_y, trim_w, trim_h)
+function draw_combined_scope() local(scope_x, scope_y, scope_w, scope_h, inner_x, inner_y, inner_w, inner_h, mid_y, amp, point_count, point_i, ring_i, read_start, x1, y1, x2, y2, sample_i, osc_i, enabled_i, accent_r, accent_g, accent_b, alpha_i)
+(
+  scope_x = pad;
+  scope_w = panel_w * NUM_OSC + gap * (NUM_OSC - 1);
+  scope_h = min(50 * ui_scale, max(34 * ui_scale, panel_h * 0.12));
+  scope_y = panel_y + panel_h - 26 * ui_scale - scope_h;
+  inner_x = scope_x + 7 * ui_scale;
+  inner_y = scope_y + 5 * ui_scale;
+  inner_w = max(scope_w - 14 * ui_scale, 4);
+  inner_h = max(scope_h - 10 * ui_scale, 4);
+  mid_y = inner_y + inner_h * 0.5;
+  amp = inner_h * 0.46;
+
+  gfx_fill(scope_x, scope_y, scope_w, scope_h, 0.028, 0.036, 0.044, 0.97);
+  gfx_set(0.20, 0.25, 0.29, 0.70);
+  gfx_line(inner_x, mid_y, inner_x + inner_w, mid_y, 1);
+  gfx_frame(scope_x, scope_y, scope_w, scope_h, 0.22, 0.27, 0.31, 0.92);
+
+  point_count = min(SCOPE_SIZE, max(8, floor(inner_w)));
+  osc_i = 0;
+  loop(NUM_OSC,
+    enabled_i = osc_enable(osc_i);
+    accent_r = osc_accent_r(osc_i);
+    accent_g = osc_accent_g(osc_i);
+    accent_b = osc_accent_b(osc_i);
+    alpha_i = enabled_i ? 0.88 : 0.18;
+
+    read_start = scope_write_pos - point_count;
+    read_start < 0 ? read_start += SCOPE_SIZE;
+    ring_i = read_start;
+    sample_i = clamp_value(scope_ring_base[osc_i * SCOPE_SIZE + ring_i], -1, 1);
+    x1 = inner_x;
+    y1 = mid_y - sample_i * amp;
+    ring_i += 1;
+    ring_i >= SCOPE_SIZE ? ring_i = 0;
+    point_i = 1;
+
+    gfx_set(accent_r, accent_g, accent_b, alpha_i);
+    loop(point_count - 1,
+      sample_i = clamp_value(scope_ring_base[osc_i * SCOPE_SIZE + ring_i], -1, 1);
+      x2 = inner_x + point_i * inner_w / max(point_count - 1, 1);
+      y2 = mid_y - sample_i * amp;
+      gfx_line(x1, y1, x2, y2, 1);
+      x1 = x2;
+      y1 = y2;
+      ring_i += 1;
+      ring_i >= SCOPE_SIZE ? ring_i = 0;
+      point_i += 1;
+    );
+
+    osc_i += 1;
+  );
+
+  read_start = scope_write_pos - point_count;
+  read_start < 0 ? read_start += SCOPE_SIZE;
+  ring_i = read_start;
+  sample_i = scope_sum_sample(ring_i);
+  x1 = inner_x;
+  y1 = mid_y - sample_i * amp;
+  ring_i += 1;
+  ring_i >= SCOPE_SIZE ? ring_i = 0;
+  point_i = 1;
+
+  gfx_set(0.96, 0.98, 0.98, 0.92);
+  loop(point_count - 1,
+    sample_i = scope_sum_sample(ring_i);
+    x2 = inner_x + point_i * inner_w / max(point_count - 1, 1);
+    y2 = mid_y - sample_i * amp;
+    gfx_line(x1, y1, x2, y2, 1);
+    x1 = x2;
+    y1 = y2;
+    ring_i += 1;
+    ring_i >= SCOPE_SIZE ? ring_i = 0;
+    point_i += 1;
+  );
+);
+
+function handle_osc_hit(osc_i) local(x, y, w, h, pad_i, track_x, track_w, label_y, row_y, trim_x, trim_y, trim_w, trim_h, scope_h, scope_y)
 (
   x = pad + osc_i * (panel_w + gap);
   y = panel_y;
@@ -996,7 +1109,9 @@ function handle_osc_hit(osc_i) local(x, y, w, h, pad_i, track_x, track_w, label_
     trim_x = x + pad_i + 10 * ui_scale;
     trim_y = row_y + 191 * ui_scale;
     trim_w = w - pad_i * 2 - 20 * ui_scale;
-    trim_h = h - (trim_y - y) - 28 * ui_scale;
+    scope_h = min(50 * ui_scale, max(34 * ui_scale, h * 0.12));
+    scope_y = y + h - 26 * ui_scale - scope_h;
+    trim_h = max(18 * ui_scale, scope_y - trim_y - 10 * ui_scale);
     in_rect(mouse_x, mouse_y, trim_x, trim_y, trim_w, trim_h) ? (
       start_drag(DRAG_TRIM, osc_i, trim_x, trim_y, trim_w, trim_h);
       update_drag();
@@ -1004,13 +1119,14 @@ function handle_osc_hit(osc_i) local(x, y, w, h, pad_i, track_x, track_w, label_
   );
 );
 
-function process_audio_sample() local(audio_master_gain, audio_sum_l, audio_sum_r, audio_osc_i, audio_phase_inc, audio_phase, audio_sample, audio_filtered, audio_out_l, audio_out_r)
+function process_audio_sample() local(audio_master_gain, audio_sum_l, audio_sum_r, audio_osc_i, audio_phase_inc, audio_phase, audio_sample, audio_filtered, audio_out_l, audio_out_r, audio_enabled)
 (
   srate != last_audio_srate ? (
     smooth_fast = 1 - exp(-1 / max(srate * 0.012, 1));
     smooth_slow = 1 - exp(-1 / max(srate * 0.030, 1));
     smooth_gain = 1 - exp(-1 / max(srate * 0.050, 1));
     gate_coeff = 1 - exp(-1 / max(srate * 0.010, 1));
+    scope_sample_div = max(1, floor(srate / 10000));
     last_audio_srate = srate;
     refresh_all_audio_targets();
   );
@@ -1026,8 +1142,9 @@ function process_audio_sample() local(audio_master_gain, audio_sum_l, audio_sum_
     audio_phase_inc = freq_smooth_base[audio_osc_i] / max(srate, 1);
     audio_phase = wrap01(phase_base[audio_osc_i] + audio_phase_inc);
     phase_base[audio_osc_i] = audio_phase;
+    audio_enabled = osc_enable(audio_osc_i);
 
-    (trim_target_base[audio_osc_i] > 0 || trim_smooth_base[audio_osc_i] > 0.0000001) ? (
+    (audio_enabled || trim_target_base[audio_osc_i] > 0 || trim_smooth_base[audio_osc_i] > 0.0000001) ? (
       freq_smooth_base[audio_osc_i] += (freq_target_base[audio_osc_i] - freq_smooth_base[audio_osc_i]) * smooth_slow;
       cutoff_smooth_base[audio_osc_i] += (cutoff_coeff_target_base[audio_osc_i] - cutoff_smooth_base[audio_osc_i]) * smooth_slow;
       wave_smooth_base[audio_osc_i] += (wave_target_base[audio_osc_i] - wave_smooth_base[audio_osc_i]) * smooth_fast;
@@ -1046,12 +1163,14 @@ function process_audio_sample() local(audio_master_gain, audio_sum_l, audio_sum_
       lp_state_base[audio_osc_i] += (audio_sample - lp_state_base[audio_osc_i]) * cutoff_smooth_base[audio_osc_i];
       lp_state_base[audio_osc_i] = denorm_zero(lp_state_base[audio_osc_i]);
       audio_filtered = denorm_zero(lp_state_base[audio_osc_i] * trim_smooth_base[audio_osc_i]);
+      scope_latest_base[audio_osc_i] = audio_enabled ? lp_state_base[audio_osc_i] * gate_smooth : 0;
 
       audio_sum_l += audio_filtered * pan_l_smooth_base[audio_osc_i];
       audio_sum_r += audio_filtered * pan_r_smooth_base[audio_osc_i];
     ) : (
       trim_smooth_base[audio_osc_i] = 0;
       lp_state_base[audio_osc_i] = 0;
+      scope_latest_base[audio_osc_i] = 0;
     );
 
     audio_osc_i += 1;
@@ -1062,6 +1181,18 @@ function process_audio_sample() local(audio_master_gain, audio_sum_l, audio_sum_
 
   spl0 = denorm_zero(audio_out_l);
   spl1 = denorm_zero(audio_out_r);
+
+  scope_sample_count += 1;
+  scope_sample_count >= scope_sample_div ? (
+    scope_sample_count = 0;
+    audio_osc_i = 0;
+    loop(NUM_OSC,
+      scope_ring_base[audio_osc_i * SCOPE_SIZE + scope_write_pos] = scope_latest_base[audio_osc_i];
+      audio_osc_i += 1;
+    );
+    scope_write_pos += 1;
+    scope_write_pos >= SCOPE_SIZE ? scope_write_pos = 0;
+  );
 );
 
 sanitize_slider_backing();
@@ -1079,6 +1210,17 @@ loop(NUM_OSC,
   pan_r_smooth_base[osc_i] = equal_power_right(osc_pan_value(osc_i));
   lp_state_base[osc_i] = 0;
   osc_i += 1;
+);
+
+scope_clear_i = 0;
+loop(NUM_OSC * SCOPE_SIZE,
+  scope_ring_base[scope_clear_i] = 0;
+  scope_clear_i += 1;
+);
+scope_clear_i = 0;
+loop(NUM_OSC,
+  scope_latest_base[scope_clear_i] = 0;
+  scope_clear_i += 1;
 );
 
 refresh_all_audio_targets();
@@ -1192,5 +1334,6 @@ gfx_x = 0;
 gfx_y = 0;
 gfx_set(1, 1, 1, 1);
 gfx_blit(IMG_CACHE, 1, 0);
+draw_combined_scope();
 
 last_mouse_down = mouse_down;
