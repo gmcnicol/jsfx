@@ -5,6 +5,18 @@ in_pin:none
 out_pin:none
 
 slider1:ui_scale_pct=100<75,150,1>-UI Scale
+slider2:lane1_enabled_param=1<0,1,1{Off,On}>-Lane 1 Enable
+slider3:lane1_mute_param=0<0,1,1{Off,On}>-Lane 1 Mute
+slider4:lane1_solo_param=0<0,1,1{Off,On}>-Lane 1 Solo
+slider5:lane2_enabled_param=1<0,1,1{Off,On}>-Lane 2 Enable
+slider6:lane2_mute_param=0<0,1,1{Off,On}>-Lane 2 Mute
+slider7:lane2_solo_param=0<0,1,1{Off,On}>-Lane 2 Solo
+slider8:lane3_enabled_param=1<0,1,1{Off,On}>-Lane 3 Enable
+slider9:lane3_mute_param=0<0,1,1{Off,On}>-Lane 3 Mute
+slider10:lane3_solo_param=0<0,1,1{Off,On}>-Lane 3 Solo
+slider11:lane4_enabled_param=1<0,1,1{Off,On}>-Lane 4 Enable
+slider12:lane4_mute_param=0<0,1,1{Off,On}>-Lane 4 Mute
+slider13:lane4_solo_param=0<0,1,1{Off,On}>-Lane 4 Solo
 
 @init
 
@@ -54,6 +66,8 @@ DRAG_PAT_LEN = 10;
 DRAG_CHAIN_LEN = 11;
 DRAG_CHAIN_SLOT = 12;
 DRAG_UI_SCALE = 13;
+
+SLIDER_UI_SCALE_MASK = 1;
 
 TOTAL_PATTERN_COUNT = NUM_LANES * NUM_PATTERNS;
 TOTAL_PATTERN_STEP_COUNT = TOTAL_PATTERN_COUNT * MAX_STEPS;
@@ -748,6 +762,78 @@ function init_runtime()
   );
 );
 
+function toggle_param(v)
+(
+  v >= 0.5 ? 1 : 0;
+);
+
+function sync_lane_toggle_state_from_sliders()
+(
+  lane1_enabled_param = toggle_param(lane1_enabled_param);
+  lane1_mute_param = toggle_param(lane1_mute_param);
+  lane1_solo_param = toggle_param(lane1_solo_param);
+  lane2_enabled_param = toggle_param(lane2_enabled_param);
+  lane2_mute_param = toggle_param(lane2_mute_param);
+  lane2_solo_param = toggle_param(lane2_solo_param);
+  lane3_enabled_param = toggle_param(lane3_enabled_param);
+  lane3_mute_param = toggle_param(lane3_mute_param);
+  lane3_solo_param = toggle_param(lane3_solo_param);
+  lane4_enabled_param = toggle_param(lane4_enabled_param);
+  lane4_mute_param = toggle_param(lane4_mute_param);
+  lane4_solo_param = toggle_param(lane4_solo_param);
+
+  lane_enabled[0] = lane1_enabled_param;
+  lane_mute[0] = lane1_mute_param;
+  lane_solo[0] = lane1_solo_param;
+  lane_enabled[1] = lane2_enabled_param;
+  lane_mute[1] = lane2_mute_param;
+  lane_solo[1] = lane2_solo_param;
+  lane_enabled[2] = lane3_enabled_param;
+  lane_mute[2] = lane3_mute_param;
+  lane_solo[2] = lane3_solo_param;
+  lane_enabled[3] = lane4_enabled_param;
+  lane_mute[3] = lane4_mute_param;
+  lane_solo[3] = lane4_solo_param;
+);
+
+function sync_lane_toggle_sliders_from_state()
+(
+  lane1_enabled_param = toggle_param(lane_enabled[0]);
+  lane1_mute_param = toggle_param(lane_mute[0]);
+  lane1_solo_param = toggle_param(lane_solo[0]);
+  lane2_enabled_param = toggle_param(lane_enabled[1]);
+  lane2_mute_param = toggle_param(lane_mute[1]);
+  lane2_solo_param = toggle_param(lane_solo[1]);
+  lane3_enabled_param = toggle_param(lane_enabled[2]);
+  lane3_mute_param = toggle_param(lane_mute[2]);
+  lane3_solo_param = toggle_param(lane_solo[2]);
+  lane4_enabled_param = toggle_param(lane_enabled[3]);
+  lane4_mute_param = toggle_param(lane_mute[3]);
+  lane4_solo_param = toggle_param(lane_solo[3]);
+);
+
+function commit_lane_toggle_slider(lane_i, toggle_i)
+(
+  toggle_i == 0 ? (
+    lane_i == 0 ? lane1_enabled_param = toggle_param(lane_enabled[0]);
+    lane_i == 1 ? lane2_enabled_param = toggle_param(lane_enabled[1]);
+    lane_i == 2 ? lane3_enabled_param = toggle_param(lane_enabled[2]);
+    lane_i == 3 ? lane4_enabled_param = toggle_param(lane_enabled[3]);
+  );
+  toggle_i == 1 ? (
+    lane_i == 0 ? lane1_mute_param = toggle_param(lane_mute[0]);
+    lane_i == 1 ? lane2_mute_param = toggle_param(lane_mute[1]);
+    lane_i == 2 ? lane3_mute_param = toggle_param(lane_mute[2]);
+    lane_i == 3 ? lane4_mute_param = toggle_param(lane_mute[3]);
+  );
+  toggle_i == 2 ? (
+    lane_i == 0 ? lane1_solo_param = toggle_param(lane_solo[0]);
+    lane_i == 1 ? lane2_solo_param = toggle_param(lane_solo[1]);
+    lane_i == 2 ? lane3_solo_param = toggle_param(lane_solo[2]);
+    lane_i == 3 ? lane4_solo_param = toggle_param(lane_solo[3]);
+  );
+);
+
 function queue_note_off(lane_i, chan_i, note_i, abs_time_i, gen_i) local(next_tail)
 (
   queue_note_off = 0;
@@ -1376,7 +1462,7 @@ function handle_mouse_control_drag(mouse_down_i) local(delta_i, lane_i, idx_i)
       drag_mode == DRAG_CHAIN_LEN ? lane_chain_len[drag_lane] = clampi(drag_origin + delta_i, 1, MAX_CHAIN_LEN);
       drag_mode == DRAG_CHAIN_SLOT ? lane_chain_pat[idx_chain(drag_lane, drag_step)] = clampi(drag_origin + delta_i, 0, NUM_PATTERNS - 1);
       drag_mode == DRAG_UI_SCALE ? (
-        sliderchange(1);
+        sliderchange(SLIDER_UI_SCALE_MASK);
         layout_dirty = 1;
       );
       (drag_mode == DRAG_ROOT || drag_mode == DRAG_SCALE || drag_mode == DRAG_OCTAVE) ? (
@@ -1627,7 +1713,7 @@ function handle_mouse()
     delta_i = rect_hit_delta(mouse_x, mouse_y, top_ui_x, top_ui_y, top_ui_w, top_ui_h);
     delta_i ? (
       ui_scale_pct = clampi(ui_scale_pct + delta_i, 75, 150);
-      sliderchange(1);
+      sliderchange(SLIDER_UI_SCALE_MASK);
       layout_dirty = 1;
     ) :
     in_rect(mouse_x, mouse_y, top_ui_x, top_ui_y, top_ui_w, top_ui_h) ? (
@@ -1644,9 +1730,18 @@ function handle_mouse()
     while (lane_i < NUM_LANES) (
       lx_i = lane_x + lane_i * (lane_card_w + lane_gap);
       in_rect(mouse_x, mouse_y, lx_i, lane_y, lane_card_w, lane_h) ? ui_lane = lane_i;
-      in_rect(mouse_x, mouse_y, lx_i + lane_card_pad_l, lane_btn_y, lane_btn_w, small_btn_h) ? lane_enabled[lane_i] = 1 - lane_enabled[lane_i];
-      in_rect(mouse_x, mouse_y, lx_i + lane_card_pad_l + (lane_btn_w + lane_btn_gap), lane_btn_y, lane_btn_w, small_btn_h) ? lane_mute[lane_i] = 1 - lane_mute[lane_i];
-      in_rect(mouse_x, mouse_y, lx_i + lane_card_pad_l + (lane_btn_w + lane_btn_gap) * 2, lane_btn_y, lane_btn_w, small_btn_h) ? lane_solo[lane_i] = 1 - lane_solo[lane_i];
+      in_rect(mouse_x, mouse_y, lx_i + lane_card_pad_l, lane_btn_y, lane_btn_w, small_btn_h) ? (
+        lane_enabled[lane_i] = 1 - lane_enabled[lane_i];
+        commit_lane_toggle_slider(lane_i, 0);
+      );
+      in_rect(mouse_x, mouse_y, lx_i + lane_card_pad_l + (lane_btn_w + lane_btn_gap), lane_btn_y, lane_btn_w, small_btn_h) ? (
+        lane_mute[lane_i] = 1 - lane_mute[lane_i];
+        commit_lane_toggle_slider(lane_i, 1);
+      );
+      in_rect(mouse_x, mouse_y, lx_i + lane_card_pad_l + (lane_btn_w + lane_btn_gap) * 2, lane_btn_y, lane_btn_w, small_btn_h) ? (
+        lane_solo[lane_i] = 1 - lane_solo[lane_i];
+        commit_lane_toggle_slider(lane_i, 2);
+      );
 
       delta_i = rect_hit_delta(mouse_x, mouse_y, lx_i + lane_ch_x_off, lane_cycle_y, lane_ch_w, lane_cycle_h);
       delta_i ? lane_midi_chan[lane_i] = clampi(lane_midi_chan[lane_i] + delta_i, 1, 16) :
@@ -1868,11 +1963,13 @@ last_layout_h = 0;
 last_layout_scale_pct = -1;
 layout_dirty = 1;
 sync_preview_state();
+sync_lane_toggle_sliders_from_state();
 
 @slider
 
 ui_scale_pct = clampi(ui_scale_pct, 75, 150);
 ui_scale_pct != last_layout_scale_pct ? layout_dirty = 1;
+sync_lane_toggle_state_from_sliders();
 
 @serialize
 
@@ -1896,6 +1993,7 @@ persistent_magic == PERSIST_MAGIC_LEGACY ? (
 );
 rebuild_scale_pool();
 sync_preview_state();
+sync_lane_toggle_sliders_from_state();
 
 @block
 

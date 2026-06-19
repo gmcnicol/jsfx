@@ -42,6 +42,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   RES_SIZE = 4;
   CAP_SIZE = 262144;
   MAX_OFFS = 1024;
+  MIDI_BUF_SIZE = 128;
   CHROMA = 12;
   SCRATCH = 2500000;
 
@@ -81,10 +82,25 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   off_chan = off_note + MAX_OFFS;
   off_time = off_chan + MAX_OFFS;
   seen_notes = off_time + MAX_OFFS;
+  midi_buf_note = seen_notes + 128;
+  midi_buf_vel = midi_buf_note + MIDI_BUF_SIZE;
+  midi_buf_chan = midi_buf_vel + MIDI_BUF_SIZE;
+  midi_buf_gen = midi_buf_chan + MIDI_BUF_SIZE;
+  midi_next_note = midi_buf_gen + MIDI_BUF_SIZE;
+  midi_next_vel = midi_next_note + MIDI_BUF_SIZE;
+  midi_next_chan = midi_next_vel + MIDI_BUF_SIZE;
+  midi_next_gen = midi_next_chan + MIDI_BUF_SIZE;
 
   spawn_counter = 0;
   audio_bloom_step = 0;
   audio_bloom_wait = 0;
+  midi_bloom_step = 0;
+  midi_bloom_counter = 0;
+  midi_bloom_wait = 0;
+  midi_buf_count = 0;
+  midi_next_count = 0;
+  midi_emit_remaining = 0;
+  midi_live_notes = 0;
   pitch_period = 0;
   pitch_count = 0;
   pitch_last = 0;
@@ -103,6 +119,8 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   cap_start = 0;
   cap_phase = 0;
   cap_loop_len = 0;
+  cap_voice_start = 0;
+  cap_voice_len = 0;
   cap_mix = 0;
   last_source_active = 0;
   excite_s = 0;
@@ -274,9 +292,24 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     clear_mem(field, CHROMA);
     clear_mem(field_view, CHROMA);
     clear_mem(off_active, MAX_OFFS);
+    clear_mem(midi_buf_note, MIDI_BUF_SIZE);
+    clear_mem(midi_buf_vel, MIDI_BUF_SIZE);
+    clear_mem(midi_buf_chan, MIDI_BUF_SIZE);
+    clear_mem(midi_buf_gen, MIDI_BUF_SIZE);
+    clear_mem(midi_next_note, MIDI_BUF_SIZE);
+    clear_mem(midi_next_vel, MIDI_BUF_SIZE);
+    clear_mem(midi_next_chan, MIDI_BUF_SIZE);
+    clear_mem(midi_next_gen, MIDI_BUF_SIZE);
     spawn_counter = 0;
     audio_bloom_step = 0;
     audio_bloom_wait = 0;
+    midi_bloom_step = 0;
+    midi_bloom_counter = 0;
+    midi_bloom_wait = 0;
+    midi_buf_count = 0;
+    midi_next_count = 0;
+    midi_emit_remaining = 0;
+    midi_live_notes = 0;
     pitch_period = 0;
     pitch_count = 0;
     pitch_last = 0;
@@ -289,6 +322,8 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     cap_start = 0;
     cap_phase = 0;
     cap_loop_len = 0;
+    cap_voice_start = 0;
+    cap_voice_len = 0;
     cap_mix = 0;
     last_source_active = 0;
     excite_s = 0;
@@ -369,6 +404,10 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
       mem[off_note + found] = note_i;
       mem[off_chan + found] = chan_i;
       mem[off_time + found] = time_i;
+      midi_live_notes += 1;
+      1;
+    ) : (
+      0;
     );
   );
 
@@ -384,10 +423,26 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
           chan_i = mem[off_chan + i] | 0;
           midisend(offs, $x80 | chan_i, note_i);
           mem[off_active + i] = 0;
+          midi_live_notes = max(midi_live_notes - 1, 0);
         );
       );
       i += 1;
     );
+  );
+
+  function release_active_bloom_notes(offset_i) local(i, note_i, chan_i)
+  (
+    i = 0;
+    loop(MAX_OFFS,
+      mem[off_active + i] > 0.5 ? (
+        note_i = mem[off_note + i] | 0;
+        chan_i = mem[off_chan + i] | 0;
+        midisend(offset_i, $x80 | chan_i, note_i);
+        mem[off_active + i] = 0;
+      );
+      i += 1;
+    );
+    midi_live_notes = 0;
   );
 
   function mark_seen(note_i)
@@ -409,48 +464,281 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     );
   );
 
-  function emit_chord_bloom(offset_i, note_i, vel_i, chan_i) local(gen, roots_count, next_count, r_i, idx_i, root_i, chord_note, out_vel, dur, set_i, int_count, interval_i, roots_base, next_base, temp)
+  function midi_spread_limit()
   (
-    clear_seen();
-    roots_base = SCRATCH;
-    next_base = roots_base + 64;
-    mem[roots_base] = note_i;
-    roots_count = 1;
-    gen = 0;
-    set_i = floor(ui_interval_set + 0.5);
+    ui_density >= 75 ? 36 :
+    ui_density >= 35 ? 24 :
+                       12;
+  );
 
-    loop(floor(ui_depth + 0.5),
-      next_count = 0;
-      r_i = 0;
-      loop(roots_count,
-        root_i = mem[roots_base + r_i] | 0;
-        int_count = interval_count(set_i);
-        idx_i = 0;
-        loop(int_count,
-          interval_i = interval_at(set_i, idx_i);
-          chord_note = root_i + interval_i;
-          chord_note >= 0 && chord_note <= 127 && !was_seen(chord_note) ? (
-            out_vel = floor(clamp(vel_i * (1 - gen * 0.22) * (0.72 + ui_bloom * 0.004), 1, 127));
-            midisend(offset_i, $x90 | chan_i, chord_note | (out_vel << 8));
-            dur = floor(srate * (0.65 + ui_memory * 0.025 + gen * 0.22));
-            schedule_note_off(chord_note, chan_i, midi_abs + offset_i + dur);
-            mark_seen(chord_note);
-            excite_pc(chord_note % 12, out_vel / 127);
-            next_count < 64 ? (
-              mem[next_base + next_count] = chord_note;
-              next_count += 1;
-            );
-          );
-          idx_i += 1;
+  function clamp_midi_spread(anchor_i, note_i) local(limit_i)
+  (
+    limit_i = midi_spread_limit();
+    while (note_i - anchor_i > limit_i) ( note_i -= 12; );
+    while (anchor_i - note_i > limit_i) ( note_i += 12; );
+    clamp(note_i, 0, 127);
+  );
+
+  function midi_log_emit_limit(root_count_i) local(depth_i, log_i, density_i)
+  (
+    depth_i = floor(clamp(ui_depth, 1, 4));
+    log_i = floor(log(max(root_count_i, 1) + 1) / LOG2);
+    density_i = 1 + floor((ui_bloom + ui_vines) / 100);
+    floor(clamp(depth_i * max(log_i, 1) * density_i, depth_i, MIDI_BUF_SIZE));
+  );
+
+  function begin_midi_bloom(root_count_i, offset_i)
+  (
+    release_active_bloom_notes(offset_i);
+    clear_seen();
+    midi_next_count = 0;
+    midi_emit_remaining = midi_log_emit_limit(root_count_i);
+  );
+
+  function record_midi_seed_note(note_i, vel_i, chan_i, gen_i) local(i, found)
+  (
+    note_i >= 0 && note_i <= 127 ? (
+      found = -1;
+      i = 0;
+      loop(midi_buf_count,
+        found < 0 && mem[midi_buf_note + i] == note_i && mem[midi_buf_chan + i] == chan_i ? found = i;
+        i += 1;
+      );
+      found >= 0 ? (
+        mem[midi_buf_vel + found] = max(mem[midi_buf_vel + found], clamp(vel_i, 1, 127));
+        mem[midi_buf_gen + found] = min(mem[midi_buf_gen + found], gen_i);
+      ) : midi_buf_count < MIDI_BUF_SIZE ? (
+        mem[midi_buf_note + midi_buf_count] = note_i;
+        mem[midi_buf_vel + midi_buf_count] = clamp(vel_i, 1, 127);
+        mem[midi_buf_chan + midi_buf_count] = clamp(chan_i, 0, 15);
+        mem[midi_buf_gen + midi_buf_count] = gen_i;
+        midi_buf_count += 1;
+      );
+    );
+  );
+
+  function record_midi_bloom_note(note_i, vel_i, chan_i, gen_i) local(i, found, existing_gen_i)
+  (
+    note_i >= 0 && note_i <= 127 ? (
+      found = -1;
+      i = 0;
+      loop(midi_next_count,
+        found < 0 && mem[midi_next_note + i] == note_i && mem[midi_next_chan + i] == chan_i ? found = i;
+        i += 1;
+      );
+      found >= 0 ? (
+        existing_gen_i = mem[midi_next_gen + found];
+        gen_i > existing_gen_i ? (
+          mem[midi_next_vel + found] = clamp(vel_i, 1, 127);
+          mem[midi_next_gen + found] = gen_i;
+        ) : gen_i == existing_gen_i ? (
+          mem[midi_next_vel + found] = max(mem[midi_next_vel + found], clamp(vel_i, 1, 127));
         );
-        r_i += 1;
+      ) : midi_next_count < MIDI_BUF_SIZE ? (
+        mem[midi_next_note + midi_next_count] = note_i;
+        mem[midi_next_vel + midi_next_count] = clamp(vel_i, 1, 127);
+        mem[midi_next_chan + midi_next_count] = clamp(chan_i, 0, 15);
+        mem[midi_next_gen + midi_next_count] = gen_i;
+        midi_next_count += 1;
+      );
+    );
+  );
+
+  function next_has_higher_gen_note(note_i, chan_i, gen_i) local(i, hit)
+  (
+    hit = 0;
+    i = 0;
+    loop(midi_next_count,
+      mem[midi_next_note + i] == note_i && mem[midi_next_chan + i] == chan_i && mem[midi_next_gen + i] > gen_i ? hit = 1;
+      i += 1;
+    );
+    hit;
+  );
+
+  function promote_midi_bloom_notes() local(i)
+  (
+    midi_next_count > 0 ? (
+      midi_buf_count = min(midi_next_count, MIDI_BUF_SIZE);
+      i = 0;
+      loop(midi_buf_count,
+        mem[midi_buf_note + i] = mem[midi_next_note + i];
+        mem[midi_buf_vel + i] = mem[midi_next_vel + i];
+        mem[midi_buf_chan + i] = mem[midi_next_chan + i];
+        mem[midi_buf_gen + i] = mem[midi_next_gen + i];
+        i += 1;
+      );
+      midi_next_count = 0;
+    );
+  );
+
+  function replay_midi_tail_notes(offset_i) local(i, note_i, vel_i, chan_i, gen_i, top_gen_i, out_vel, dur)
+  (
+    top_gen_i = floor(clamp(ui_depth, 1, 4)) - 1;
+    dur = max(regen_samples(), floor(srate * 0.050));
+    i = 0;
+    loop(midi_buf_count,
+      note_i = mem[midi_buf_note + i] | 0;
+      vel_i = mem[midi_buf_vel + i];
+      chan_i = mem[midi_buf_chan + i] | 0;
+      gen_i = mem[midi_buf_gen + i] | 0;
+      gen_i >= 0 && gen_i < top_gen_i && !next_has_higher_gen_note(note_i, chan_i, gen_i) ? (
+        out_vel = floor(clamp(vel_i * max(0.34, 0.56 - gen_i * 0.08) * (0.72 + ui_bloom * 0.0018), 1, 127));
+        schedule_note_off(note_i, chan_i, midi_abs + offset_i + dur) ? (
+          midisend(offset_i, $x90 | chan_i, note_i | (out_vel << 8));
+          record_midi_bloom_note(note_i, vel_i, chan_i, gen_i);
+          excite_pc(note_i % 12, out_vel / 127);
+        );
+      );
+      i += 1;
+    );
+  );
+
+  function trim_midi_next_extremes() local(max_gen_i, pairs_i, pair_i, i, low_i, high_i, low_note_i, high_note_i, note_i, gen_i, write_i)
+  (
+    max_gen_i = 0;
+    i = 0;
+    loop(midi_next_count,
+      gen_i = mem[midi_next_gen + i];
+      gen_i > max_gen_i ? max_gen_i = gen_i;
+      i += 1;
+    );
+
+    pairs_i = floor(clamp(max_gen_i, 0, 4));
+    pair_i = 0;
+    loop(pairs_i,
+      low_i = -1;
+      high_i = -1;
+      low_note_i = 128;
+      high_note_i = -1;
+      i = 0;
+      loop(midi_next_count,
+        gen_i = mem[midi_next_gen + i];
+        gen_i > 0 ? (
+          note_i = mem[midi_next_note + i];
+          note_i < low_note_i ? (
+            low_note_i = note_i;
+            low_i = i;
+          );
+          note_i > high_note_i ? (
+            high_note_i = note_i;
+            high_i = i;
+          );
+        );
+        i += 1;
       );
 
-      temp = roots_base;
-      roots_base = next_base;
-      next_base = temp;
-      roots_count = next_count;
-      gen += 1;
+      low_i >= 0 ? mem[midi_next_gen + low_i] = -999;
+      high_i >= 0 && high_i != low_i ? mem[midi_next_gen + high_i] = -999;
+      pair_i += 1;
+    );
+
+    write_i = 0;
+    i = 0;
+    loop(midi_next_count,
+      mem[midi_next_gen + i] > -900 ? (
+        write_i != i ? (
+          mem[midi_next_note + write_i] = mem[midi_next_note + i];
+          mem[midi_next_vel + write_i] = mem[midi_next_vel + i];
+          mem[midi_next_chan + write_i] = mem[midi_next_chan + i];
+          mem[midi_next_gen + write_i] = mem[midi_next_gen + i];
+        );
+        write_i += 1;
+      );
+      i += 1;
+    );
+    midi_next_count = write_i;
+  );
+
+  function shape_midi_bloom_note(anchor_i, note_i, gen_i, idx_i) local(slots_i, p_i)
+  (
+    slots_i = floor(ui_density / 34);
+    slots_i > 0 ? (
+      p_i = floor(midi_bloom_step + gen_i * 5 + idx_i * 3 + ui_vines * 0.05 + rand01() * max(ui_bloom * 0.05, 1)) % (slots_i * 2 + 1);
+      note_i += (p_i - slots_i) * 12;
+    );
+    clamp_midi_spread(anchor_i, note_i);
+  );
+
+  function shape_midi_interval(interval_i, gen_i, idx_i) local(p_i)
+  (
+    p_i = floor(midi_bloom_step + gen_i * 7 + idx_i * 5 + ui_vines * 0.09 + rand01() * max(ui_chaos * 0.05, 1)) % 8;
+    interval_i == 0 ? (
+      p_i == 0 || p_i == 2 || p_i == 4 || p_i == 6 ? interval_i = -12 : interval_i = 12;
+    ) : (
+      p_i == 1 ? interval_i = -interval_i;
+      p_i == 2 ? interval_i -= 12;
+      p_i == 3 ? interval_i = 12 - interval_i;
+      p_i == 4 && ui_vines > 35 ? interval_i = -interval_i - 12;
+      p_i == 5 && ui_vines > 55 ? interval_i += 12;
+      p_i == 6 && ui_vines > 70 ? interval_i = interval_i - 24;
+      p_i == 7 && ui_bloom > 72 ? interval_i = 24 - interval_i;
+    );
+    interval_i;
+  );
+
+  function emit_chord_bloom(offset_i, note_i, vel_i, chan_i, base_gen_i) local(idx_i, chord_note, out_vel, dur, set_i, int_count, interval_i, max_depth_i, out_gen_i, shape_gen_i)
+  (
+    dur = max(regen_samples(), floor(srate * 0.050));
+    max_depth_i = floor(clamp(ui_depth, 1, 4));
+    out_gen_i = min(base_gen_i + 1, max_depth_i - 1);
+    set_i = floor(ui_interval_set + 0.5);
+    int_count = interval_count(set_i);
+    idx_i = 0;
+    loop(int_count,
+      shape_gen_i = out_gen_i + (base_gen_i < 0 ? 3 : 0);
+      interval_i = shape_midi_interval(interval_at(set_i, idx_i), shape_gen_i, idx_i);
+      chord_note = shape_midi_bloom_note(note_i, note_i + interval_i, shape_gen_i, idx_i);
+      chord_note >= 0 && chord_note <= 127 && !was_seen(chord_note) && midi_emit_remaining > 0 ? (
+        out_vel = floor(clamp(vel_i * max(0.58, 1 - out_gen_i * 0.12) * (0.66 + ui_bloom * 0.0032) * (0.90 + rand01() * (0.05 + ui_vines * 0.0015)), 1, 127));
+        schedule_note_off(chord_note, chan_i, midi_abs + offset_i + dur) ? (
+          midisend(offset_i, $x90 | chan_i, chord_note | (out_vel << 8));
+          midi_emit_remaining -= 1;
+          mark_seen(chord_note);
+          record_midi_bloom_note(chord_note, vel_i, chan_i, out_gen_i);
+          excite_pc(chord_note % 12, out_vel / 127);
+        );
+      );
+      idx_i += 1;
+    );
+  );
+
+  function emit_midi_buffer_bloom(offset_i) local(r_i, idx_i, start_i, note_i, vel_i, chan_i, gen_i)
+  (
+    midi_buf_count > 0 ? (
+      start_i = floor(midi_bloom_step % midi_buf_count);
+      r_i = 0;
+      loop(midi_buf_count,
+        idx_i = (start_i + r_i) % midi_buf_count;
+        note_i = mem[midi_buf_note + idx_i] | 0;
+        vel_i = mem[midi_buf_vel + idx_i];
+        chan_i = mem[midi_buf_chan + idx_i] | 0;
+        gen_i = mem[midi_buf_gen + idx_i] | 0;
+        emit_chord_bloom(offset_i, note_i, vel_i, chan_i, gen_i);
+        r_i += 1;
+      );
+      midi_bloom_step += 1;
+    );
+  );
+
+  function process_midi_bloom_clock() local(wait_i, fire_offset)
+  (
+    (ui_mode != 0 && midi_buf_count > 0 && transport_is_playing) ? (
+      wait_i = max(regen_samples(), floor(srate * 0.050));
+      midi_bloom_wait <= 0 ? midi_bloom_wait = wait_i;
+      midi_bloom_counter += samplesblock;
+      while (midi_bloom_counter >= midi_bloom_wait) (
+        fire_offset = clamp(samplesblock - (midi_bloom_counter - midi_bloom_wait), 0, samplesblock - 1);
+        begin_midi_bloom(midi_buf_count, fire_offset);
+        emit_midi_buffer_bloom(fire_offset);
+        replay_midi_tail_notes(fire_offset);
+        trim_midi_next_extremes();
+        midi_next_count > 0 ? promote_midi_bloom_notes() : midi_buf_count = 0;
+        midi_bloom_counter -= midi_bloom_wait;
+        midi_bloom_wait = wait_i;
+      );
+    ) : (
+      midi_bloom_wait = 0;
+      midi_bloom_counter = 0;
     );
   );
 
@@ -503,6 +791,35 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     s0;
   );
 
+  function read_cap_voice(phase) local(fade_i, edge_i, x, s0, s1)
+  (
+    while (phase >= cap_voice_len) ( phase -= cap_voice_len; );
+    while (phase < 0) ( phase += cap_voice_len; );
+
+    s0 = read_cap_linear(cap_voice_start + phase);
+    fade_i = floor(clamp(cap_voice_len * 0.20, 4, 64));
+    cap_voice_len > fade_i + 4 ? (
+      edge_i = cap_voice_len - fade_i;
+      phase >= edge_i ? (
+        x = (cap_voice_len - phase) / max(fade_i, 1);
+        s1 = read_cap_linear(cap_voice_start + phase - edge_i);
+        s0 = s0 * x + s1 * (1 - x);
+      );
+    );
+    s0;
+  );
+
+  function prepare_cap_voice() local(base_len, max_len)
+  (
+    max_len = min(cap_len - 2, CAP_SIZE - 2);
+    cap_loop_len > 32 ? max_len = min(max_len, cap_loop_len - 2);
+    base_len = pitch_period > 0 ? pitch_period : srate / 110;
+    cap_voice_len = floor(clamp(base_len, 16, max(max_len, 16)));
+    cap_voice_start = cap_write - cap_voice_len;
+    while (cap_voice_start < 0) ( cap_voice_start += CAP_SIZE; );
+    while (cap_voice_start >= CAP_SIZE) ( cap_voice_start -= CAP_SIZE; );
+  );
+
   function prepare_res_gen(gen_i) local(i)
   (
     i = 0;
@@ -541,7 +858,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
       p = (idx_i % 5) - 2;
       mem[r_active + r] = 1;
       mem[r_delay + r] = pitch_delay_for_semi(semi);
-      mem[r_write + r] = 0;
+      mem[r_write + r] = cap_voice_len > 16 ? rand01() * cap_voice_len : 0;
       mem[r_gain + r] = 0;
       mem[r_tgain + r] = gain_i;
       mem[r_pan + r] = clamp(p * 0.28 + (rand01() - 0.5) * 0.20, -0.85, 0.85);
@@ -613,7 +930,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     );
   );
 
-  function process_audio_sample() local(inL, inR, mono, a, energy, source_active, live_active, interval_samps, wetL, wetR, gain_a, gain_attack_a, gain_release_a, release_samps, pan_i, gL, gR, outL, outR, target_wet, target_out, pc_i, r_i, rd_i, state_i, rg_i, rt_i, age_i, cap_sample, cap_loop_max, cap_mix_target, phase_i, inc_i)
+  function process_audio_sample() local(inL, inR, mono, a, energy, source_active, live_active, regen_from_buffer, interval_samps, wetL, wetR, gain_a, gain_attack_a, gain_release_a, release_samps, pan_i, gL, gR, outL, outR, target_wet, target_out, pc_i, r_i, rd_i, state_i, rg_i, rt_i, age_i, cap_sample, cap_loop_max, cap_mix_target, phase_i, inc_i, source_i, source_phase_i, source_rate_i, tone_i)
   (
     last_seed != seed ? (
       last_seed = seed;
@@ -660,6 +977,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
       cap_start = cap_write - cap_loop_len;
       while (cap_start < 0) ( cap_start += CAP_SIZE; );
       cap_phase = 0;
+      prepare_cap_voice();
     );
 
     cap_sample = 0;
@@ -671,6 +989,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     cap_mix_target = live_active || cap_loop_len <= 32 ? 0 : 1;
     cap_mix += (cap_mix_target - cap_mix) * 0.0025;
     excite_s = mono * (1 - cap_mix) + cap_sample * cap_mix;
+    regen_from_buffer = !live_active && cap_voice_len > 16;
     last_source_active = live_active;
 
     pc_i = 0;
@@ -713,7 +1032,19 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
         phase_i += inc_i;
         phase_i >= PI2 ? phase_i -= PI2;
         mem[r_phase + r_i] = phase_i;
-        state_i = sin(phase_i);
+        tone_i = sin(phase_i);
+        source_i = excite_s;
+        regen_from_buffer ? (
+          source_phase_i = mem[r_write + r_i];
+          source_i = read_cap_voice(source_phase_i);
+          source_rate_i = clamp((pitch_period > 0 ? pitch_period : srate / 110) / max(rd_i, 16), 0.125, 8);
+          source_phase_i += source_rate_i;
+          while (source_phase_i >= cap_voice_len) ( source_phase_i -= cap_voice_len; );
+          while (source_phase_i < 0) ( source_phase_i += cap_voice_len; );
+          mem[r_write + r_i] = source_phase_i;
+        );
+        state_i = source_i * 0.58 + tone_i * clamp(0.14 + absf(source_i) * (0.10 + ui_resonance * 0.0015), 0.14, 0.34);
+        state_i = mem[r_state + r_i] * 0.25 + state_i * 0.75;
         mem[r_state + r_i] = denorm(state_i);
 
         pan_i = mem[r_pan + r_i] * 0.72;
@@ -756,8 +1087,15 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     last_transport_is_playing = transport_is_playing;
   );
 
-  function process_midi_block() local(offset, msg1, msg23, status, chan, note_i, vel_i)
+  function process_midi_block() local(offset, msg1, msg23, status, chan, note_i, vel_i, prev_transport)
   (
+    prev_transport = last_transport_is_playing;
+    transport_is_playing = play_state & 1;
+    !transport_is_playing && prev_transport ? (
+      release_active_bloom_notes(0);
+      reset_state();
+      last_transport_is_playing = 0;
+    );
     send_due_note_offs(midi_abs);
     while (midirecv(offset, msg1, msg23)) (
       status = msg1 & $xF0;
@@ -769,9 +1107,17 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
 
       status == $x90 && vel_i > 0 ? (
         excite_pc(note_i % 12, vel_i / 64);
-        ui_mode != 0 ? emit_chord_bloom(offset, note_i, vel_i, chan);
+        midi_buf_count <= 0 ? midi_bloom_counter = 0;
+        ui_mode != 0 ? (
+          begin_midi_bloom(1, offset);
+          emit_chord_bloom(offset, note_i, vel_i, chan, -1);
+          midi_next_count <= 0 ? record_midi_seed_note(note_i, vel_i, chan, -1);
+          trim_midi_next_extremes();
+          promote_midi_bloom_notes();
+        );
       );
     );
+    process_midi_bloom_clock();
     midi_abs += samplesblock;
   );
 
