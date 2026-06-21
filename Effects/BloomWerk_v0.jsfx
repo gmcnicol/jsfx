@@ -32,19 +32,16 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   ext_noinit = 1;
   ext_nodenorm = 1;
 
-  PI2 = 2 * $pi;
   LOG2 = log(2);
   DB_TO_LOG = 8.685889638;
-  EPS = 0.000001;
-  DENORM = 0.000000000001;
 
-  MAX_RESONATORS = 96;
-  RES_SIZE = 4;
   CAP_SIZE = 262144;
+  MAX_GRAINS = 96;
+  MAX_AUDIO_VOICES = 8;
+  MEM_GUARD = 64;
   MAX_OFFS = 1024;
   MIDI_BUF_SIZE = 128;
   CHROMA = 12;
-  SCRATCH = 2500000;
 
   DRAG_NONE = 0;
   DRAG_BLOOM = 1;
@@ -63,19 +60,24 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   DRAG_SCALE = 14;
   DRAG_REGEN = 15;
 
-  cap_buf = 0;
-  r_buf = cap_buf + CAP_SIZE;
-  r_active = r_buf + MAX_RESONATORS * RES_SIZE;
-  r_delay = r_active + MAX_RESONATORS;
-  r_write = r_delay + MAX_RESONATORS;
-  r_gain = r_write + MAX_RESONATORS;
-  r_tgain = r_gain + MAX_RESONATORS;
-  r_pan = r_tgain + MAX_RESONATORS;
-  r_state = r_pan + MAX_RESONATORS;
-  r_gen = r_state + MAX_RESONATORS;
-  r_age = r_gen + MAX_RESONATORS;
-  r_phase = r_age + MAX_RESONATORS;
-  field = r_phase + MAX_RESONATORS;
+  cap_left = 0;
+  cap_right = cap_left + CAP_SIZE + MEM_GUARD;
+  regen_left = cap_right + CAP_SIZE + MEM_GUARD;
+  regen_right = regen_left + CAP_SIZE + MEM_GUARD;
+  g_active = regen_right + CAP_SIZE + MEM_GUARD;
+  g_source = g_active + MAX_GRAINS;
+  g_start = g_source + MAX_GRAINS;
+  g_phase = g_start + MAX_GRAINS;
+  g_len = g_phase + MAX_GRAINS;
+  g_rate = g_len + MAX_GRAINS;
+  g_gain = g_rate + MAX_GRAINS;
+  g_tgain = g_gain + MAX_GRAINS;
+  g_age = g_tgain + MAX_GRAINS;
+  g_life = g_age + MAX_GRAINS;
+  g_pan = g_life + MAX_GRAINS;
+  g_semi = g_pan + MAX_GRAINS;
+  audio_voice_semi = g_semi + MAX_GRAINS;
+  field = audio_voice_semi + MAX_AUDIO_VOICES + MEM_GUARD;
   field_view = field + CHROMA;
   off_active = field_view + CHROMA;
   off_note = off_active + MAX_OFFS;
@@ -91,9 +93,25 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   midi_next_chan = midi_next_vel + MIDI_BUF_SIZE;
   midi_next_gen = midi_next_chan + MIDI_BUF_SIZE;
 
-  spawn_counter = 0;
   audio_bloom_step = 0;
-  audio_bloom_wait = 0;
+  audio_bloom_counter = 0;
+  cap_write = 0;
+  cap_count = 0;
+  regen_write = 0;
+  regen_count = 0;
+  audio_env = 0;
+  audio_latched = 0;
+  regen_ready = 0;
+  audio_voice_count = 0;
+  audio_ref_level = 0.035;
+  audio_peak_level = 0;
+  audio_out_env = 0;
+  audio_level_gain = 1;
+  active_grains = 0;
+  wet_accum_l = 0;
+  wet_accum_r = 0;
+  wet_s = wet * 0.01;
+  out_s = 1;
   midi_bloom_step = 0;
   midi_bloom_counter = 0;
   midi_bloom_wait = 0;
@@ -101,38 +119,12 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   midi_next_count = 0;
   midi_emit_remaining = 0;
   midi_live_notes = 0;
-  pitch_period = 0;
-  pitch_count = 0;
-  pitch_last = 0;
-  bloom_latched = 0;
   transport_is_playing = 0;
   last_transport_is_playing = 0;
   midi_abs = 0;
   rng_state = 1;
   last_seed = -1;
   reset_hold = 0;
-  input_env = 0;
-  input_peak = 0;
-  cap_write = 0;
-  cap_len = 0;
-  cap_read = 0;
-  cap_start = 0;
-  cap_phase = 0;
-  cap_loop_len = 0;
-  cap_voice_start = 0;
-  cap_voice_len = 0;
-  cap_mix = 0;
-  last_source_active = 0;
-  excite_s = 0;
-  bloom_feedback = 0;
-  wet_s = wet * 0.01;
-  out_s = 1;
-  slewL = 0;
-  slewR = 0;
-  dc_inL = 0;
-  dc_inR = 0;
-  dc_outL = 0;
-  dc_outR = 0;
   last_mouse_down = 0;
   drag_param = DRAG_NONE;
   drag_x = 0;
@@ -169,14 +161,14 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     v < 0 ? -v : v;
   );
 
-  function denorm(v)
-  (
-    absf(v) < DENORM ? 0 : v;
-  );
-
   function db_to_gain(db)
   (
     exp(db / DB_TO_LOG);
+  );
+
+  function denorm(v)
+  (
+    absf(v) < 0.000000000001 ? 0 : v;
   );
 
   function wrap12(v) local(r)
@@ -216,6 +208,14 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     set_i == 3 ? (idx_i == 0 ? 0 : idx_i == 1 ? 5 : idx_i == 2 ? 7 : 10) :
     set_i == 4 ? (idx_i == 0 ? 0 : idx_i == 1 ? 7 : 12) :
                  (idx_i == 0 ? 0 : idx_i == 1 ? 2 : idx_i == 2 ? 4 : idx_i == 3 ? 7 : 11);
+  );
+
+  function audio_interval_at(set_i, idx_i) local(count_i, semi_i)
+  (
+    count_i = interval_count(set_i);
+    semi_i = interval_at(set_i, (idx_i + 1) % count_i);
+    semi_i == 0 ? semi_i = 12;
+    semi_i;
   );
 
   function interval_name(set_i)
@@ -267,6 +267,11 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     floor(max(srate * 0.050, regen_beats(div_i) * 60 / bpm * srate));
   );
 
+  function capture_ready_samples()
+  (
+    floor(clamp(ui_loop_ms * 0.001 * srate, max(srate * 0.650, 4096), CAP_SIZE - 2));
+  );
+
   function mode_name(mode_i)
   (
     mode_i == 0 ? sprintf(#mode_txt, "AUDIO") :
@@ -286,9 +291,12 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
 
   function reset_state()
   (
-    clear_mem(r_buf, MAX_RESONATORS * RES_SIZE);
-    clear_mem(cap_buf, CAP_SIZE);
-    clear_mem(r_active, MAX_RESONATORS);
+    clear_mem(cap_left, CAP_SIZE);
+    clear_mem(cap_right, CAP_SIZE);
+    clear_mem(regen_left, CAP_SIZE);
+    clear_mem(regen_right, CAP_SIZE);
+    clear_mem(g_active, MAX_GRAINS);
+    clear_mem(audio_voice_semi, MAX_AUDIO_VOICES);
     clear_mem(field, CHROMA);
     clear_mem(field_view, CHROMA);
     clear_mem(off_active, MAX_OFFS);
@@ -300,9 +308,25 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     clear_mem(midi_next_vel, MIDI_BUF_SIZE);
     clear_mem(midi_next_chan, MIDI_BUF_SIZE);
     clear_mem(midi_next_gen, MIDI_BUF_SIZE);
-    spawn_counter = 0;
     audio_bloom_step = 0;
-    audio_bloom_wait = 0;
+    audio_bloom_counter = 0;
+    cap_write = 0;
+    cap_count = 0;
+    regen_write = 0;
+    regen_count = 0;
+    audio_env = 0;
+    audio_latched = 0;
+    regen_ready = 0;
+    audio_voice_count = 0;
+    audio_ref_level = 0.035;
+    audio_peak_level = 0;
+    audio_out_env = 0;
+    audio_level_gain = 1;
+    active_grains = 0;
+    wet_accum_l = 0;
+    wet_accum_r = 0;
+    wet_s = wet * 0.01;
+    out_s = 1;
     midi_bloom_step = 0;
     midi_bloom_counter = 0;
     midi_bloom_wait = 0;
@@ -310,37 +334,13 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     midi_next_count = 0;
     midi_emit_remaining = 0;
     midi_live_notes = 0;
-    pitch_period = 0;
-    pitch_count = 0;
-    pitch_last = 0;
-    bloom_latched = 0;
-    input_env = 0;
-    input_peak = 0;
-    cap_write = 0;
-    cap_len = 0;
-    cap_read = 0;
-    cap_start = 0;
-    cap_phase = 0;
-    cap_loop_len = 0;
-    cap_voice_start = 0;
-    cap_voice_len = 0;
-    cap_mix = 0;
-    last_source_active = 0;
-    excite_s = 0;
-    bloom_feedback = 0;
-    slewL = 0;
-    slewR = 0;
-    dc_inL = 0;
-    dc_inR = 0;
-    dc_outL = 0;
-    dc_outR = 0;
     rng_seed(seed);
   );
 
   function sync_ui_from_sliders()
   (
     drag_param == DRAG_NONE ? (
-      ui_mode = mode;
+      ui_mode = clamp(mode, 0, 2);
       ui_interval_set = interval_set;
       ui_depth = depth;
       ui_bloom = bloom;
@@ -364,7 +364,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
 
   function commit_ui_to_sliders()
   (
-    mode = ui_mode;
+    mode = clamp(ui_mode, 0, 2);
     interval_set = ui_interval_set;
     depth = ui_depth;
     bloom = ui_bloom;
@@ -742,195 +742,304 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     );
   );
 
-  function estimate_pitch(mono) local(crossed, min_p, max_p)
+  function ring_pos(pos_i)
   (
-    pitch_count += 1;
-    min_p = floor(srate / 1200);
-    max_p = floor(srate / 45);
-    crossed = pitch_last <= 0 && mono > 0;
-    crossed && pitch_count >= min_p && pitch_count <= max_p ? (
-      pitch_period = pitch_count;
-      pitch_count = 0;
-    );
-    pitch_count > max_p ? pitch_count = max_p;
-    pitch_last = mono;
+    while (pos_i < 0) ( pos_i += CAP_SIZE; );
+    while (pos_i >= CAP_SIZE) ( pos_i -= CAP_SIZE; );
+    pos_i;
   );
 
-  function pitch_delay_for_semi(semi) local(base_period)
+  function read_ring(base_i, pos_i) local(i0, i1, frac_i)
   (
-    base_period = pitch_period > 0 ? pitch_period : srate / 110;
-    clamp(base_period / exp(LOG2 * semi / 12), 16, max(srate, 16));
-  );
-
-  function read_cap_linear(pos) local(i0, i1, fr)
-  (
-    while (pos >= CAP_SIZE) ( pos -= CAP_SIZE; );
-    while (pos < 0) ( pos += CAP_SIZE; );
-    i0 = floor(pos);
-    fr = pos - i0;
+    pos_i = ring_pos(pos_i);
+    i0 = floor(pos_i);
+    frac_i = pos_i - i0;
     i1 = i0 + 1;
     i1 >= CAP_SIZE ? i1 = 0;
-    mem[cap_buf + i0] * (1 - fr) + mem[cap_buf + i1] * fr;
+    mem[base_i + i0] * (1 - frac_i) + mem[base_i + i1] * frac_i;
   );
 
-  function read_cap_loop(phase) local(fade_i, edge_i, x, s0, s1)
+  function read_cap_mono(pos_i)
   (
-    while (phase >= cap_loop_len) ( phase -= cap_loop_len; );
-    while (phase < 0) ( phase += cap_loop_len; );
+    (read_ring(cap_left, pos_i) + read_ring(cap_right, pos_i)) * 0.5;
+  );
 
-    s0 = read_cap_linear(cap_start + phase);
-    fade_i = floor(clamp(srate * 0.080, 96, max(cap_loop_len * 0.25, 96)));
-    cap_loop_len > fade_i + 16 ? (
-      edge_i = cap_loop_len - fade_i;
-      phase >= edge_i ? (
-        x = (cap_loop_len - phase) / max(fade_i, 1);
-        s1 = read_cap_linear(cap_start + phase - edge_i);
-        s0 = s0 * x + s1 * (1 - x);
+  function find_zero_cross(center_i, radius_i, want_dir_i) local(off_i, p_i, s0_i, s1_i, den_i, dir_i, ok_i)
+  (
+    zc_found = 0;
+    zc_pos = center_i;
+    zc_dir = want_dir_i;
+    radius_i = floor(max(radius_i, 0));
+    off_i = 0;
+    loop(radius_i + 1,
+      zc_found < 0.5 ? (
+        p_i = center_i + off_i;
+        s0_i = read_cap_mono(p_i - 1);
+        s1_i = read_cap_mono(p_i);
+        (s0_i <= 0 && s1_i > 0) || (s0_i >= 0 && s1_i < 0) ? (
+          den_i = s1_i - s0_i;
+          dir_i = den_i >= 0 ? 1 : -1;
+          ok_i = want_dir_i == 0 || want_dir_i == dir_i;
+          ok_i ? (
+            zc_pos = (p_i - 1) - s0_i / den_i;
+            zc_dir = dir_i;
+            zc_found = 1;
+          );
+        );
+      );
+      zc_found < 0.5 && off_i > 0 ? (
+        p_i = center_i - off_i;
+        s0_i = read_cap_mono(p_i - 1);
+        s1_i = read_cap_mono(p_i);
+        (s0_i <= 0 && s1_i > 0) || (s0_i >= 0 && s1_i < 0) ? (
+          den_i = s1_i - s0_i;
+          dir_i = den_i >= 0 ? 1 : -1;
+          ok_i = want_dir_i == 0 || want_dir_i == dir_i;
+          ok_i ? (
+            zc_pos = (p_i - 1) - s0_i / den_i;
+            zc_dir = dir_i;
+            zc_found = 1;
+          );
+        );
+      );
+      off_i += 1;
+    );
+  );
+
+  function read_loop_ring(base_i, start_i, phase_i, len_i) local(fade_i, edge_i, x_i, s0_i, s1_i)
+  (
+    s0_i = read_ring(base_i, start_i + phase_i);
+    fade_i = floor(clamp(srate * 0.080, 128, max(len_i * 0.20, 128)));
+    len_i > fade_i + 16 ? (
+      edge_i = len_i - fade_i;
+      phase_i >= edge_i ? (
+        x_i = (len_i - phase_i) / max(fade_i, 1);
+        x_i = x_i * x_i * (3 - 2 * x_i);
+        s1_i = read_ring(base_i, start_i + phase_i - edge_i);
+        s0_i = s0_i * x_i + s1_i * (1 - x_i);
       );
     );
-    s0;
+    s0_i;
   );
 
-  function read_cap_voice(phase) local(fade_i, edge_i, x, s0, s1)
+  function measure_capture_level(start_i, len_i) local(i, step_i, count_i, pos_i, v_i, sum_i, peak_i)
   (
-    while (phase >= cap_voice_len) ( phase -= cap_voice_len; );
-    while (phase < 0) ( phase += cap_voice_len; );
-
-    s0 = read_cap_linear(cap_voice_start + phase);
-    fade_i = floor(clamp(cap_voice_len * 0.20, 4, 64));
-    cap_voice_len > fade_i + 4 ? (
-      edge_i = cap_voice_len - fade_i;
-      phase >= edge_i ? (
-        x = (cap_voice_len - phase) / max(fade_i, 1);
-        s1 = read_cap_linear(cap_voice_start + phase - edge_i);
-        s0 = s0 * x + s1 * (1 - x);
-      );
+    step_i = max(floor(len_i / 512), 1);
+    i = 0;
+    count_i = 0;
+    sum_i = 0;
+    peak_i = 0;
+    while (i < len_i) (
+      pos_i = start_i + i;
+      v_i = max(absf(read_ring(cap_left, pos_i)), absf(read_ring(cap_right, pos_i)));
+      sum_i += v_i;
+      peak_i = max(peak_i, v_i);
+      count_i += 1;
+      i += step_i;
     );
-    s0;
+    max(sum_i / max(count_i, 1), peak_i * 0.22);
   );
 
-  function prepare_cap_voice() local(base_len, max_len)
+  function fold_audio_semi(semi_i) local(range_i)
   (
-    max_len = min(cap_len - 2, CAP_SIZE - 2);
-    cap_loop_len > 32 ? max_len = min(max_len, cap_loop_len - 2);
-    base_len = pitch_period > 0 ? pitch_period : srate / 110;
-    cap_voice_len = floor(clamp(base_len, 16, max(max_len, 16)));
-    cap_voice_start = cap_write - cap_voice_len;
-    while (cap_voice_start < 0) ( cap_voice_start += CAP_SIZE; );
-    while (cap_voice_start >= CAP_SIZE) ( cap_voice_start -= CAP_SIZE; );
+    range_i = ui_density >= 75 ? 36 : ui_density >= 35 ? 24 : 18;
+    while (semi_i > range_i) ( semi_i -= 12; );
+    while (semi_i < -range_i) ( semi_i += 12; );
+    semi_i;
   );
 
-  function prepare_res_gen(gen_i) local(i)
+  function next_audio_semi(set_i, current_i, idx_i, step_i) local(delta_i, next_i, old_pc_i, new_pc_i)
+  (
+    delta_i = audio_interval_at(set_i, idx_i + step_i);
+    ((idx_i + step_i) % 4) == 1 ? delta_i = -delta_i;
+    next_i = fold_audio_semi(current_i + delta_i);
+    old_pc_i = wrap12(current_i);
+    new_pc_i = wrap12(next_i);
+    new_pc_i == old_pc_i ? next_i = fold_audio_semi(current_i + audio_interval_at(set_i, idx_i + step_i + 1));
+    next_i;
+  );
+
+  function clear_grains() local(i)
   (
     i = 0;
-    loop(MAX_RESONATORS,
-      mem[r_active + i] > 0.5 ? (
-        mem[r_gen + i] == gen_i ? mem[r_tgain + i] = 0;
-      );
+    loop(MAX_GRAINS,
+      mem[g_active + i] = 0;
+      mem[g_gain + i] = 0;
+      mem[g_tgain + i] = 0;
       i += 1;
     );
   );
 
-  function alloc_resonator() local(i, found, quiet_i, quiet_v, gain_i, target_i)
+  function age_grains(source_i) local(i, keep_i)
+  (
+    keep_i = source_i > 0.5 ? 1.0 : 0.35;
+    i = 0;
+    loop(MAX_GRAINS,
+      mem[g_active + i] > 0.5 ? mem[g_tgain + i] *= keep_i;
+      i += 1;
+    );
+  );
+
+  function alloc_grain() local(i, found, quiet_i, quiet_v, g_i, tg_i)
   (
     found = -1;
     quiet_i = 0;
     quiet_v = 1000000;
     i = 0;
-    loop(MAX_RESONATORS,
-      found < 0 && mem[r_active + i] < 0.5 ? found = i;
-      gain_i = absf(mem[r_gain + i]);
-      target_i = absf(mem[r_tgain + i]);
-      gain_i + target_i < quiet_v ? (
-        quiet_v = gain_i + target_i;
+    loop(MAX_GRAINS,
+      found < 0 && mem[g_active + i] < 0.5 ? found = i;
+      g_i = absf(mem[g_gain + i]);
+      tg_i = absf(mem[g_tgain + i]);
+      g_i + tg_i < quiet_v ? (
+        quiet_v = g_i + tg_i;
         quiet_i = i;
       );
       i += 1;
     );
-    found < 0 && quiet_v < 0.002 ? found = quiet_i;
-    found;
+    found >= 0 ? found : quiet_i;
   );
 
-  function spawn_resonator(semi, gain_i, gen_i, idx_i) local(r, p)
+  function spawn_grain(source_i, start_i, phase_i, len_i, semi_i, gain_i, pan_i, life_i) local(slot_i)
   (
-    r = alloc_resonator();
-    r >= 0 ? (
-      p = (idx_i % 5) - 2;
-      mem[r_active + r] = 1;
-      mem[r_delay + r] = pitch_delay_for_semi(semi);
-      mem[r_write + r] = cap_voice_len > 16 ? rand01() * cap_voice_len : 0;
-      mem[r_gain + r] = 0;
-      mem[r_tgain + r] = gain_i;
-      mem[r_pan + r] = clamp(p * 0.28 + (rand01() - 0.5) * 0.20, -0.85, 0.85);
-      mem[r_state + r] = 0;
-      mem[r_gen + r] = gen_i;
-      mem[r_age + r] = 0;
-      mem[r_phase + r] = rand01() * PI2;
-    );
+    slot_i = alloc_grain();
+    mem[g_active + slot_i] = 1;
+    mem[g_source + slot_i] = source_i;
+    mem[g_start + slot_i] = ring_pos(start_i);
+    mem[g_phase + slot_i] = phase_i;
+    mem[g_len + slot_i] = max(len_i, 32);
+    mem[g_rate + slot_i] = exp(LOG2 * semi_i / 12);
+    mem[g_gain + slot_i] = 0;
+    mem[g_tgain + slot_i] = gain_i;
+    mem[g_age + slot_i] = 0;
+    mem[g_life + slot_i] = life_i;
+    mem[g_pan + slot_i] = pan_i;
+    mem[g_semi + slot_i] = semi_i;
   );
 
-  function fold_audio_semi(semi) local(range_i)
+  function spawn_audio_generation(source_i) local(available_i, write_i, desired_len_i, loop_len_i, start_i, end_i, search_i, level_i, norm_i, life_i, set_i, count_i, voice_count_i, layer_count_i, layer_gain_i, idx_i, layer_i, semi_i, phase_i, phase_jitter_i, gain_i, pan_i, base_gain_i)
   (
-    range_i = ui_density >= 75 ? 36 : ui_density >= 35 ? 24 : 18;
-    while (semi > range_i) ( semi -= 12; );
-    while (semi < -range_i) ( semi += 12; );
-    semi;
-  );
-
-  function shape_audio_interval(semi, gen_i, idx_i) local(p, spread_i)
-  (
-    spread_i = floor(ui_density * 0.04);
-    p = floor(audio_bloom_step * 2 + gen_i * 5 + idx_i * 3 + ui_vines * 0.05) % 11;
-    p == 1 ? semi -= 12;
-    p == 2 ? semi += 12;
-    p == 3 && semi > 4 ? semi -= 12;
-    p == 4 ? semi += 12;
-    p == 5 && spread_i > 1 ? semi -= 24;
-    p == 6 && semi < -5 ? semi += 12;
-    p == 7 && semi > 7 ? semi -= 12;
-    p == 8 && semi < 5 && spread_i > 2 ? semi += 24;
-    p == 9 && spread_i > 3 ? semi -= 36;
-    p == 10 && spread_i > 3 ? semi += 36;
-    fold_audio_semi(semi);
-  );
-
-  function spawn_audio_bloom_cluster(amount_i) local(set_i, count_i, idx_i, target_gen_i, depth_i, base_i, sum_i, step_i, semi_i, chord_gain, gain_i, root_i, inv_i, voices_i, pattern_i)
-  (
-    pitch_period > 0 ? (
+    available_i = cap_count;
+    write_i = cap_write;
+    available_i > 2048 ? (
+      age_grains(source_i);
+      desired_len_i = ui_loop_ms * 0.001 * srate;
+      source_i < 0.5 ? desired_len_i = max(desired_len_i, srate * 0.650);
+      loop_len_i = floor(clamp(desired_len_i, 2048, min(available_i - 2, CAP_SIZE - 2)));
+      search_i = floor(clamp(min(loop_len_i * 0.10, srate * 0.035), 16, srate * 0.080));
+      find_zero_cross(write_i - 1, search_i, 0);
+      end_i = zc_found > 0.5 ? zc_pos : write_i - 1;
+      find_zero_cross(end_i - loop_len_i, search_i, zc_dir);
+      start_i = zc_found > 0.5 ? zc_pos : end_i - loop_len_i;
+      loop_len_i = max(end_i - start_i, 2048);
+      level_i = measure_capture_level(start_i, loop_len_i);
+      source_i < 0.5 ? audio_ref_level = clamp(max(level_i, audio_ref_level), 0.025, 0.18);
+      norm_i = clamp(audio_ref_level / max(level_i, 0.003), 0.90, 3.80);
+      life_i = max(regen_samples() * floor(clamp(ui_depth, 1, 4)), srate * 0.250);
       set_i = floor(ui_interval_set + 0.5);
       count_i = interval_count(set_i);
-      depth_i = floor(clamp(ui_depth, 1, 4));
-      target_gen_i = floor(audio_bloom_step % depth_i);
-      pattern_i = floor(audio_bloom_step + ui_vines * 0.037 + rand01() * max(ui_chaos * 0.060, 1));
-      step_i = 1 + (pattern_i % max(count_i - 1, 1));
-      root_i = interval_at(set_i, pattern_i % count_i);
-      inv_i = pattern_i % 6;
-      voices_i = min(count_i + (ui_vines > 55 ? 1 : 0), 4);
-      chord_gain = amount_i * (0.080 + ui_amount * 0.00110) / sqrt(max(voices_i, 1));
-      prepare_res_gen(target_gen_i);
+      voice_count_i = source_i > 0.5 && audio_voice_count > 0 ?
+        audio_voice_count :
+        min(count_i, MAX_AUDIO_VOICES);
+      layer_count_i = source_i > 0.5 ? 3 : 5;
+      layer_gain_i = source_i > 0.5 ? 0.58 : 0.38;
+      base_gain_i = (0.34 + ui_amount * 0.0038) * norm_i * (source_i > 0.5 ? 4.75 : 1.0) / sqrt(max(voice_count_i, 1));
 
       idx_i = 0;
-      loop(voices_i,
-        base_i = interval_at(set_i, (idx_i + step_i) % count_i);
-        sum_i = idx_i >= count_i ? interval_at(set_i, (idx_i + step_i + 1) % count_i) : 0;
-        semi_i = root_i + base_i + sum_i;
-        inv_i == 1 && idx_i == 0 ? semi_i += 12;
-        inv_i == 2 && idx_i >= voices_i - 1 ? semi_i -= 12;
-        inv_i == 3 && idx_i == 1 ? semi_i -= 12;
-        inv_i == 4 && idx_i == 0 ? semi_i -= 12;
-        inv_i == 5 && idx_i >= voices_i - 2 ? semi_i += 12;
-        semi_i = shape_audio_interval(semi_i, target_gen_i, idx_i);
-        gain_i = chord_gain * (idx_i == 0 ? 0.70 : 0.92);
-        spawn_resonator(semi_i, gain_i, target_gen_i, idx_i);
-        excite_pc(semi_i, gain_i);
+      loop(voice_count_i,
+        semi_i = source_i > 0.5 && audio_voice_count > 0 ?
+          next_audio_semi(set_i, mem[audio_voice_semi + idx_i], idx_i, audio_bloom_step) :
+          interval_at(set_i, idx_i);
+        mem[audio_voice_semi + idx_i] = semi_i;
+        gain_i = base_gain_i * (idx_i == 0 ? 0.76 : 1.0);
+        pan_i = clamp((idx_i - (voice_count_i - 1) * 0.5) * 0.34, -0.82, 0.82);
+        layer_i = 0;
+        loop(layer_count_i,
+          phase_jitter_i = source_i > 0.5 ? 0 : (rand01() - 0.5) * loop_len_i * 0.12;
+          phase_i = loop_len_i * (layer_i + 0.5) / layer_count_i + phase_jitter_i;
+          while (phase_i < 0) ( phase_i += loop_len_i; );
+          while (phase_i >= loop_len_i) ( phase_i -= loop_len_i; );
+          spawn_grain(0, start_i, phase_i, loop_len_i, semi_i, gain_i * layer_gain_i, pan_i, life_i);
+          layer_i += 1;
+        );
+        excite_pc(semi_i, gain_i * (source_i > 0.5 ? 2.4 : 4));
         idx_i += 1;
       );
+      source_i < 0.5 ? audio_voice_count = voice_count_i;
 
+      ui_density > 58 ? (
+        idx_i = 0;
+        loop(min(voice_count_i, 2),
+          semi_i = fold_audio_semi(mem[audio_voice_semi + idx_i] + 12);
+          gain_i = base_gain_i * 0.36;
+          pan_i = clamp((idx_i * 2 - 1) * 0.48, -0.82, 0.82);
+          layer_i = 0;
+          loop(layer_count_i,
+            phase_jitter_i = source_i > 0.5 ? 0 : (rand01() - 0.5) * loop_len_i * 0.12;
+            phase_i = loop_len_i * (layer_i + 0.5) / layer_count_i + phase_jitter_i;
+            while (phase_i < 0) ( phase_i += loop_len_i; );
+            while (phase_i >= loop_len_i) ( phase_i -= loop_len_i; );
+            spawn_grain(0, start_i, phase_i, loop_len_i, semi_i, gain_i * layer_gain_i, pan_i, life_i);
+            layer_i += 1;
+          );
+          idx_i += 1;
+        );
+      );
+
+      regen_ready = 1;
+      audio_latched = 1;
       audio_bloom_step += 1;
     );
   );
 
-  function process_audio_sample() local(inL, inR, mono, a, energy, source_active, live_active, regen_from_buffer, interval_samps, wetL, wetR, gain_a, gain_attack_a, gain_release_a, release_samps, pan_i, gL, gR, outL, outR, target_wet, target_out, pc_i, r_i, rd_i, state_i, rg_i, rt_i, age_i, cap_sample, cap_loop_max, cap_mix_target, phase_i, inc_i, source_i, source_phase_i, source_rate_i, tone_i)
+  function render_grains() local(i, source_i, base_l, base_r, pos_i, len_i, phase_i, rate_i, win_i, gain_i, target_i, gain_smooth_i, age_i, life_i, age_pos_i, attack_i, tail_i, pan_i, l_i, r_i, gL, gR)
+  (
+    wet_accum_l = 0;
+    wet_accum_r = 0;
+    active_grains = 0;
+    i = 0;
+    loop(MAX_GRAINS,
+      mem[g_active + i] > 0.5 ? (
+        active_grains += 1;
+        source_i = mem[g_source + i];
+        base_l = source_i > 0.5 ? regen_left : cap_left;
+        base_r = source_i > 0.5 ? regen_right : cap_right;
+        phase_i = mem[g_phase + i];
+        len_i = mem[g_len + i];
+        pos_i = mem[g_start + i] + phase_i;
+        win_i = 1;
+        target_i = mem[g_tgain + i];
+        gain_i = mem[g_gain + i];
+        gain_smooth_i = target_i > gain_i ? 0.0018 : 0.00045;
+        gain_i += (target_i - gain_i) * gain_smooth_i;
+        mem[g_gain + i] = denorm(gain_i);
+        age_i = mem[g_age + i];
+        life_i = max(mem[g_life + i], 1);
+        age_pos_i = clamp(age_i / life_i, 0, 1);
+        attack_i = clamp(age_i / max(srate * 0.250, 1), 0, 1);
+        attack_i *= attack_i;
+        attack_i = attack_i * attack_i * (3 - 2 * attack_i);
+        tail_i = log(1 + 15 * (1 - age_pos_i)) / log(16);
+        age_i += 1;
+        mem[g_age + i] = age_i;
+        age_i >= life_i ? mem[g_active + i] = 0;
+        target_i <= 0 && gain_i < 0.00005 ? mem[g_active + i] = 0;
+        pan_i = mem[g_pan + i];
+        gL = sqrt(0.5 * (1 - pan_i));
+        gR = sqrt(0.5 * (1 + pan_i));
+        l_i = read_loop_ring(base_l, mem[g_start + i], phase_i, len_i);
+        r_i = read_loop_ring(base_r, mem[g_start + i], phase_i, len_i);
+        wet_accum_l += l_i * gain_i * attack_i * tail_i * win_i * gL;
+        wet_accum_r += r_i * gain_i * attack_i * tail_i * win_i * gR;
+        rate_i = mem[g_rate + i];
+        phase_i += rate_i;
+        while (phase_i >= len_i) ( phase_i -= len_i; );
+        mem[g_phase + i] = phase_i;
+      );
+      i += 1;
+    );
+  );
+
+  function process_audio_sample() local(inL, inR, mono, energy, input_peak_i, live_active, audio_enabled, regen_wait, target_wet, target_out, smooth_i, outL, outR, out_peak_i, limit_i, target_level_i, target_gain_i, gain_smooth_i, knee_i, over_i, shaped_peak_i, scale_i, pc_i)
   (
     last_seed != seed ? (
       last_seed = seed;
@@ -945,52 +1054,58 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
 
     sync_ui_from_sliders();
     transport_is_playing = play_state & 1;
-    !transport_is_playing && last_transport_is_playing ? reset_state();
+    !transport_is_playing ? (
+      last_transport_is_playing || regen_ready > 0.5 || active_grains > 0 || cap_count > 0 || audio_latched > 0.5 ? reset_state();
+      spl0 = 0;
+      spl1 = 0;
+    );
 
     inL = clamp(spl0, -4, 4);
     inR = clamp(spl1, -4, 4);
     mono = (inL + inR) * 0.5;
     energy = absf(mono);
-    a = exp(-PI2 * 18 / max(srate, 1));
-    input_env = input_env * a + energy * (1 - a);
-    input_peak = max(input_peak * 0.999, input_env);
-    source_active = input_env > 0.0035;
-    live_active = energy > 0.0015;
-    live_active ? estimate_pitch(mono);
-    live_active && !bloom_latched ? (
-      bloom_latched = 1;
-      spawn_audio_bloom_cluster(clamp(max(input_env, 0.18) * ui_bloom * 0.38, 0.18, 1.8));
-      audio_bloom_wait = max(regen_samples(), floor(srate * 0.050));
-      spawn_counter = 0;
-    );
+    audio_env += (energy - audio_env) * (energy > audio_env ? 0.030 : 0.0012);
+
+    audio_enabled = ui_mode != 1 && transport_is_playing;
+    input_peak_i = max(absf(inL), absf(inR));
+    audio_enabled && input_peak_i > 0 ? audio_peak_level = max(audio_peak_level, input_peak_i);
+    live_active = audio_enabled && (audio_env > 0.0012 || energy > 0.006);
+
     live_active ? (
-      bloom_latched = 1;
-      mem[cap_buf + cap_write] = mono;
+      mem[cap_left + cap_write] = inL;
+      mem[cap_right + cap_write] = inR;
       cap_write += 1;
       cap_write >= CAP_SIZE ? cap_write = 0;
-      cap_len = min(cap_len + 1, CAP_SIZE);
+      cap_count = min(cap_count + 1, CAP_SIZE);
     );
 
-    !live_active && last_source_active && cap_len > 32 ? (
-      cap_loop_max = min(cap_len - 2, CAP_SIZE - 2);
-      cap_loop_len = floor(clamp(ui_loop_ms * 0.001 * srate, 64, cap_loop_max));
-      cap_start = cap_write - cap_loop_len;
-      while (cap_start < 0) ( cap_start += CAP_SIZE; );
-      cap_phase = 0;
-      prepare_cap_voice();
+    live_active && audio_latched < 0.5 && cap_count >= capture_ready_samples() ? (
+      audio_bloom_step = 0;
+      spawn_audio_generation(0);
+      audio_bloom_counter = 0;
     );
 
-    cap_sample = 0;
-    !live_active && cap_loop_len > 32 ? (
-      cap_sample = read_cap_loop(cap_phase);
-      cap_phase += 1;
-      cap_phase >= cap_loop_len ? cap_phase -= cap_loop_len;
+    audio_enabled && regen_ready > 0.5 ? (
+      regen_wait = regen_samples();
+      audio_bloom_counter += 1;
+      audio_bloom_counter >= regen_wait ? (
+        audio_bloom_counter -= regen_wait;
+        spawn_audio_generation(1);
+      );
     );
-    cap_mix_target = live_active || cap_loop_len <= 32 ? 0 : 1;
-    cap_mix += (cap_mix_target - cap_mix) * 0.0025;
-    excite_s = mono * (1 - cap_mix) + cap_sample * cap_mix;
-    regen_from_buffer = !live_active && cap_voice_len > 16;
-    last_source_active = live_active;
+
+    render_grains();
+
+    mem[regen_left + regen_write] = wet_accum_l;
+    mem[regen_right + regen_write] = wet_accum_r;
+    regen_write += 1;
+    regen_write >= CAP_SIZE ? regen_write = 0;
+    regen_count = min(regen_count + 1, CAP_SIZE);
+
+    active_grains <= 0 && !live_active && audio_env < 0.0003 ? (
+      regen_ready = 0;
+      audio_latched = 0;
+    );
 
     pc_i = 0;
     loop(CHROMA,
@@ -999,91 +1114,57 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
       pc_i += 1;
     );
 
-    (ui_mode != 1 && bloom_latched && transport_is_playing) ? (
-      audio_bloom_wait <= 0 ? audio_bloom_wait = regen_samples();
-      spawn_counter += 1;
-      spawn_counter >= audio_bloom_wait ? (
-        spawn_counter = 0;
-        spawn_audio_bloom_cluster(clamp(max(input_env, 0.18) * ui_bloom * 0.38, 0.18, 1.8));
-        interval_samps = regen_samples();
-        audio_bloom_wait = max(interval_samps, floor(srate * 0.050));
-      );
-    );
-
-    wetL = 0;
-    wetR = 0;
-    gain_attack_a = 1 - exp(-1 / max(srate * 0.220, 1));
-    release_samps = max(regen_samples() * 0.200, srate * 0.120);
-    gain_release_a = 1 - exp(-1 / max(release_samps, 1));
-    r_i = 0;
-    loop(MAX_RESONATORS,
-      mem[r_active + r_i] > 0.5 ? (
-        rd_i = clamp(mem[r_delay + r_i], 16, max(srate, 16));
-
-        rt_i = mem[r_tgain + r_i];
-        rg_i = mem[r_gain + r_i];
-        gain_a = rt_i > rg_i ? gain_attack_a : gain_release_a;
-        rg_i += (rt_i - rg_i) * gain_a;
-        mem[r_gain + r_i] = denorm(rg_i);
-
-        age_i = mem[r_age + r_i];
-        phase_i = mem[r_phase + r_i];
-        inc_i = PI2 / max(rd_i, 16);
-        phase_i += inc_i;
-        phase_i >= PI2 ? phase_i -= PI2;
-        mem[r_phase + r_i] = phase_i;
-        tone_i = sin(phase_i);
-        source_i = excite_s;
-        regen_from_buffer ? (
-          source_phase_i = mem[r_write + r_i];
-          source_i = read_cap_voice(source_phase_i);
-          source_rate_i = clamp((pitch_period > 0 ? pitch_period : srate / 110) / max(rd_i, 16), 0.125, 8);
-          source_phase_i += source_rate_i;
-          while (source_phase_i >= cap_voice_len) ( source_phase_i -= cap_voice_len; );
-          while (source_phase_i < 0) ( source_phase_i += cap_voice_len; );
-          mem[r_write + r_i] = source_phase_i;
-        );
-        state_i = source_i * 0.58 + tone_i * clamp(0.14 + absf(source_i) * (0.10 + ui_resonance * 0.0015), 0.14, 0.34);
-        state_i = mem[r_state + r_i] * 0.25 + state_i * 0.75;
-        mem[r_state + r_i] = denorm(state_i);
-
-        pan_i = mem[r_pan + r_i] * 0.72;
-        gL = sqrt(0.5 * (1 - pan_i));
-        gR = sqrt(0.5 * (1 + pan_i));
-        state_i *= 0.90;
-        wetL += state_i * rg_i * gL;
-        wetR += state_i * rg_i * gR;
-
-        mem[r_age + r_i] = age_i + 1;
-        rg_i < 0.0001 && rt_i <= 0.0001 ? mem[r_active + r_i] = 0;
-      );
-      r_i += 1;
-    );
-
     target_wet = ui_wet * 0.01;
     target_out = db_to_gain(ui_output_db);
-    a = 1 - exp(-1 / max(srate * 0.030, 1));
-    wet_s += (target_wet - wet_s) * a;
-    out_s += (target_out - out_s) * a;
+    smooth_i = 1 - exp(-1 / max(srate * 0.030, 1));
+    wet_s += (target_wet - wet_s) * smooth_i;
+    out_s += (target_out - out_s) * smooth_i;
 
-    wetL *= wet_s * out_s * (1.15 + ui_resonance * 0.0035);
-    wetR *= wet_s * out_s * (1.15 + ui_resonance * 0.0035);
+    outL = clamp(wet_accum_l * wet_s * (1.0 + ui_resonance * 0.0020), -4, 4);
+    outR = clamp(wet_accum_r * wet_s * (1.0 + ui_resonance * 0.0020), -4, 4);
+    out_peak_i = max(absf(outL), absf(outR));
+    audio_out_env += (out_peak_i - audio_out_env) * (out_peak_i > audio_out_env ? 0.035 : 0.00055);
+    limit_i = audio_peak_level;
+    target_level_i = limit_i * 0.88;
+    target_gain_i = audio_out_env > 0.0001 && target_level_i > 0 ? clamp(target_level_i / audio_out_env, 0.30, 12) : 1;
+    gain_smooth_i = target_gain_i > audio_level_gain ? 0.00008 : 0.006;
+    audio_level_gain += (target_gain_i - audio_level_gain) * gain_smooth_i;
+    outL *= audio_level_gain;
+    outR *= audio_level_gain;
+    out_peak_i = max(absf(outL), absf(outR));
+    limit_i > 0 ? (
+      knee_i = limit_i * 0.72;
+      out_peak_i > knee_i ? (
+        over_i = clamp((out_peak_i - knee_i) / max(limit_i - knee_i, 0.000001), 0, 1);
+        shaped_peak_i = out_peak_i < limit_i ?
+          knee_i + (limit_i - knee_i) * (over_i + over_i * over_i - over_i * over_i * over_i) :
+          limit_i;
+        scale_i = shaped_peak_i / max(out_peak_i, 0.000001);
+        outL *= scale_i;
+        outR *= scale_i;
+      );
+    );
+    out_peak_i = max(absf(outL), absf(outR));
+    out_peak_i > limit_i && limit_i > 0 ? (
+      scale_i = limit_i / max(out_peak_i, 0.000001);
+      outL *= scale_i;
+      outR *= scale_i;
+    );
+    outL *= out_s;
+    outR *= out_s;
+    out_peak_i = max(absf(outL), absf(outR));
+    out_peak_i > limit_i && limit_i > 0 ? (
+      scale_i = limit_i / max(out_peak_i, 0.000001);
+      outL *= scale_i;
+      outR *= scale_i;
+    );
+    limit_i <= 0 ? (
+      outL = 0;
+      outR = 0;
+    );
 
-    outL = wetL;
-    outR = wetR;
-    slewL = outL;
-    slewR = outR;
-    bloom_feedback = 0;
-
-    dc_outL = outL - dc_inL + 0.995 * dc_outL;
-    dc_inL = outL;
-    outL = dc_outL;
-    dc_outR = outR - dc_inR + 0.995 * dc_outR;
-    dc_inR = outR;
-    outR = dc_outR;
-
-    spl0 = denorm(outL);
-    spl1 = denorm(outR);
+    spl0 = audio_enabled ? denorm(outL) : 0;
+    spl1 = audio_enabled ? denorm(outR) : 0;
     last_transport_is_playing = transport_is_playing;
   );
 
@@ -1091,7 +1172,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   (
     prev_transport = last_transport_is_playing;
     transport_is_playing = play_state & 1;
-    !transport_is_playing && prev_transport ? (
+    !transport_is_playing && (prev_transport || midi_live_notes > 0) ? (
       release_active_bloom_notes(0);
       reset_state();
       last_transport_is_playing = 0;
@@ -1252,7 +1333,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     gfx_setfont(1, "Verdana", floor(25 * sc));
     draw_text(pad, 18 * sc, 0.92, 0.96, 0.95, "BloomWerk v0");
     gfx_setfont(2, "Verdana", floor(12 * sc));
-    draw_text(pad + 190 * sc, 29 * sc, 0.52, 0.62, 0.67, "input-excited resonator chords + MIDI chord bloom");
+    draw_text(pad + 190 * sc, 29 * sc, 0.52, 0.62, 0.67, "audio-excited resonator chords + MIDI chord bloom");
 
     x1 = pad;
     x2 = gfx_w * 0.52;
