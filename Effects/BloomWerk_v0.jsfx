@@ -36,7 +36,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   DB_TO_LOG = 8.685889638;
 
   CAP_SIZE = 262144;
-  MAX_GRAINS = 96;
+  MAX_GRAINS = 256;
   MAX_AUDIO_VOICES = 8;
   MEM_GUARD = 64;
   MAX_OFFS = 1024;
@@ -101,6 +101,8 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   regen_count = 0;
   audio_env = 0;
   audio_latched = 0;
+  audio_capture_stage = 0;
+  audio_capture_retry = 0;
   regen_ready = 0;
   audio_voice_count = 0;
   audio_ref_level = 0.035;
@@ -272,6 +274,11 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     floor(clamp(ui_loop_ms * 0.001 * srate, max(srate * 0.650, 4096), CAP_SIZE - 2));
   );
 
+  function provisional_ready_samples()
+  (
+    floor(clamp(srate * 0.160, 4096, CAP_SIZE - 2));
+  );
+
   function mode_name(mode_i)
   (
     mode_i == 0 ? sprintf(#mode_txt, "AUDIO") :
@@ -316,6 +323,8 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     regen_count = 0;
     audio_env = 0;
     audio_latched = 0;
+    audio_capture_stage = 0;
+    audio_capture_retry = 0;
     regen_ready = 0;
     audio_voice_count = 0;
     audio_ref_level = 0.035;
@@ -764,30 +773,34 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     (read_ring(cap_left, pos_i) + read_ring(cap_right, pos_i)) * 0.5;
   );
 
-  function find_zero_cross(center_i, radius_i, want_dir_i) local(off_i, p_i, s0_i, s1_i, den_i, dir_i, ok_i)
+  function find_zero_cross(center_i, radius_i, want_dir_i) local(off_i, p_i, s0_i, s1_i, den_i, dir_i, ok_i, mag_i, best_mag_i, cand_pos_i, cand_dir_i)
   (
     zc_found = 0;
     zc_pos = center_i;
     zc_dir = want_dir_i;
+    best_mag_i = 1000000;
     radius_i = floor(max(radius_i, 0));
     off_i = 0;
     loop(radius_i + 1,
-      zc_found < 0.5 ? (
-        p_i = center_i + off_i;
-        s0_i = read_cap_mono(p_i - 1);
-        s1_i = read_cap_mono(p_i);
-        (s0_i <= 0 && s1_i > 0) || (s0_i >= 0 && s1_i < 0) ? (
-          den_i = s1_i - s0_i;
-          dir_i = den_i >= 0 ? 1 : -1;
-          ok_i = want_dir_i == 0 || want_dir_i == dir_i;
-          ok_i ? (
-            zc_pos = (p_i - 1) - s0_i / den_i;
+      p_i = center_i + off_i;
+      s0_i = read_cap_mono(p_i - 1);
+      s1_i = read_cap_mono(p_i);
+      (s0_i <= 0 && s1_i > 0) || (s0_i >= 0 && s1_i < 0) ? (
+        den_i = s1_i - s0_i;
+        dir_i = den_i >= 0 ? 1 : -1;
+        ok_i = want_dir_i == 0 || want_dir_i == dir_i;
+        ok_i ? (
+          cand_pos_i = (p_i - 1) - s0_i / den_i;
+          mag_i = absf(read_ring(cap_left, cand_pos_i)) + absf(read_ring(cap_right, cand_pos_i));
+          mag_i < best_mag_i ? (
+            best_mag_i = mag_i;
+            zc_pos = cand_pos_i;
             zc_dir = dir_i;
             zc_found = 1;
           );
         );
       );
-      zc_found < 0.5 && off_i > 0 ? (
+      off_i > 0 ? (
         p_i = center_i - off_i;
         s0_i = read_cap_mono(p_i - 1);
         s1_i = read_cap_mono(p_i);
@@ -796,9 +809,14 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
           dir_i = den_i >= 0 ? 1 : -1;
           ok_i = want_dir_i == 0 || want_dir_i == dir_i;
           ok_i ? (
-            zc_pos = (p_i - 1) - s0_i / den_i;
-            zc_dir = dir_i;
-            zc_found = 1;
+            cand_pos_i = (p_i - 1) - s0_i / den_i;
+            mag_i = absf(read_ring(cap_left, cand_pos_i)) + absf(read_ring(cap_right, cand_pos_i));
+            mag_i < best_mag_i ? (
+              best_mag_i = mag_i;
+              zc_pos = cand_pos_i;
+              zc_dir = dir_i;
+              zc_found = 1;
+            );
           );
         );
       );
@@ -880,56 +898,60 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     );
   );
 
-  function alloc_grain() local(i, found, quiet_i, quiet_v, g_i, tg_i)
+  function alloc_grain() local(i, found)
   (
     found = -1;
-    quiet_i = 0;
-    quiet_v = 1000000;
     i = 0;
     loop(MAX_GRAINS,
       found < 0 && mem[g_active + i] < 0.5 ? found = i;
-      g_i = absf(mem[g_gain + i]);
-      tg_i = absf(mem[g_tgain + i]);
-      g_i + tg_i < quiet_v ? (
-        quiet_v = g_i + tg_i;
-        quiet_i = i;
-      );
       i += 1;
     );
-    found >= 0 ? found : quiet_i;
+    found;
   );
 
   function spawn_grain(source_i, start_i, phase_i, len_i, semi_i, gain_i, pan_i, life_i) local(slot_i)
   (
     slot_i = alloc_grain();
-    mem[g_active + slot_i] = 1;
-    mem[g_source + slot_i] = source_i;
-    mem[g_start + slot_i] = ring_pos(start_i);
-    mem[g_phase + slot_i] = phase_i;
-    mem[g_len + slot_i] = max(len_i, 32);
-    mem[g_rate + slot_i] = exp(LOG2 * semi_i / 12);
-    mem[g_gain + slot_i] = 0;
-    mem[g_tgain + slot_i] = gain_i;
-    mem[g_age + slot_i] = 0;
-    mem[g_life + slot_i] = life_i;
-    mem[g_pan + slot_i] = pan_i;
-    mem[g_semi + slot_i] = semi_i;
+    slot_i >= 0 ? (
+      mem[g_active + slot_i] = 1;
+      mem[g_source + slot_i] = source_i;
+      mem[g_start + slot_i] = ring_pos(start_i);
+      mem[g_phase + slot_i] = phase_i;
+      mem[g_len + slot_i] = max(len_i, 32);
+      mem[g_rate + slot_i] = exp(LOG2 * semi_i / 12);
+      mem[g_gain + slot_i] = 0;
+      mem[g_tgain + slot_i] = gain_i;
+      mem[g_age + slot_i] = 0;
+      mem[g_life + slot_i] = life_i;
+      mem[g_pan + slot_i] = pan_i;
+      mem[g_semi + slot_i] = semi_i;
+    );
   );
 
-  function spawn_audio_generation(source_i) local(available_i, write_i, desired_len_i, loop_len_i, start_i, end_i, search_i, level_i, norm_i, life_i, set_i, count_i, voice_count_i, layer_count_i, layer_gain_i, idx_i, layer_i, semi_i, phase_i, phase_jitter_i, gain_i, pan_i, base_gain_i)
+  function spawn_audio_generation(source_i) local(available_i, write_i, provisional_i, desired_len_i, loop_len_i, start_i, end_i, search_i, end_found_i, start_found_i, end_dir_i, level_i, norm_i, life_i, set_i, count_i, voice_count_i, layer_count_i, layer_gain_i, idx_i, layer_i, semi_i, phase_i, phase_jitter_i, gain_i, pan_i, base_gain_i)
   (
+    audio_spawned = 0;
     available_i = cap_count;
     write_i = cap_write;
     available_i > 2048 ? (
+      provisional_i = source_i < -0.5;
       age_grains(source_i);
       desired_len_i = ui_loop_ms * 0.001 * srate;
+      provisional_i ? desired_len_i = max(srate * 0.220, 4096);
       source_i < 0.5 ? desired_len_i = max(desired_len_i, srate * 0.650);
+      provisional_i ? desired_len_i = min(desired_len_i, max(available_i - 2, 2048));
       loop_len_i = floor(clamp(desired_len_i, 2048, min(available_i - 2, CAP_SIZE - 2)));
       search_i = floor(clamp(min(loop_len_i * 0.10, srate * 0.035), 16, srate * 0.080));
       find_zero_cross(write_i - 1, search_i, 0);
-      end_i = zc_found > 0.5 ? zc_pos : write_i - 1;
-      find_zero_cross(end_i - loop_len_i, search_i, zc_dir);
-      start_i = zc_found > 0.5 ? zc_pos : end_i - loop_len_i;
+      end_found_i = zc_found;
+      end_i = zc_pos;
+      end_dir_i = zc_dir;
+      end_found_i > 0.5 ? (
+        find_zero_cross(end_i - loop_len_i, search_i, end_dir_i);
+        start_found_i = zc_found;
+        start_i = zc_pos;
+      );
+      end_found_i > 0.5 && start_found_i > 0.5 ? (
       loop_len_i = max(end_i - start_i, 2048);
       level_i = measure_capture_level(start_i, loop_len_i);
       source_i < 0.5 ? audio_ref_level = clamp(max(level_i, audio_ref_level), 0.025, 0.18);
@@ -940,8 +962,8 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
       voice_count_i = source_i > 0.5 && audio_voice_count > 0 ?
         audio_voice_count :
         min(count_i, MAX_AUDIO_VOICES);
-      layer_count_i = source_i > 0.5 ? 3 : 5;
-      layer_gain_i = source_i > 0.5 ? 0.58 : 0.38;
+      layer_count_i = source_i > 0.5 ? 3 : provisional_i ? 7 : 5;
+      layer_gain_i = source_i > 0.5 ? 0.58 : provisional_i ? 0.30 : 0.38;
       base_gain_i = (0.34 + ui_amount * 0.0038) * norm_i * (source_i > 0.5 ? 4.75 : 1.0) / sqrt(max(voice_count_i, 1));
 
       idx_i = 0;
@@ -954,14 +976,14 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
         pan_i = clamp((idx_i - (voice_count_i - 1) * 0.5) * 0.34, -0.82, 0.82);
         layer_i = 0;
         loop(layer_count_i,
-          phase_jitter_i = source_i > 0.5 ? 0 : (rand01() - 0.5) * loop_len_i * 0.12;
+          phase_jitter_i = source_i > 0.5 ? 0 : (rand01() - 0.5) * loop_len_i * (provisional_i ? 0.22 : 0.12);
           phase_i = loop_len_i * (layer_i + 0.5) / layer_count_i + phase_jitter_i;
           while (phase_i < 0) ( phase_i += loop_len_i; );
           while (phase_i >= loop_len_i) ( phase_i -= loop_len_i; );
           spawn_grain(0, start_i, phase_i, loop_len_i, semi_i, gain_i * layer_gain_i, pan_i, life_i);
           layer_i += 1;
         );
-        excite_pc(semi_i, gain_i * (source_i > 0.5 ? 2.4 : 4));
+        excite_pc(semi_i, gain_i * (source_i > 0.5 ? 2.4 : provisional_i ? 2.2 : 4));
         idx_i += 1;
       );
       source_i < 0.5 ? audio_voice_count = voice_count_i;
@@ -974,7 +996,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
           pan_i = clamp((idx_i * 2 - 1) * 0.48, -0.82, 0.82);
           layer_i = 0;
           loop(layer_count_i,
-            phase_jitter_i = source_i > 0.5 ? 0 : (rand01() - 0.5) * loop_len_i * 0.12;
+            phase_jitter_i = source_i > 0.5 ? 0 : (rand01() - 0.5) * loop_len_i * (provisional_i ? 0.22 : 0.12);
             phase_i = loop_len_i * (layer_i + 0.5) / layer_count_i + phase_jitter_i;
             while (phase_i < 0) ( phase_i += loop_len_i; );
             while (phase_i >= loop_len_i) ( phase_i -= loop_len_i; );
@@ -987,7 +1009,9 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
 
       regen_ready = 1;
       audio_latched = 1;
-      audio_bloom_step += 1;
+      provisional_i < 0.5 ? audio_bloom_step += 1;
+      audio_spawned = 1;
+      );
     );
   );
 
@@ -1070,6 +1094,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     input_peak_i = max(absf(inL), absf(inR));
     audio_enabled && input_peak_i > 0 ? audio_peak_level = max(audio_peak_level, input_peak_i);
     live_active = audio_enabled && (audio_env > 0.0012 || energy > 0.006);
+    audio_capture_retry > 0 ? audio_capture_retry -= 1;
 
     live_active ? (
       mem[cap_left + cap_write] = inL;
@@ -1079,10 +1104,26 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
       cap_count = min(cap_count + 1, CAP_SIZE);
     );
 
-    live_active && audio_latched < 0.5 && cap_count >= capture_ready_samples() ? (
+    live_active && audio_capture_retry <= 0 && audio_capture_stage < 0.5 && cap_count >= provisional_ready_samples() ? (
+      audio_bloom_step = 0;
+      spawn_audio_generation(-1);
+      audio_spawned > 0.5 ? (
+        audio_capture_stage = 1;
+        audio_bloom_counter = 0;
+      ) : (
+        audio_capture_retry = floor(srate * 0.010);
+      );
+    );
+
+    live_active && audio_capture_retry <= 0 && audio_capture_stage == 1 && cap_count >= capture_ready_samples() ? (
       audio_bloom_step = 0;
       spawn_audio_generation(0);
-      audio_bloom_counter = 0;
+      audio_spawned > 0.5 ? (
+        audio_capture_stage = 2;
+        audio_bloom_counter = 0;
+      ) : (
+        audio_capture_retry = floor(srate * 0.010);
+      );
     );
 
     audio_enabled && regen_ready > 0.5 ? (
@@ -1105,6 +1146,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     active_grains <= 0 && !live_active && audio_env < 0.0003 ? (
       regen_ready = 0;
       audio_latched = 0;
+      audio_capture_stage = 0;
     );
 
     pc_i = 0;
