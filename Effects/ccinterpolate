@@ -1,82 +1,510 @@
-// This script is a MIDI CC Interpolator. It takes an input CC value and interpolates it between a start and end value.
-// The interpolated value is then sent out on a specified MIDI channel and CC number.
 desc:MIDI CC Interpolator
 
-// Initialize variables
-slider1:0<0,127,1>Input CC value
-slider2:0<0,127,1>Start Value Out 1
-slider3:127<0,127,1>End Value Out 1
-slider4:0<0,15,1>MIDI Channel Out 1
-slider5:0<0,127,1>CC Number Out 1
-slider6:0<0,2,1>Mode Out 1
-slider7:0<0,127,1>Start Value Out 2
-slider8:127<0,127,1>End Value Out 2
-slider9:0<0,15,1>MIDI Channel Out 2
-slider10:0<0,127,1>CC Number Out 2
-slider11:0<0,2,1>Mode Out 2
-slider12:0<0,127,1>Start Value Out 3
-slider13:127<0,127,1>End Value Out 3
-slider14:0<0,15,1>MIDI Channel Out 3
-slider15:0<0,127,1>CC Number Out 3
-slider16:0<0,2,1>Mode Out 3
-slider17:0<0,127,1>Start Value Out 4
-slider18:127<0,127,1>End Value Out 4
-slider19:0<0,15,1>MIDI Channel Out 4
-slider20:0<0,127,1>CC Number Out 4
-slider21:0<0,2,1>Mode Out 4
+slider1:0<0,127,1>-Input CC value
+slider2:0<0,127,1>-Start Value Out 1
+slider3:127<0,127,1>-End Value Out 1
+slider4:0<0,15,1>-MIDI Channel Out 1
+slider5:0<0,127,1>-CC Number Out 1
+slider6:0<0,2,1{Off,Forward,Reverse}>-Mode Out 1
+slider7:0<0,127,1>-Start Value Out 2
+slider8:127<0,127,1>-End Value Out 2
+slider9:0<0,15,1>-MIDI Channel Out 2
+slider10:0<0,127,1>-CC Number Out 2
+slider11:0<0,2,1{Off,Forward,Reverse}>-Mode Out 2
+slider12:0<0,127,1>-Start Value Out 3
+slider13:127<0,127,1>-End Value Out 3
+slider14:0<0,15,1>-MIDI Channel Out 3
+slider15:0<0,127,1>-CC Number Out 3
+slider16:0<0,2,1{Off,Forward,Reverse}>-Mode Out 3
+slider17:0<0,127,1>-Start Value Out 4
+slider18:127<0,127,1>-End Value Out 4
+slider19:0<0,15,1>-MIDI Channel Out 4
+slider20:0<0,127,1>-CC Number Out 4
+slider21:0<0,2,1{Off,Forward,Reverse}>-Mode Out 4
 
 in_pin:none
 out_pin:none
 
 @init
-function interpolate(cc, startValue, endValue) (
-  startValue + (cc * (endValue - startValue)) / 127;
+DRAG_NONE = -1;
+DRAG_INPUT = 1;
+DRAG_RANGE_BASE = 100;
+DRAG_STEP_BASE = 200;
+
+dirty_all = 1;
+dirty1 = 0;
+dirty2 = 0;
+dirty3 = 0;
+dirty4 = 0;
+drag_id = DRAG_NONE;
+step_drag_start_y = 0;
+step_drag_origin = 0;
+last_mouse_down = 0;
+
+function clamp(v, lo, hi)
+(
+  v < lo ? lo : v > hi ? hi : v;
 );
 
-function reverseInterpolate(cc, startValue, endValue) (
-  endValue - (cc * (endValue - startValue)) / 127;
+function clampi(v, lo, hi)
+(
+  floor(clamp(v, lo, hi) + 0.5);
 );
 
-previousCCValue = -1;
+function absf(v)
+(
+  v < 0 ? -v : v;
+);
+
+function interp_forward(cc_i, start_i, end_i)
+(
+  start_i + (cc_i * (end_i - start_i)) / 127;
+);
+
+function interp_reverse(cc_i, start_i, end_i)
+(
+  end_i - (cc_i * (end_i - start_i)) / 127;
+);
+
+function out_start(idx_i)
+(
+  idx_i == 0 ? ui_start1 :
+  idx_i == 1 ? ui_start2 :
+  idx_i == 2 ? ui_start3 :
+               ui_start4;
+);
+
+function out_end(idx_i)
+(
+  idx_i == 0 ? ui_end1 :
+  idx_i == 1 ? ui_end2 :
+  idx_i == 2 ? ui_end3 :
+               ui_end4;
+);
+
+function out_chan(idx_i)
+(
+  idx_i == 0 ? ui_chan1 :
+  idx_i == 1 ? ui_chan2 :
+  idx_i == 2 ? ui_chan3 :
+               ui_chan4;
+);
+
+function out_cc(idx_i)
+(
+  idx_i == 0 ? ui_cc1 :
+  idx_i == 1 ? ui_cc2 :
+  idx_i == 2 ? ui_cc3 :
+               ui_cc4;
+);
+
+function out_mode(idx_i)
+(
+  idx_i == 0 ? ui_mode1 :
+  idx_i == 1 ? ui_mode2 :
+  idx_i == 2 ? ui_mode3 :
+               ui_mode4;
+);
+
+function mark_all_dirty()
+(
+  dirty_all = 1;
+);
+
+function mark_out_dirty(idx_i)
+(
+  idx_i == 0 ? dirty1 = 1 :
+  idx_i == 1 ? dirty2 = 1 :
+  idx_i == 2 ? dirty3 = 1 :
+               dirty4 = 1;
+);
+
+function clear_dirty()
+(
+  dirty_all = 0;
+  dirty1 = 0;
+  dirty2 = 0;
+  dirty3 = 0;
+  dirty4 = 0;
+);
+
+function set_out_start(idx_i, value_i)
+(
+  value_i = clampi(value_i, 0, 127);
+  idx_i == 0 ? ui_start1 = value_i :
+  idx_i == 1 ? ui_start2 = value_i :
+  idx_i == 2 ? ui_start3 = value_i :
+               ui_start4 = value_i;
+  mark_out_dirty(idx_i);
+);
+
+function set_out_end(idx_i, value_i)
+(
+  value_i = clampi(value_i, 0, 127);
+  idx_i == 0 ? ui_end1 = value_i :
+  idx_i == 1 ? ui_end2 = value_i :
+  idx_i == 2 ? ui_end3 = value_i :
+               ui_end4 = value_i;
+  mark_out_dirty(idx_i);
+);
+
+function set_out_chan(idx_i, value_i)
+(
+  value_i = clampi(value_i, 0, 15);
+  idx_i == 0 ? ui_chan1 = value_i :
+  idx_i == 1 ? ui_chan2 = value_i :
+  idx_i == 2 ? ui_chan3 = value_i :
+               ui_chan4 = value_i;
+  mark_out_dirty(idx_i);
+);
+
+function set_out_cc(idx_i, value_i)
+(
+  value_i = clampi(value_i, 0, 127);
+  idx_i == 0 ? ui_cc1 = value_i :
+  idx_i == 1 ? ui_cc2 = value_i :
+  idx_i == 2 ? ui_cc3 = value_i :
+               ui_cc4 = value_i;
+  mark_out_dirty(idx_i);
+);
+
+function set_out_mode(idx_i, value_i)
+(
+  value_i = clampi(value_i, 0, 2);
+  idx_i == 0 ? ui_mode1 = value_i :
+  idx_i == 1 ? ui_mode2 = value_i :
+  idx_i == 2 ? ui_mode3 = value_i :
+               ui_mode4 = value_i;
+  mark_out_dirty(idx_i);
+);
+
+function sync_ui_from_sliders()
+(
+  ui_input = clampi(slider1, 0, 127);
+  ui_start1 = clampi(slider2, 0, 127);
+  ui_end1 = clampi(slider3, 0, 127);
+  ui_chan1 = clampi(slider4, 0, 15);
+  ui_cc1 = clampi(slider5, 0, 127);
+  ui_mode1 = clampi(slider6, 0, 2);
+  ui_start2 = clampi(slider7, 0, 127);
+  ui_end2 = clampi(slider8, 0, 127);
+  ui_chan2 = clampi(slider9, 0, 15);
+  ui_cc2 = clampi(slider10, 0, 127);
+  ui_mode2 = clampi(slider11, 0, 2);
+  ui_start3 = clampi(slider12, 0, 127);
+  ui_end3 = clampi(slider13, 0, 127);
+  ui_chan3 = clampi(slider14, 0, 15);
+  ui_cc3 = clampi(slider15, 0, 127);
+  ui_mode3 = clampi(slider16, 0, 2);
+  ui_start4 = clampi(slider17, 0, 127);
+  ui_end4 = clampi(slider18, 0, 127);
+  ui_chan4 = clampi(slider19, 0, 15);
+  ui_cc4 = clampi(slider20, 0, 127);
+  ui_mode4 = clampi(slider21, 0, 2);
+  mark_all_dirty();
+);
+
+function commit_ui_to_sliders()
+(
+  slider1 = clampi(ui_input, 0, 127);
+  slider2 = clampi(ui_start1, 0, 127);
+  slider3 = clampi(ui_end1, 0, 127);
+  slider4 = clampi(ui_chan1, 0, 15);
+  slider5 = clampi(ui_cc1, 0, 127);
+  slider6 = clampi(ui_mode1, 0, 2);
+  slider7 = clampi(ui_start2, 0, 127);
+  slider8 = clampi(ui_end2, 0, 127);
+  slider9 = clampi(ui_chan2, 0, 15);
+  slider10 = clampi(ui_cc2, 0, 127);
+  slider11 = clampi(ui_mode2, 0, 2);
+  slider12 = clampi(ui_start3, 0, 127);
+  slider13 = clampi(ui_end3, 0, 127);
+  slider14 = clampi(ui_chan3, 0, 15);
+  slider15 = clampi(ui_cc3, 0, 127);
+  slider16 = clampi(ui_mode3, 0, 2);
+  slider17 = clampi(ui_start4, 0, 127);
+  slider18 = clampi(ui_end4, 0, 127);
+  slider19 = clampi(ui_chan4, 0, 15);
+  slider20 = clampi(ui_cc4, 0, 127);
+  slider21 = clampi(ui_mode4, 0, 2);
+);
+
+function output_value(idx_i) local(mode_i, value_i)
+(
+  mode_i = out_mode(idx_i);
+  value_i = mode_i == 1 ? interp_forward(ui_input, out_start(idx_i), out_end(idx_i)) :
+            mode_i == 2 ? interp_reverse(ui_input, out_start(idx_i), out_end(idx_i)) :
+                          -1;
+  mode_i > 0 ? clampi(value_i, 0, 127) : -1;
+);
+
+function emit_output(idx_i) local(mode_i, chan_i, cc_i, value_i)
+(
+  mode_i = out_mode(idx_i);
+  mode_i > 0 ? (
+    chan_i = clampi(out_chan(idx_i), 0, 15);
+    cc_i = clampi(out_cc(idx_i), 0, 127);
+    value_i = output_value(idx_i);
+    midisend(0, 176 | chan_i, cc_i, value_i);
+  );
+);
+
+function send_enabled_outputs()
+(
+  emit_output(0);
+  emit_output(1);
+  emit_output(2);
+  emit_output(3);
+);
+
+function in_rect(mx_i, my_i, x_i, y_i, w_i, h_i)
+(
+  mx_i >= x_i && mx_i < x_i + w_i && my_i >= y_i && my_i < y_i + h_i;
+);
+
+function draw_text(txt, x_i, y_i, r_i, g_i, b_i)
+(
+  gfx_set(r_i, g_i, b_i, 1);
+  gfx_x = x_i;
+  gfx_y = y_i;
+  gfx_drawstr(txt);
+);
+
+function draw_text_right(txt, x_i, y_i, w_i, r_i, g_i, b_i) local(tw_i, th_i)
+(
+  gfx_measurestr(txt, tw_i, th_i);
+  draw_text(txt, x_i + w_i - tw_i, y_i, r_i, g_i, b_i);
+);
+
+function draw_text_center(txt, x_i, y_i, w_i, h_i, r_i, g_i, b_i) local(tw_i, th_i)
+(
+  gfx_measurestr(txt, tw_i, th_i);
+  draw_text(txt, x_i + (w_i - tw_i) * 0.5, y_i + (h_i - th_i) * 0.5, r_i, g_i, b_i);
+);
+
+function draw_button(txt, x_i, y_i, w_i, h_i, active_i) local(hit_i)
+(
+  hit_i = in_rect(mouse_x, mouse_y, x_i, y_i, w_i, h_i);
+  gfx_set(active_i ? 0.18 : hit_i ? 0.16 : 0.11, active_i ? 0.36 : hit_i ? 0.24 : 0.15, active_i ? 0.30 : hit_i ? 0.22 : 0.18, 1);
+  gfx_rect(x_i, y_i, w_i, h_i, 1);
+  gfx_set(0.28, 0.34, 0.36, 1);
+  gfx_rect(x_i, y_i, w_i, h_i, 0);
+  draw_text_center(txt, x_i, y_i, w_i, h_i, 0.90, 0.94, 0.92);
+  hit_i;
+);
+
+function draw_stepper(label, value_i, x_i, y_i, w_i, h_i, lo_i, hi_i, drag_step_id_i) local(btn_w_i, label_w_i, value_x_i, value_w_i, hit_minus_i, hit_plus_i, hit_value_i, out_i, delta_i, step_i)
+(
+  out_i = value_i;
+  btn_w_i = h_i;
+  label_w_i = 24;
+  value_x_i = x_i + label_w_i + btn_w_i;
+  value_w_i = w_i - label_w_i - btn_w_i * 2;
+  gfx_set(0.055, 0.070, 0.085, 1);
+  gfx_rect(x_i, y_i, label_w_i, h_i, 1);
+  gfx_set(0.10, 0.12, 0.15, 1);
+  gfx_rect(x_i + label_w_i, y_i, w_i - label_w_i, h_i, 1);
+  gfx_set(0.28, 0.34, 0.36, 1);
+  gfx_rect(x_i, y_i, w_i, h_i, 0);
+  gfx_set(0.28, 0.34, 0.36, 1);
+  gfx_line(x_i + label_w_i, y_i, x_i + label_w_i, y_i + h_i, 1);
+  draw_text_center(label, x_i, y_i, label_w_i, h_i, 0.62, 0.72, 0.74);
+  hit_value_i = in_rect(mouse_x, mouse_y, value_x_i, y_i, value_w_i, h_i);
+  mouse_pressed && hit_value_i ? (
+    drag_id = drag_step_id_i;
+    step_drag_start_y = mouse_y;
+    step_drag_origin = value_i;
+  );
+  drag_id == drag_step_id_i && mouse_down ? (
+    step_i = mouse_shift ? 10 : 1;
+    delta_i = floor((step_drag_start_y - mouse_y) / 8);
+    out_i = clampi(step_drag_origin + delta_i * step_i, lo_i, hi_i);
+  );
+  hit_minus_i = in_rect(mouse_x, mouse_y, x_i + label_w_i, y_i, btn_w_i, h_i);
+  hit_plus_i = in_rect(mouse_x, mouse_y, x_i + w_i - btn_w_i, y_i, btn_w_i, h_i);
+  mouse_pressed && hit_minus_i ? out_i = clampi(value_i - (mouse_shift ? 10 : 1), lo_i, hi_i);
+  mouse_pressed && hit_plus_i ? out_i = clampi(value_i + (mouse_shift ? 10 : 1), lo_i, hi_i);
+  sprintf(#step_value, "%d", out_i);
+  draw_text_center(#step_value, value_x_i, y_i, value_w_i, h_i, 0.92, 0.94, 0.92);
+  draw_button("-", x_i + label_w_i, y_i, btn_w_i, h_i, 0);
+  draw_button("+", x_i + w_i - btn_w_i, y_i, btn_w_i, h_i, 0);
+  out_i;
+);
+
+function draw_single_slider(id_i, label, value_i, x_i, y_i, w_i, h_i) local(track_x_i, track_w_i, track_y_i, norm_i, knob_x_i, hit_i, out_i)
+(
+  out_i = value_i;
+  track_x_i = x_i + 92;
+  track_w_i = w_i - 128;
+  track_y_i = y_i + h_i * 0.5;
+  norm_i = clamp(value_i / 127, 0, 1);
+  knob_x_i = track_x_i + norm_i * track_w_i;
+  hit_i = in_rect(mouse_x, mouse_y, x_i, y_i, w_i, h_i);
+  mouse_pressed && hit_i ? drag_id = id_i;
+  drag_id == id_i && mouse_down ? (
+    out_i = clampi((mouse_x - track_x_i) / max(track_w_i, 1) * 127, 0, 127);
+    mark_all_dirty();
+  );
+  norm_i = clamp(out_i / 127, 0, 1);
+  knob_x_i = track_x_i + norm_i * track_w_i;
+
+  sprintf(#input_value, "%d", out_i);
+  draw_text(label, x_i, y_i + 5, 0.62, 0.70, 0.72);
+  gfx_set(0.09, 0.11, 0.13, 1);
+  gfx_rect(track_x_i, track_y_i - 3, track_w_i, 6, 1);
+  gfx_set(0.26, 0.67, 0.58, 1);
+  gfx_rect(track_x_i, track_y_i - 3, knob_x_i - track_x_i, 6, 1);
+  gfx_set(0.88, 0.94, 0.92, 1);
+  gfx_rect(knob_x_i - 5, track_y_i - 12, 10, 24, 1);
+  draw_text_right(#input_value, x_i + w_i - 32, y_i + 5, 32, 0.92, 0.94, 0.92);
+  out_i;
+);
+
+function draw_range_slider(idx_i, x_i, y_i, w_i, h_i) local(start_i, end_i, low_i, high_i, track_x_i, track_w_i, track_y_i, sx_i, ex_i, low_x_i, high_x_i, hit_i, start_dist_i, end_dist_i, drag_start_i, drag_end_i, new_v_i)
+(
+  start_i = out_start(idx_i);
+  end_i = out_end(idx_i);
+  low_i = min(start_i, end_i);
+  high_i = max(start_i, end_i);
+  track_x_i = x_i + 72;
+  track_w_i = w_i - 126;
+  track_y_i = y_i + h_i * 0.5;
+  sx_i = track_x_i + clamp(start_i / 127, 0, 1) * track_w_i;
+  ex_i = track_x_i + clamp(end_i / 127, 0, 1) * track_w_i;
+  low_x_i = track_x_i + low_i / 127 * track_w_i;
+  high_x_i = track_x_i + high_i / 127 * track_w_i;
+  drag_start_i = DRAG_RANGE_BASE + idx_i * 2;
+  drag_end_i = drag_start_i + 1;
+  hit_i = in_rect(mouse_x, mouse_y, x_i, y_i, w_i, h_i);
+
+  mouse_pressed && hit_i ? (
+    start_dist_i = absf(mouse_x - sx_i);
+    end_dist_i = absf(mouse_x - ex_i);
+    drag_id = start_dist_i <= end_dist_i ? drag_start_i : drag_end_i;
+  );
+
+  drag_id == drag_start_i && mouse_down ? (
+    new_v_i = clampi((mouse_x - track_x_i) / max(track_w_i, 1) * 127, 0, 127);
+    set_out_start(idx_i, new_v_i);
+    start_i = out_start(idx_i);
+  );
+  drag_id == drag_end_i && mouse_down ? (
+    new_v_i = clampi((mouse_x - track_x_i) / max(track_w_i, 1) * 127, 0, 127);
+    set_out_end(idx_i, new_v_i);
+    end_i = out_end(idx_i);
+  );
+
+  low_i = min(start_i, end_i);
+  high_i = max(start_i, end_i);
+  sx_i = track_x_i + clamp(start_i / 127, 0, 1) * track_w_i;
+  ex_i = track_x_i + clamp(end_i / 127, 0, 1) * track_w_i;
+  low_x_i = track_x_i + low_i / 127 * track_w_i;
+  high_x_i = track_x_i + high_i / 127 * track_w_i;
+
+  sprintf(#range_txt, "%d -> %d", start_i, end_i);
+  draw_text("Range", x_i, y_i + 5, 0.58, 0.66, 0.68);
+  gfx_set(0.08, 0.10, 0.12, 1);
+  gfx_rect(track_x_i, track_y_i - 4, track_w_i, 8, 1);
+  gfx_set(0.25, 0.62, 0.76, 1);
+  gfx_rect(low_x_i, track_y_i - 4, max(high_x_i - low_x_i, 1), 8, 1);
+  gfx_set(0.93, 0.87, 0.62, 1);
+  gfx_rect(sx_i - 5, track_y_i - 13, 10, 26, 1);
+  gfx_set(0.88, 0.94, 0.92, 1);
+  gfx_rect(ex_i - 5, track_y_i - 13, 10, 26, 1);
+  draw_text_right(#range_txt, x_i + w_i - 50, y_i + 5, 50, 0.90, 0.94, 0.92);
+);
+
+function draw_output_lane(idx_i, x_i, y_i, w_i, h_i) local(mode_i, value_i, chan_i, cc_i, new_i, btn_w_i, step_w_i)
+(
+  mode_i = out_mode(idx_i);
+  value_i = output_value(idx_i);
+  gfx_set(mode_i > 0 ? 0.075 : 0.055, mode_i > 0 ? 0.090 : 0.065, mode_i > 0 ? 0.105 : 0.075, 1);
+  gfx_rect(x_i, y_i, w_i, h_i, 1);
+  gfx_set(0.18, 0.23, 0.25, 1);
+  gfx_rect(x_i, y_i, w_i, h_i, 0);
+  sprintf(#lane_title, "Out %d", idx_i + 1);
+  draw_text(#lane_title, x_i + 12, y_i + 9, 0.88, 0.92, 0.91);
+  mode_i > 0 ? sprintf(#out_value, "%d", value_i) : sprintf(#out_value, "--");
+  draw_text_right(#out_value, x_i + w_i - 46, y_i + 9, 34, mode_i > 0 ? 0.34 : 0.44, mode_i > 0 ? 0.86 : 0.50, mode_i > 0 ? 0.64 : 0.52);
+
+  btn_w_i = 82;
+  mode_i == 1 ? sprintf(#mode_button, "Forward") :
+  mode_i == 2 ? sprintf(#mode_button, "Reverse") :
+                sprintf(#mode_button, "Off");
+  draw_button(#mode_button, x_i + 74, y_i + 6, btn_w_i, 26, mode_i > 0) && mouse_pressed ? (
+    set_out_mode(idx_i, (mode_i + 1) % 3);
+    commit_ui_to_sliders();
+  );
+
+  step_w_i = 98;
+  chan_i = out_chan(idx_i);
+  new_i = draw_stepper("Ch", chan_i + 1, x_i + 170, y_i + 6, step_w_i, 26, 1, 16, DRAG_STEP_BASE + idx_i * 2);
+  new_i != chan_i + 1 ? (
+    set_out_chan(idx_i, new_i - 1);
+    commit_ui_to_sliders();
+  );
+  cc_i = out_cc(idx_i);
+  new_i = draw_stepper("CC", cc_i, x_i + 280, y_i + 6, step_w_i, 26, 0, 127, DRAG_STEP_BASE + idx_i * 2 + 1);
+  new_i != cc_i ? (
+    set_out_cc(idx_i, new_i);
+    commit_ui_to_sliders();
+  );
+
+  draw_range_slider(idx_i, x_i + 12, y_i + 42, w_i - 24, 32);
+);
+
+function render_gfx() local(mouse_released, pad_i, row_h_i, y_i)
+(
+  mouse_down = mouse_cap & 1;
+  mouse_pressed = mouse_down && !last_mouse_down;
+  mouse_released = !mouse_down && last_mouse_down;
+
+  gfx_setfont(1, "Verdana", 18);
+  gfx_set(0.045, 0.052, 0.060, 1);
+  gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+  pad_i = 18;
+  draw_text("MIDI CC Interpolator", pad_i, 14, 0.92, 0.96, 0.94);
+
+  gfx_setfont(2, "Verdana", 12);
+  ui_input = draw_single_slider(DRAG_INPUT, "Input CC", ui_input, pad_i, 50, gfx_w - pad_i * 2, 34);
+
+  row_h_i = 86;
+  y_i = 100;
+  draw_output_lane(0, pad_i, y_i, gfx_w - pad_i * 2, row_h_i);
+  y_i += row_h_i + 10;
+  draw_output_lane(1, pad_i, y_i, gfx_w - pad_i * 2, row_h_i);
+  y_i += row_h_i + 10;
+  draw_output_lane(2, pad_i, y_i, gfx_w - pad_i * 2, row_h_i);
+  y_i += row_h_i + 10;
+  draw_output_lane(3, pad_i, y_i, gfx_w - pad_i * 2, row_h_i);
+
+  mouse_released ? (
+    drag_id = DRAG_NONE;
+    commit_ui_to_sliders();
+  );
+  last_mouse_down = mouse_down;
+);
+
+sprintf(#mode_off, "Off");
+sprintf(#mode_forward, "Forward");
+sprintf(#mode_reverse, "Reverse");
+sync_ui_from_sliders();
 
 @slider
-currentCCValue = slider1;
-startValueOut1 = slider2;
-endValueOut1 = slider3;
-midiChannelOut1 = slider4;
-ccNumberOut1 = slider5;
-mode1 = slider6;
-startValueOut2 = slider7;
-endValueOut2 = slider8;
-midiChannelOut2 = slider9;
-ccNumberOut2 = slider10;
-mode2 = slider11;
-startValueOut3 = slider12;
-endValueOut3 = slider13;
-midiChannelOut3 = slider14;
-ccNumberOut3 = slider15;
-mode3 = slider16;
-startValueOut4 = slider17;
-endValueOut4 = slider18;
-midiChannelOut4 = slider19;
-ccNumberOut4 = slider20;
-mode4 = slider21;
+sync_ui_from_sliders();
 
 @block
-currentCCValue != previousCCValue ? (
-  interpolatedValue1 = mode1 == 1 ? interpolate(currentCCValue, startValueOut1, endValueOut1) : mode1 == 2 ? reverseInterpolate(currentCCValue, startValueOut1, endValueOut1) : -1;
-  mode1 != -1 ? midisend(0, 0xB0 | midiChannelOut1, ccNumberOut1, interpolatedValue1) : 0;
-  interpolatedValue2 = mode2 == 1 ? interpolate(currentCCValue, startValueOut2, endValueOut2) : mode2 == 2 ? reverseInterpolate(currentCCValue, startValueOut2, endValueOut2) : -1;
-  mode2 != -1 ? midisend(0, 0xB0 | midiChannelOut2, ccNumberOut2, interpolatedValue2) : 0;
-  interpolatedValue3 = mode3 == 1 ? interpolate(currentCCValue, startValueOut3, endValueOut3) : mode3 == 2 ? reverseInterpolate(currentCCValue, startValueOut3, endValueOut3) : -1;
-  mode3 != -1 ? midisend(0, 0xB0 | midiChannelOut3, ccNumberOut3, interpolatedValue3) : 0;
-  interpolatedValue4 = mode4 == 1 ? interpolate(currentCCValue, startValueOut4, endValueOut4) : mode4 == 2 ? reverseInterpolate(currentCCValue, startValueOut4, endValueOut4) : -1;
-  mode4 != -1 ? midisend(0, 0xB0 | midiChannelOut4, ccNumberOut4, interpolatedValue4) : 0;
-  previousCCValue = currentCCValue;
+dirty_all ? (
+  send_enabled_outputs();
+  clear_dirty();
+) : (
+  dirty1 ? emit_output(0);
+  dirty2 ? emit_output(1);
+  dirty3 ? emit_output(2);
+  dirty4 ? emit_output(3);
+  clear_dirty();
 );
 
-@sample
-// Per-sample processing code here
-
-@gfx
-// GUI code here
+@gfx 720 520
+render_gfx();
