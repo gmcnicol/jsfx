@@ -1,8 +1,11 @@
 local M = {}
 
 local PLAY_STATE_RECORDING = 4
+local RECORD_ACTION_ID = 1013
 local SEND_CATEGORY = 0
 local SEND_MIDI_DISABLED = 31
+local DEFAULT_RECORD_START_DELAY_SECONDS = 0.5
+local RECORD_START_TIMEOUT_SECONDS = 2.0
 
 local function show_message(message, title)
   reaper.ShowMessageBox(message, title or "Live Print Selected Tracks", 0)
@@ -117,11 +120,7 @@ local function build_capture_track_name(config, selected_tracks)
 end
 
 local function create_capture_track(config, selected_tracks)
-  local insert_index = selected_tracks[#selected_tracks].index + 1
-  local track_count = reaper.CountTracks(0)
-  if insert_index > track_count then
-    insert_index = track_count
-  end
+  local insert_index = reaper.CountTracks(0)
 
   reaper.InsertTrackAtIndex(insert_index, true)
 
@@ -245,7 +244,6 @@ function M.run(config)
     remove_temporary_sends(sends, capture_track)
     if track_is_valid(capture_track) then
       reaper.SetMediaTrackInfo_Value(capture_track, "I_RECARM", 0)
-      reaper.SetMediaTrackInfo_Value(capture_track, "B_MAINSEND", 1)
     end
     restore_track_state(track_snapshot)
     reaper.PreventUIRefresh(-1)
@@ -261,7 +259,6 @@ function M.run(config)
 
     disarm_all_tracks()
     capture_track = create_capture_track(config, selected_tracks)
-    reaper.SetMediaTrackInfo_Value(capture_track, "B_MAINSEND", 0)
     sends = create_temporary_sends(selected_tracks, capture_track, config)
     restore_track_selection(track_snapshot)
     reaper.SetMediaTrackInfo_Value(capture_track, "I_RECARM", 1)
@@ -279,10 +276,29 @@ function M.run(config)
     fail(err)
   end
 
-  reaper.CSurf_OnRecord()
-
   local started_recording = false
-  local start_wait_count = 0
+  local setup_finished_time = reaper.time_precise()
+  local record_trigger_time = nil
+  local record_start_delay_seconds = config.record_start_delay_seconds or DEFAULT_RECORD_START_DELAY_SECONDS
+
+  local function maybe_start_recording()
+    if cleaned then
+      return
+    end
+
+    if is_recording() then
+      started_recording = true
+      return
+    end
+
+    if reaper.time_precise() - setup_finished_time < record_start_delay_seconds then
+      reaper.defer(maybe_start_recording)
+      return
+    end
+
+    record_trigger_time = reaper.time_precise()
+    reaper.Main_OnCommand(RECORD_ACTION_ID, 0)
+  end
 
   local function watch_recording()
     if is_recording() then
@@ -291,8 +307,12 @@ function M.run(config)
       return
     end
 
-    if not started_recording and start_wait_count < 10 then
-      start_wait_count = start_wait_count + 1
+    if not record_trigger_time then
+      reaper.defer(watch_recording)
+      return
+    end
+
+    if not started_recording and reaper.time_precise() - record_trigger_time < RECORD_START_TIMEOUT_SECONDS then
       reaper.defer(watch_recording)
       return
     end
@@ -304,6 +324,7 @@ function M.run(config)
     cleanup()
   end
 
+  reaper.defer(maybe_start_recording)
   reaper.defer(watch_recording)
 end
 

@@ -17,7 +17,7 @@ slider8:density=25<0,100,1>Seed density (%)
 slider9:reseed=0<0,1,1{No,Yes}>Reseed now
 
 slider10:mojo=55<0,100,1>Shape / Pan
-slider11:cap=24<1,120,1>Grain cap
+slider11:cap=18<1,64,1>Grain cap
 slider12:hp=20<0,200,1>Cutoff Hz
 slider13:dry=30<0,100,1>Dry level (%)
 
@@ -40,7 +40,7 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
   age_base    = energy_base + GRID_N;
   cell_voice_base = age_base + GRID_N;
 
-  MAX_VOICES = 128;
+  MAX_VOICES = 64;
   v_active_base = cell_voice_base + GRID_N;   // 0=off, 1=looping, 2=releasing
   v_pos_base    = v_active_base + MAX_VOICES;
   v_step_base   = v_pos_base + MAX_VOICES;
@@ -342,17 +342,6 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
         voice_idx += 1;
       );
     );
-    found < 0 ? (
-      oldest_age = -1;
-      voice_idx = 0;
-      loop(MAX_VOICES,
-        mem[v_age_base+voice_idx] > oldest_age ? (
-          oldest_age = mem[v_age_base+voice_idx];
-          found = voice_idx;
-        );
-        voice_idx += 1;
-      );
-    );
     found >= 0 && mem[v_active_base+found] != 0 ? (
       cid = mem[v_cell_base+found];
       cid >= 0 && mem[cell_voice_base+cid] == found ? mem[cell_voice_base+cid] = -1;
@@ -429,7 +418,7 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
 
     desired_start = voice_start;
     desired_end = voice_start + voice_loop_samps;
-    search_samps = floor(clamp(min(loop_samps_base * 0.10, srate * 0.035), 16, srate * 0.080));
+    search_samps = floor(clamp(min(loop_samps_base * 0.08, srate * 0.020), 16, 1024));
     find_zero_cross(desired_end, search_samps, 0);
     end_found = zc_found;
     end_zc = zc_pos;
@@ -511,7 +500,7 @@ slider15:autohead=1<0,1,1{Off,On}>Auto headroom
     );
 
     play_now && primed ? (
-      max_steps = 8;
+      max_steps = 2;
       loop(max_steps,
         (cur_beat < next_step_beat) ? break;
 

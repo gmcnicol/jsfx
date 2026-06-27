@@ -36,7 +36,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
   DB_TO_LOG = 8.685889638;
 
   CAP_SIZE = 262144;
-  MAX_GRAINS = 256;
+  MAX_GRAINS = 128;
   MAX_AUDIO_VOICES = 8;
   MEM_GUARD = 64;
   MAX_OFFS = 1024;
@@ -941,7 +941,7 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
       source_i < 0.5 ? desired_len_i = max(desired_len_i, srate * 0.650);
       provisional_i ? desired_len_i = min(desired_len_i, max(available_i - 2, 2048));
       loop_len_i = floor(clamp(desired_len_i, 2048, min(available_i - 2, CAP_SIZE - 2)));
-      search_i = floor(clamp(min(loop_len_i * 0.10, srate * 0.035), 16, srate * 0.080));
+      search_i = floor(clamp(min(loop_len_i * 0.08, srate * 0.020), 16, 1024));
       find_zero_cross(write_i - 1, search_i, 0);
       end_found_i = zc_found;
       end_i = zc_pos;
@@ -962,8 +962,8 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
       voice_count_i = source_i > 0.5 && audio_voice_count > 0 ?
         audio_voice_count :
         min(count_i, MAX_AUDIO_VOICES);
-      layer_count_i = source_i > 0.5 ? 3 : provisional_i ? 7 : 5;
-      layer_gain_i = source_i > 0.5 ? 0.58 : provisional_i ? 0.30 : 0.38;
+      layer_count_i = source_i > 0.5 ? 2 : provisional_i ? 4 : 3;
+      layer_gain_i = source_i > 0.5 ? 0.64 : provisional_i ? 0.38 : 0.46;
       base_gain_i = (0.34 + ui_amount * 0.0038) * norm_i * (source_i > 0.5 ? 4.75 : 1.0) / sqrt(max(voice_count_i, 1));
 
       idx_i = 0;
@@ -988,14 +988,14 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
       );
       source_i < 0.5 ? audio_voice_count = voice_count_i;
 
-      ui_density > 58 ? (
+      ui_density > 72 ? (
         idx_i = 0;
         loop(min(voice_count_i, 2),
           semi_i = fold_audio_semi(mem[audio_voice_semi + idx_i] + 12);
           gain_i = base_gain_i * 0.36;
           pan_i = clamp((idx_i * 2 - 1) * 0.48, -0.82, 0.82);
           layer_i = 0;
-          loop(layer_count_i,
+          loop(min(layer_count_i, 2),
             phase_jitter_i = source_i > 0.5 ? 0 : (rand01() - 0.5) * loop_len_i * (provisional_i ? 0.22 : 0.12);
             phase_i = loop_len_i * (layer_i + 0.5) / layer_count_i + phase_jitter_i;
             while (phase_i < 0) ( phase_i += loop_len_i; );
@@ -1168,8 +1168,8 @@ slider20:reset=0<0,1,1{No,Yes}>-Reset
     audio_out_env += (out_peak_i - audio_out_env) * (out_peak_i > audio_out_env ? 0.035 : 0.00055);
     limit_i = audio_peak_level;
     target_level_i = limit_i * 0.88;
-    target_gain_i = audio_out_env > 0.0001 && target_level_i > 0 ? clamp(target_level_i / audio_out_env, 0.30, 12) : 1;
-    gain_smooth_i = target_gain_i > audio_level_gain ? 0.00008 : 0.006;
+    target_gain_i = audio_out_env > 0.0001 && target_level_i > 0 ? clamp(target_level_i / audio_out_env, 0.30, 6) : 1;
+    gain_smooth_i = target_gain_i > audio_level_gain ? 0.00004 : 0.010;
     audio_level_gain += (target_gain_i - audio_level_gain) * gain_smooth_i;
     outL *= audio_level_gain;
     outR *= audio_level_gain;

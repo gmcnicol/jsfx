@@ -9,7 +9,10 @@
   - Live print scripts:
     - `Record selected tracks to new stereo print track.lua`
     - `Record selected tracks to new MIDI print track.lua`
-    - Select one or more source tracks, run the stereo or MIDI script, then stop REAPER recording when the live print is done. If transport is already playing, recording starts from the current play position; otherwise it starts from the edit cursor.
+    - Select one or more source tracks, run the stereo or MIDI script, then stop REAPER recording when the live print is done. The print track and temporary sends are created before recording starts. If transport is already playing, recording starts from the play position after setup settles; otherwise it starts from the edit cursor. The print track is inserted at the end of the project to avoid accidental folder-routing feedback.
+  - Selection helpers:
+    - `Select item under mouse - add or isolate.lua`
+    - If the item under the mouse is not selected, adds it to the current item selection. If it is already selected, selects only that item, so running the action twice over the same item leaves a single selected item.
 
 - `scripts/`
   - General repo scripts that are **not** ReaScripts.
