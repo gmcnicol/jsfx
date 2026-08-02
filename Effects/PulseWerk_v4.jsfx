@@ -31,7 +31,7 @@ slider22:perc_channel=3<1,16,1>Perc Channel
 slider23:perc_density=60<0,100,1>Perc Density
 slider24:perc_variation=55<0,100,1>Perc Variation
 slider25:perc_velocity_scale=100<10,150,1>Perc Velocity Scale
-slider26:reset_cycle_trigger=0<0,1,1{Idle,Fire}>Reset Cycle Trigger
+slider26:reset_cycle_trigger=0<0,1,1{Idle,Fire}>Reset Next Playback Trigger
 
 @init
 
@@ -66,6 +66,7 @@ transport_is_playing = 0;
 current_cycle_step = 0;
 current_bar = 0;
 current_step_in_bar = 0;
+current_cycle_number = 1;
 cycle_steps = 128;
 
 last_transport_is_playing = 0;
@@ -91,6 +92,7 @@ global_drag_control = 0;
 global_drag_start_y = 0;
 global_drag_origin = 0;
 last_reset_cycle_trigger = 0;
+reset_next_playback_pending = 0;
 
 function clampi(v, lo, hi)
 (
@@ -390,6 +392,7 @@ function reset_cycle_to_beats(beat_val)
   current_cycle_step = 0;
   current_bar = 0;
   current_step_in_bar = 0;
+  current_cycle_number = 1;
 );
 
 function set_seed_value(value_i)
@@ -1227,10 +1230,12 @@ function reset_runtime_state() local(layer_i, pad_i, i)
   global_drag_origin = 0;
   last_host_sliders_visible = -1;
   last_reset_cycle_trigger = 0;
+  reset_next_playback_pending = 0;
   transport_is_playing = 0;
   current_cycle_step = 0;
   current_bar = 0;
   current_step_in_bar = 0;
+  current_cycle_number = 1;
   cycle_steps = 128;
   last_transport_is_playing = 0;
   last_beat_position = 0;
@@ -1280,6 +1285,7 @@ while (midirecv(offset, msg1, msg23)) (
 reset_cycle_trigger_now = floor(reset_cycle_trigger + 0.5);
 reset_cycle_request = reset_cycle_trigger_now && !last_reset_cycle_trigger;
 last_reset_cycle_trigger = reset_cycle_trigger_now;
+reset_cycle_request ? reset_next_playback_pending = 1;
 
 transport_is_playing = play_state & 1;
 cycle_steps = clampi(floor(cycle_bars + 0.5), 1, 32) * 16;
@@ -1296,6 +1302,7 @@ block_end_beats = beat_position + block_beats;
 !transport_is_playing ? (
   stopped_cursor_beats = block_start_beats;
   stopped_cursor_valid = 1;
+  cycle_origin_beats = 0;
 );
 
 transport_jump = 0;
@@ -1310,27 +1317,26 @@ transport_is_playing && last_transport_is_playing ? (
 transport_jump && !transport_is_playing ? flush_all_note_offs();
 flush_due_note_offs();
 
-transport_is_playing && (transport_jump || reset_cycle_request) ? (
+transport_is_playing && transport_jump ? (
   flush_all_note_offs();
-  transport_is_playing && !last_transport_is_playing && stopped_cursor_valid ? (
-    reset_cycle_to_beats(stopped_cursor_beats);
-    stopped_cursor_valid = 0;
-  ) : (
-    reset_cycle_to_beats(block_start_beats);
-  );
 );
 
-transport_is_playing ? (
-  transport_step_abs = relative_step_index_for_beats(block_start_beats);
-  current_cycle_step = transport_step_abs % cycle_steps;
-  current_cycle_step < 0 ? current_cycle_step += cycle_steps;
-  current_bar = floor(current_cycle_step / 16);
-  current_step_in_bar = current_cycle_step % 16;
-) : (
-  current_cycle_step = 0;
-  current_bar = 0;
-  current_step_in_bar = 0;
+transport_is_playing && !last_transport_is_playing ? (
+  reset_next_playback_pending ? (
+    reset_cycle_to_beats(stopped_cursor_valid ? stopped_cursor_beats : block_start_beats);
+    reset_next_playback_pending = 0;
+  ) : (
+    cycle_origin_beats = 0;
+  );
+  stopped_cursor_valid = 0;
 );
+
+transport_step_abs = relative_step_index_for_beats(block_start_beats);
+current_cycle_step = transport_step_abs % cycle_steps;
+current_cycle_step < 0 ? current_cycle_step += cycle_steps;
+current_bar = floor(current_cycle_step / 16);
+current_step_in_bar = current_cycle_step % 16;
+current_cycle_number = max(1, floor(transport_step_abs / cycle_steps) + 1);
 
 ui_audition_pending ? (
   audition_role = role_for_pad(ui_audition_layer, ui_audition_pad);
@@ -1340,8 +1346,8 @@ ui_audition_pending ? (
 
 transport_is_playing ? (
   schedule_start_beats = max(block_start_beats, cycle_origin_beats);
-  step_index = floor((schedule_start_beats / STEP_BEATS) + 0.000001);
-  step_time = step_index * STEP_BEATS;
+  step_index = floor(((schedule_start_beats - cycle_origin_beats) / STEP_BEATS) + 0.000001);
+  step_time = cycle_origin_beats + step_index * STEP_BEATS;
   step_time < (schedule_start_beats - 0.000001) ? (
     step_index += 1;
     step_time += STEP_BEATS;
@@ -1712,7 +1718,7 @@ gfx_setfont(2, "Verdana", floor(15 * ui_scale));
 gfx_set(0.95, 0.96, 0.98, 1);
 gfx_x = transport_box_x + 10 * ui_scale;
 gfx_y = header_y + 14 * ui_scale;
-sprintf(#header_pos, "Bar %02d  Step %02d  Cycle %02d", current_bar + 1, current_step_in_bar + 1, clampi(floor(cycle_bars + 0.5), 1, 32));
+sprintf(#header_pos, "Bar %02d  Step %02d  Cycle %02d", current_bar + 1, current_step_in_bar + 1, current_cycle_number);
 gfx_drawstr(#header_pos);
 
 cycle_minus_x = transport_box_x + transport_box_w + 38 * ui_scale;
